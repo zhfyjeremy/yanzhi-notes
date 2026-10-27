@@ -1,0 +1,76 @@
+/* 块手柄(S1 原型):仅 block 模式随插件挂载渲染 */
+.ProseMirror {
+  position: relative;
+}
+
+.yz-block-handle {
+  position: absolute;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 24px;
+  margin-left: -28px;
+  margin-top: 1px;
+  border-radius: 4px;
+  cursor: grab;
+  color: var(--muted-foreground);
+  opacity: 0.7;
+  transition:
+    opacity 0.12s ease,
+    background-color 0.12s ease,
+    color 0.12s ease;
+  touch-action: none; /* pointer 拖拽需要 */
+  user-select: none;
+}
+
+.yz-block-handle:hover {
+  opacity: 1;
+  color: var(--foreground);
+  background-color: var(--muted);
+}
+
+.yz-block-handle:active {
+  cursor: grabbing;
+}
+
+.yz-block-hover {
+  outline: 1px dashed var(--border);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 拖拽中:原块半透明,全局 grabbing 光标 */
+.yz-block-dragging {
+  opacity: 0.45;
+  outline: 1px dashed var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+body.yz-block-dragging,
+body.yz-block-dragging * {
+  cursor: grabbing !important;
+}
+
+/* 插入位置指示线(fixed:拖拽时直接用视口坐标) */
+.yz-drop-indicator {
+  position: fixed;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--primary);
+  pointer-events: none;
+  z-index: 30;
+}
+
+.yz-drop-indicator::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+}

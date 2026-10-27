@@ -1,0 +1,117 @@
+/* 砚知正文排版(语雀式,初版):正文排版是颜值主战场,持续打磨 */
+.yz-editor-doc {
+  outline: none;
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--foreground);
+  caret-color: var(--primary);
+}
+
+.yz-editor-doc > * + * {
+  margin-top: 0.75em;
+}
+
+.yz-editor-doc h1,
+.yz-editor-doc h2,
+.yz-editor-doc h3 {
+  font-weight: 600;
+  line-height: 1.4;
+  margin-top: 1.6em;
+}
+
+.yz-editor-doc h1 {
+  font-size: 1.75em;
+  margin-top: 0.5em;
+}
+
+.yz-editor-doc h2 {
+  font-size: 1.4em;
+}
+
+.yz-editor-doc h3 {
+  font-size: 1.2em;
+}
+
+.yz-editor-doc ul,
+.yz-editor-doc ol {
+  padding-left: 1.5em;
+}
+
+.yz-editor-doc ul {
+  list-style: disc;
+}
+
+.yz-editor-doc ol {
+  list-style: decimal;
+}
+
+.yz-editor-doc li + li {
+  margin-top: 0.25em;
+}
+
+.yz-editor-doc blockquote {
+  border-left: 3px solid var(--primary);
+  padding-left: 1em;
+  color: var(--muted-foreground);
+}
+
+.yz-editor-doc pre {
+  background: var(--muted);
+  border-radius: var(--radius-md, 6px);
+  padding: 0.9em 1.1em;
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  line-height: 1.7;
+  overflow-x: auto;
+}
+
+.yz-editor-doc code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+.yz-editor-doc :not(pre) > code {
+  background: var(--muted);
+  border-radius: 4px;
+  padding: 0.15em 0.4em;
+  color: var(--accent-foreground);
+}
+
+.yz-editor-doc mark {
+  background: color-mix(in oklab, var(--primary) 22%, transparent);
+  border-radius: 3px;
+  padding: 0 0.15em;
+}
+
+.yz-editor-doc hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2em 0;
+}
+
+.yz-editor-doc ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0.25em;
+}
+
+.yz-editor-doc ul[data-type="taskList"] li {
+  display: flex;
+  gap: 0.5em;
+  align-items: baseline;
+}
+
+.yz-editor-doc ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  user-select: none;
+  margin-top: 0.35em;
+}
+
+/* Placeholder(Tiptap 首段空态) */
+.yz-editor-doc p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--muted-foreground);
+  opacity: 0.7;
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
