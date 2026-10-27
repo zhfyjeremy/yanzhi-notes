@@ -1,0 +1,6 @@
+# crates.io 国内镜像(项目级);代理覆盖良好时可删除本文件
+[source.crates-io]
+replace-with = 'tuna'
+
+[source.tuna]
+registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
