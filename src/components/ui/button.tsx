@@ -40,27 +40,33 @@ const buttonVariants = cva(
   }
 )
 
-function Button({
-  className,
-  variant = "default",
-  size = "default",
-  asChild = false,
-  ...props
-}: React.ComponentProps<"button"> &
+type ButtonProps = React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean
-  }) {
-  const Comp = asChild ? Slot.Root : "button"
+  }
 
-  return (
-    <Comp
-      data-slot="button"
-      data-variant={variant}
-      data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
-      {...props}
-    />
-  )
-}
+/* React 18 必须显式 forwardRef:radix 的 *Trigger asChild 依赖 ref 定位弹层 */
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  function Button({
+    className,
+    variant = "default",
+    size = "default",
+    asChild = false,
+    ...props
+  }, ref) {
+    const Comp = asChild ? Slot.Root : "button"
+
+    return (
+      <Comp
+        ref={ref}
+        data-slot="button"
+        data-variant={variant}
+        data-size={size}
+        className={cn(buttonVariants({ variant, size, className }))}
+        {...props}
+      />
+    )
+  }
+)
 
 export { Button, buttonVariants }

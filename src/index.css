@@ -87,7 +87,15 @@
     "Liberation Mono", monospace;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   @apply bg-background text-foreground antialiased;
+  /* 桌面应用:整页不滚动,滚动只发生在编辑区等内容容器内 */
+  overflow: hidden;
   font-family: var(--font-sans);
 }
