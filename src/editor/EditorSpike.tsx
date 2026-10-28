@@ -3,15 +3,14 @@ import { baseExtensions } from "./extensions";
 import "./editor.css";
 
 /**
- * 阶段 0 spike 页(纯 flow 模式)。
- * 结论:S3 md 往返 ✅ 通过;S1 双模式插件挂卸验证可行,
- * 但块交互打磨成本高,MVP 仅交付流畅文档模式,块编辑后移 V2
- * (插件代码见 ./block-handle/,届时按需启用)。
+ * 阶段 0 spike 页。
+ * 结论:S3 md 往返 ✅ 通过;S2 中文输入无异常。
+ * 块编辑模式已移除(PRD v1.5),编辑器只保留流畅文档模式。
  */
 
 const SAMPLE = `
   <h1>砚知阶段 0:编辑器 spike</h1>
-  <p>统一 Schema + markdown-it 往返管道已就绪,S3 fixtures 全绿。块编辑模式后移 V2,本页为纯流畅文档模式。</p>
+  <p>统一 Schema + markdown-it 往返管道已就绪,S3 fixtures 全绿。块编辑模式已移除(PRD v1.5),本页为流畅文档模式。</p>
   <h2>基础能力</h2>
   <ul>
     <li>文字格式:粗体、斜体、<u>下划线</u>、删除线、行内代码、==高亮==</li>
@@ -36,9 +35,7 @@ export function EditorSpike() {
     <div className="flex h-full flex-col">
       <header className="border-border flex items-center gap-4 border-b px-4 py-2">
         <span className="text-sm font-semibold">砚知 · 阶段 0 spike</span>
-        <span className="text-muted-foreground text-xs">
-          流畅文档模式(块编辑 V2)
-        </span>
+        <span className="text-muted-foreground text-xs">流畅文档模式</span>
       </header>
 
       <div className="flex-1 overflow-y-auto">

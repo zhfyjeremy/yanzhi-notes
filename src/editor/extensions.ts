@@ -38,9 +38,7 @@ const TableHeaderAligned = TableHeader.extend({
 });
 
 /**
- * 统一 Schema:两种编辑模式共用的扩展集合(PRD §4.5)。
- * 块交互插件(BlockHandle / BlockDrag / BlockMenu)不在此列,
- * 由 block 模式通过 editor.registerPlugin 动态挂载,flow 模式完全卸载。
+ * 统一 Schema:编辑器的唯一扩展集合(PRD §4.3)。
  * 图片为 inline 节点:GFM 中图片是行内语法,独立成段时视觉卡片化由 CSS 负责。
  */
 export const baseExtensions = [

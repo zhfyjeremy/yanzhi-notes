@@ -1,9 +1,9 @@
 import type { Mark, Node as PMNode } from "@tiptap/pm/model";
 
 /**
- * PM doc → Markdown 序列化器(PRD §12:序列化单路径,双模式共用同一条)。
+ * PM doc → Markdown 序列化器(PRD §12:序列化单路径,全局唯一)。
  *
- * 内置允许的规范化(§4.6):
+ * 内置允许的规范化(§4.4):
  * - 块之间统一以空行分隔
  * - 行尾空白剔除;连续空行压缩至多一个;文件末尾单一换行
  *
