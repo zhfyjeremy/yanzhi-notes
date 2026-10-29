@@ -29,6 +29,20 @@
   --border: hsl(34 15% 90%);
   --input: hsl(34 15% 88%);
   --ring: hsl(204 89% 44%);
+
+  /* 代码语法色(Shiki 语义槽位,见 editor/extensions/code-highlight.ts) */
+  --code-kw: hsl(348 76% 46%);
+  --code-fn: hsl(258 55% 52%);
+  --code-str: hsl(130 32% 32%);
+  --code-emb: hsl(190 75% 30%);
+  --code-cm: hsl(25 8% 50%);
+  --code-num: hsl(212 82% 42%);
+  --code-var: hsl(212 40% 42%);
+  --code-op: hsl(350 22% 46%);
+  --code-link: hsl(204 89% 40%);
+  --code-ins: hsl(135 42% 34%);
+  --code-del: hsl(0 68% 46%);
+  --code-chg: hsl(204 78% 42%);
 }
 
 .dark {
@@ -51,6 +65,20 @@
   --border: hsl(25 9% 20%);
   --input: hsl(25 9% 24%);
   --ring: hsl(204 85% 56%);
+
+  /* 代码语法色:暗色下整体提亮、略降饱和,靠 muted 底色衬出 */
+  --code-kw: hsl(348 78% 68%);
+  --code-fn: hsl(258 62% 74%);
+  --code-str: hsl(130 38% 64%);
+  --code-emb: hsl(190 65% 62%);
+  --code-cm: hsl(25 9% 55%);
+  --code-num: hsl(212 88% 68%);
+  --code-var: hsl(212 38% 68%);
+  --code-op: hsl(350 28% 68%);
+  --code-link: hsl(204 88% 66%);
+  --code-ins: hsl(135 42% 60%);
+  --code-del: hsl(0 72% 66%);
+  --code-chg: hsl(204 82% 66%);
 }
 
 @theme inline {

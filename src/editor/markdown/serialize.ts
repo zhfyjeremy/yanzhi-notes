@@ -15,6 +15,7 @@ import type { Mark, Node as PMNode } from "@tiptap/pm/model";
 const MARK_ORDER = [
   "wikiLink",
   "link",
+  "fontColor",
   "underline",
   "highlight",
   "bold",
@@ -47,6 +48,47 @@ function sortMarks(marks: readonly Mark[]): Mark[] {
   );
 }
 
+/**
+ * 连续 text run 组序列化:贪心划分最长公共 mark 段并外提为一层定界符
+ * (如一个 font 包住整段异构内容),消除 PM mark 分裂产生的重复标签;
+ * 组内普通文本 run 会截断公共段(它在原文里本就在定界符外)。
+ * 单 run 直通 serializeTextRun(保 plainWiki 不转义路径)。
+ */
+function serializeRuns(
+  runs: readonly { text: string; marks: readonly Mark[] }[],
+  startOfLine: boolean,
+): string {
+  if (runs.length === 1) {
+    return serializeTextRun(runs[0].text, runs[0].marks, startOfLine);
+  }
+  const hasMark = (marks: readonly Mark[], target: Mark) =>
+    marks.some((m) => m.eq(target));
+  let out = "";
+  let i = 0;
+  let atStart = true;
+  while (i < runs.length) {
+    // code 定界符是 per-run 的反引号围栏(内部不转义),不参与公共外提,留在各 run 自身处理
+    let common = sortMarks(runs[i].marks).filter((m) => m.type.name !== "code");
+    let j = i;
+    while (j + 1 < runs.length) {
+      const kept = common.filter((m) => hasMark(runs[j + 1].marks, m));
+      if (kept.length === 0) break;
+      common = kept;
+      j++;
+    }
+    let body = "";
+    for (let k = i; k <= j; k++) {
+      const rest = runs[k].marks.filter((m) => !hasMark(common, m));
+      body += serializeTextRun(runs[k].text, rest, startOfLine && atStart && k === i);
+    }
+    for (const m of [...common].reverse()) body = wrapMark(m, body);
+    out += body;
+    atStart = false;
+    i = j + 1;
+  }
+  return out;
+}
+
 function wrapMark(mark: Mark, content: string): string {
   switch (mark.type.name) {
     case "bold":
@@ -59,6 +101,11 @@ function wrapMark(mark: Mark, content: string): string {
       return `==${content}==`;
     case "underline":
       return `<u>${content}</u>`;
+    case "fontColor": {
+      // PRD §10 方言:预设色卡;色值带引号时转义防截断
+      const color = String(mark.attrs.color ?? "").replace(/"/g, "&quot;");
+      return `<font color="${color}">${content}</font>`;
+    }
     case "code": {
       const ticks = "`".repeat(longestBacktickRun(content) + 1);
       const pad = content.startsWith("`") || content.endsWith("`") ? " " : "";
@@ -249,22 +296,35 @@ class MarkdownSerializer {
   private renderInline(node: PMNode): void {
     let atLineStart =
       this.currentLine === "" || this.currentLine === this.prefix;
+    // 连续 text run 成组(hardBreak/图片打断),组级公共 mark 外提
+    let group: { text: string; marks: readonly Mark[] }[] = [];
+    let groupStartOfLine = true;
+    const flushGroup = () => {
+      if (!group.length) return;
+      this.write(serializeRuns(group, groupStartOfLine));
+      group = [];
+    };
     node.forEach((child) => {
       if (child.isText && child.text != null) {
-        this.write(serializeTextRun(child.text, child.marks, atLineStart));
+        if (!group.length) groupStartOfLine = atLineStart;
+        group.push({ text: child.text, marks: child.marks });
         atLineStart = false;
       } else if (child.type.name === "hardBreak") {
+        flushGroup();
         this.write("\\");
         this.newline();
         atLineStart = true;
       } else if (child.type.name === "image") {
+        flushGroup();
         this.write(imageToMd(child));
         atLineStart = false;
       } else {
+        flushGroup();
         this.write(child.textContent);
         atLineStart = false;
       }
     });
+    flushGroup();
   }
 
   private renderList(

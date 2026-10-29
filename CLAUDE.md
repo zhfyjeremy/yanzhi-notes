@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目
 
-砚知(Yanzhi Notes):Tauri 2 桌面端本地离线知识库编辑器,仅 Windows/macOS。**产品事实源是 `PRD-本地离线知识库编辑器.md`**,功能范围、方言规范(§10)、禁止清单(§11)、视觉规范(§12)以 PRD 为准,冲突时先停下来问。
+砚知(Yanzhi Notes):Tauri 2 桌面端本地离线知识库编辑器,仅 Windows/macOS。**产品事实源是 `PRD-本地离线知识库编辑器.md`**,功能范围、方言规范(§10)、禁止清单(§11)、视觉规范(§12)以 PRD 为准,冲突时先停下来问。**开工前先读根目录 `STATUS.md`**(当前进度、待办、踩坑清单),每阶段收尾时更新它。
 
 ## 常用命令
 

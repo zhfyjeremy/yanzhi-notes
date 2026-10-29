@@ -12,6 +12,7 @@ import {
   Heading4,
   Heading5,
   Heading6,
+  Image as ImageIcon,
   List,
   ListOrdered,
   ListTodo,
@@ -20,11 +21,12 @@ import {
   Text,
   TextQuote,
 } from "lucide-react";
+import { insertImage } from "../extensions/image-card";
 import { SlashMenu, type SlashCommandDef } from "./SlashMenu";
 
 /**
  * 斜杠 `/` 插入面板(PRD §4.2):输入 `/` 唤起模糊搜索菜单。
- * MVP 菜单 = 文本类 + 卡片类(代码块/表格/分割线);图片项随 M2 图片卡片启用,
+ * MVP 菜单 = 文本类 + 卡片类(代码块/表格/图片/分割线);
  * callout/公式/mermaid 等 V2 解锁后才出现在菜单(PRD:不暴露未解锁项)。
  * UI 交互插件,不进 baseExtensions(不贡献 Schema);定位自算坐标,不引 tippy。
  */
@@ -103,6 +105,17 @@ const COMMANDS: SlashCommandDef[] = [
   },
   {
     group: "卡片",
+    label: "图片",
+    icon: ImageIcon,
+    keywords: ["image", "picture", "tupian", "tu"],
+    // 插入占位图并选中 → 浮层即出,「编辑图片链接」改地址;拖拽/粘贴落盘在 M3
+    action: (editor, range) => {
+      editor.chain().focus().deleteRange(range).run();
+      insertImage(editor, { src: "/placeholder.svg", alt: "图片" });
+    },
+  },
+  {
+    group: "卡片",
     label: "表格",
     icon: Table,
     keywords: ["table", "biaoge"],
@@ -138,6 +151,8 @@ function filterCommands(query: string): SlashCommandDef[] {
 const MENU_WIDTH = 240;
 const MENU_MAX_HEIGHT = 320;
 const VIEWPORT_MARGIN = 8;
+/** 浮层与触发文字行的上下呼吸间距 */
+const MENU_GAP = 10;
 
 interface MenuState {
   root: Root;
@@ -159,8 +174,8 @@ function positionMenu(container: HTMLDivElement, props: SuggestionProps<SlashCom
   const below = rect.bottom + MENU_MAX_HEIGHT + VIEWPORT_MARGIN <= window.innerHeight;
   container.style.left = `${Math.max(VIEWPORT_MARGIN, left)}px`;
   container.style.top = below
-    ? `${rect.bottom + 6}px`
-    : `${Math.max(VIEWPORT_MARGIN, rect.top - MENU_MAX_HEIGHT - 6)}px`;
+    ? `${rect.bottom + MENU_GAP}px`
+    : `${Math.max(VIEWPORT_MARGIN, rect.top - MENU_MAX_HEIGHT - MENU_GAP)}px`;
 }
 
 function renderMenu(state: MenuState) {

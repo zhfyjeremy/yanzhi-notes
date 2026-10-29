@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="240" viewBox="0 0 720 240">
+  <rect width="720" height="240" rx="12" fill="#eef3fb"/>
+  <rect x="40" y="40" width="640" height="160" rx="8" fill="#dde8f7"/>
+  <circle cx="150" cy="100" r="36" fill="#9fc1ec"/>
+  <rect x="220" y="70" width="420" height="14" rx="7" fill="#b7cdec"/>
+  <rect x="220" y="104" width="320" height="14" rx="7" fill="#c9dbf1"/>
+  <rect x="220" y="138" width="380" height="14" rx="7" fill="#c9dbf1"/>
+  <path d="M560 190 L604 146 L648 190 Z" fill="#9fc1ec"/>
+  <text x="360" y="228" font-family="system-ui, sans-serif" font-size="14" fill="#7a94b8" text-anchor="middle">placeholder 720 × 240</text>
+</svg>

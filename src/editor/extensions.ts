@@ -2,7 +2,6 @@ import StarterKit from "@tiptap/starter-kit";
 import Highlight from "@tiptap/extension-highlight";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
-import Image from "@tiptap/extension-image";
 import {
   Table,
   TableRow,
@@ -12,6 +11,9 @@ import {
 import Placeholder from "@tiptap/extension-placeholder";
 import { WikiLink } from "./extensions/wiki-link";
 import { RawHtml } from "./extensions/raw-html";
+import { CodeBlockCard } from "./extensions/code-block-card";
+import { ImageCard } from "./extensions/image-card";
+import { FontColor } from "./extensions/font-color";
 
 /** GFM 表格对齐属性(:--- / :---: / ---:) */
 const textAlignAttr = {
@@ -42,11 +44,14 @@ const TableHeaderAligned = TableHeader.extend({
  * 图片为 inline 节点:GFM 中图片是行内语法,独立成段时视觉卡片化由 CSS 负责。
  */
 export const baseExtensions = [
-  StarterKit,
+  // 内置 codeBlock 由 CodeBlockCard 取代(语言选择/复制/行号);Image 由 ImageCard 取代(宽度/对齐 UI)
+  StarterKit.configure({ codeBlock: false }),
+  CodeBlockCard,
   Highlight,
+  FontColor,
   TaskList,
   TaskItem.configure({ nested: true }),
-  Image.configure({ inline: true }),
+  ImageCard.configure({ inline: true }),
   Table,
   TableRow,
   TableHeaderAligned,

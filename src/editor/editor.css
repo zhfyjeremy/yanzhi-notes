@@ -65,6 +65,53 @@
   overflow-x: auto;
 }
 
+/* 代码块卡片(CodeBlockCard NodeView):gutter 行号 + code 内容同字号行高 */
+.yz-editor-doc .yz-code-card {
+  background: var(--muted);
+  border-radius: var(--radius-md, 6px);
+  padding: 0.9em 1.1em;
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  line-height: 1.7;
+}
+
+.yz-editor-doc .yz-code-gutter {
+  min-width: 2.2em;
+  padding-right: 1em;
+  margin-right: 0.75em;
+  border-right: 1px solid var(--border);
+  color: var(--muted-foreground);
+  opacity: 0.6;
+  text-align: right;
+}
+
+.yz-editor-doc .yz-code-content {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  white-space: pre;
+  tab-size: 2;
+  /* 覆盖行内 code 规则,卡片内只做纯文本排版 */
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  color: inherit;
+}
+
+/* 语法高亮 token(code-highlight.ts 的 PM decoration);色值是 --code-* design token */
+.yz-editor-doc .yz-tok-kw { color: var(--code-kw); }
+.yz-editor-doc .yz-tok-fn { color: var(--code-fn); }
+.yz-editor-doc .yz-tok-str { color: var(--code-str); }
+.yz-editor-doc .yz-tok-emb { color: var(--code-emb); }
+.yz-editor-doc .yz-tok-cm { color: var(--code-cm); }
+.yz-editor-doc .yz-tok-num { color: var(--code-num); }
+.yz-editor-doc .yz-tok-var { color: var(--code-var); }
+.yz-editor-doc .yz-tok-op { color: var(--code-op); }
+.yz-editor-doc .yz-tok-link { color: var(--code-link); }
+.yz-editor-doc .yz-tok-ins { color: var(--code-ins); }
+.yz-editor-doc .yz-tok-del { color: var(--code-del); }
+.yz-editor-doc .yz-tok-chg { color: var(--code-chg); }
+
 .yz-editor-doc code {
   font-family: var(--font-mono);
   font-size: 0.875em;
@@ -87,6 +134,60 @@
   border: none;
   border-top: 1px solid var(--border);
   margin: 2em 0;
+}
+
+/* 表格卡片(GFM 管道表格):全网格细线 + 表头浅底;不做合并单元格 */
+.yz-editor-doc table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  overflow: hidden;
+}
+
+.yz-editor-doc th,
+.yz-editor-doc td {
+  border: 1px solid var(--border);
+  padding: 0.4em 0.75em;
+  position: relative;
+  vertical-align: top;
+  /* 单元格内容溢出裁剪,列宽不被长文本撑开 */
+  overflow: hidden;
+}
+
+.yz-editor-doc th {
+  background: var(--muted);
+  font-weight: 600;
+}
+
+/* 拖选/命令作用到的单元格高亮(prosemirror-tables 加的 selectedCell 类) */
+.yz-editor-doc .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
+  pointer-events: none;
+}
+
+/* 图片卡片(ImageCard NodeView):inline 节点,独占段落时视觉卡片化 */
+.yz-editor-doc .yz-img-card {
+  display: inline;
+}
+
+.yz-editor-doc .yz-img-card img {
+  border-radius: 6px;
+  display: inline-block;
+  max-width: 100%;
+  cursor: default;
+  transition: box-shadow 0.15s ease;
+}
+
+.yz-editor-doc .yz-img-card[data-selected] img {
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+/* align=center 且独占段落的图片(image-card.tsx 段落级 decoration) */
+.yz-editor-doc .yz-img-center {
+  text-align: center;
 }
 
 .yz-editor-doc ul[data-type="taskList"] {

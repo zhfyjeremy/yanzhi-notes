@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { useEditorState } from "@tiptap/react";
+import type { Selection } from "@tiptap/pm/state";
 import {
   Bold,
   Check,
@@ -19,8 +20,10 @@ import {
   ListOrdered,
   ListTodo,
   Minus,
+  Palette,
   Redo2,
   Strikethrough,
+  Table,
   Text,
   TextQuote,
   Underline,
@@ -31,6 +34,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -39,6 +43,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { FONT_COLORS } from "../extensions/font-color";
 import { cn } from "@/lib/utils";
 
 /**
@@ -93,6 +98,9 @@ function ToolButton({
 export function EditorToolbar({ editor }: { editor: Editor }) {
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
+  // 色卡打开瞬间的选区快照:radix 菜单会移动焦点,PM 失焦期间不同步 DOM 选区,
+  // chain().focus() 会用旧选区覆盖;命令前显式恢复快照,不依赖焦点时序
+  const [colorSelection, setColorSelection] = useState<Selection | null>(null);
 
   const state = useEditorState({
     editor,
@@ -106,11 +114,13 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
       strike: editor.isActive("strike"),
       code: editor.isActive("code"),
       highlight: editor.isActive("highlight"),
+      fontColor: editor.getAttributes("fontColor").color as string | null,
       link: editor.isActive("link"),
       bulletList: editor.isActive("bulletList"),
       orderedList: editor.isActive("orderedList"),
       taskList: editor.isActive("taskList"),
       blockquote: editor.isActive("blockquote"),
+      table: editor.isActive("table"),
       canUndo: editor.can().undo(),
       canRedo: editor.can().redo(),
     }),
@@ -145,7 +155,7 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
     HEADING_ITEMS.find((item) => item.level === state.heading) ?? HEADING_ITEMS[0];
 
   return (
-    <div className="bg-background flex h-12 shrink-0 items-center gap-0.5 border-b px-3">
+    <div className="bg-background flex h-12 shrink-0 items-center gap-0.5 px-3">
       {/* 标题下拉 */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -191,6 +201,67 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
       <ToolButton title="高亮" active={state.highlight} onClick={() => editor.chain().focus().toggleHighlight().run()}>
         <Highlighter className="size-4" />
       </ToolButton>
+
+      {/* 文字颜色(色卡下拉,§10 方言预设色) */}
+      <DropdownMenu
+        onOpenChange={(open) => {
+          if (open) setColorSelection(editor.state.selection);
+        }}
+      >
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            title="文字颜色"
+            className={cn("text-muted-foreground hover:text-foreground", state.fontColor && "bg-accent text-accent-foreground hover:text-accent-foreground")}
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            <Palette className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-40 p-2">
+          <div className="grid grid-cols-4 gap-1">
+            {FONT_COLORS.map((c) => (
+              <DropdownMenuItem
+                key={c.value}
+                title={c.label}
+                className="justify-center px-1"
+                onClick={() =>
+                  editor.chain()
+                    .focus()
+                    .setTextSelection(colorSelection ?? editor.state.selection)
+                    .setMark("fontColor", { color: c.value })
+                    .run()
+                }
+              >
+                <span
+                  className="flex size-6 items-center justify-center rounded-md"
+                  style={{ backgroundColor: c.value }}
+                >
+                  {state.fontColor === c.value && (
+                    <Check className="size-3.5 text-white" />
+                  )}
+                </span>
+              </DropdownMenuItem>
+            ))}
+          </div>
+          <DropdownMenuSeparator className="my-1.5" />
+          <DropdownMenuItem
+            onClick={() =>
+              editor.chain()
+                .focus()
+                .setTextSelection(colorSelection ?? editor.state.selection)
+                .unsetMark("fontColor")
+                .run()
+            }
+          >
+            <span className="flex size-6 items-center justify-center rounded-md border border-dashed border-border text-xs text-muted-foreground">
+              A
+            </span>
+            默认
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <Divider />
 
@@ -254,6 +325,13 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
       </ToolButton>
       <ToolButton title="分割线" onClick={() => editor.chain().focus().setHorizontalRule().run()}>
         <Minus className="size-4" />
+      </ToolButton>
+      <ToolButton
+        title="表格"
+        active={state.table}
+        onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+      >
+        <Table className="size-4" />
       </ToolButton>
 
       <Divider />
