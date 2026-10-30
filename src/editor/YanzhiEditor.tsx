@@ -191,14 +191,19 @@ export function YanzhiEditor({
   }, [editor, locateSignal]);
 
   // 外部内容切换(知识库 openDoc):markdown prop 变化 → 重载编辑器。
-  // setContent 默认 emitUpdate:false,不会回灌 onMarkdownChange;同时收起查找条
+  // setContent 默认 emitUpdate:false,不会回灌 onMarkdownChange;同时收起查找条。
+  // 派发挪进微任务:setContent 挂载 React NodeView(代码块/图片卡片)时 Tiptap
+  // 内部走 flushSync,effect 里同步调会触发 React「lifecycle 里 flushSync」警告
   const lastLoadedRef = useRef(markdown);
   useEffect(() => {
     if (!editor || markdown === lastLoadedRef.current) return;
     lastLoadedRef.current = markdown;
-    setFindBar(false);
-    closeFind(editor);
-    editor.commands.setContent(mdToHtml(markdown));
+    queueMicrotask(() => {
+      if (editor.isDestroyed) return;
+      setFindBar(false);
+      closeFind(editor);
+      editor.commands.setContent(mdToHtml(markdown));
+    });
   }, [editor, markdown]);
 
   return (

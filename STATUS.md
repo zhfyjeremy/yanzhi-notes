@@ -116,6 +116,7 @@
 - **HMR 给运行中的 App 换自定义 hook 会炸**:给 `useKb` 中途加 useCallback(hook 数量变化)vite 热更新到运行态,报 "change in the order of Hooks" → "Should have a queue. This is likely a bug in React";不是代码 bug,重启 dev/整页刷新即愈,E2E 新开页面不受影响
 - **notify 自写抑制**:保存/新建/删除等自身 fs 变更也会触发 watcher,前端统一 `markSelfWrite()`(1.5s 窗口)豁免;Rust 侧过滤 `.yanzhi/` 前缀(meta 写入不触发重载)
 - **外部文件拖入 WebView,只在 handleDrop 里 preventDefault 不够**:dragover 没被取消的目标不是合法落点,松手时 WebKit 走默认动作「打开文件」= 整窗导航到那张图,把应用盖掉(真机实录;PM 只管内部节点拖动,不替你取消 dragover)。修法两层:编辑器 `handleDOMEvents.dragover` 对 `Files` 类型取消 + `dropEffect=copy`(App 级 window dragover/drop 兜底——拖到工具栏/侧栏等非落点也不导航)。树排序没踩坑是因为 TreeRow 自己在 onDragOver 里 preventDefault 了。**合成 DragEvent 测试必须带 clientX/clientY**:PM 的 drop 处理先 `posAtCoords`,(0,0) 在编辑区外直接早退,handleDrop 根本不会被调用(树拖拽测不出这个问题,树不用 posAtCoords)
+- **useEffect 里 setContent 会触发 React「lifecycle 里 flushSync」警告**:切换文档的 effect 同步派发 setContent → PM 挂载 React NodeView(代码块/图片卡片)→ Tiptap ReactRenderer 内部 flushSync,而此刻 React 还在 commit 阶段。修法(React 官方建议):派发挪进 `queueMicrotask`(加 `editor.isDestroyed` 守卫);事件处理器里的 dispatch 不受影响,只有 effect 里的会踩
 - **WKWebView 外部拖拽的两连坑(真机实录)**:① Finder 拖入的 File 常无 MIME type(粘贴板不带 UTI),`type.startsWith("image/")` 会静默滤掉——空 MIME 回退扩展名识别(`isImageFile`);② drop 事件的 **target 不可靠**(文件到了 window 兜底,但不在 `.yz-editor-doc` 上,PM 判「不属于编辑器」直接跳过)——图片落点用滚动区**坐标**判定插入(App 窗口级兜底),PM 自己接住的 drop `stopPropagation` 防双插。诊断手段:`import.meta.env.DEV` 时在 window drop 打日志(types/files/坐标/target),右键 → 检查看 Console
 
 ## 遗留小事项
