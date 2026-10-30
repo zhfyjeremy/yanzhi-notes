@@ -43,6 +43,10 @@
   --code-ins: hsl(135 42% 34%);
   --code-del: hsl(0 68% 46%);
   --code-chg: hsl(204 78% 42%);
+
+  /* 文档内查找高亮:黄系与 ==高亮==(primary 系)区分;current 为实底醒目项 */
+  --find-match: hsl(45 96% 60% / 0.45);
+  --find-match-current: hsl(45 96% 50%);
 }
 
 .dark {
@@ -79,6 +83,9 @@
   --code-ins: hsl(135 42% 60%);
   --code-del: hsl(0 72% 66%);
   --code-chg: hsl(204 82% 66%);
+
+  --find-match: hsl(45 80% 50% / 0.35);
+  --find-match-current: hsl(45 90% 55%);
 }
 
 @theme inline {
