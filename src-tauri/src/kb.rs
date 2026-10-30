@@ -143,12 +143,19 @@ fn ensure_yanzhi(root: &Path) -> Result<(), String> {
 
 const STARTER_MD: &str = "# 开始使用\n\n砚知把笔记存在你选的文件夹里,不上云、无账号。\n\n- 知识库 = 你指定的一个本地文件夹;里面的 `.md` 就是文档,可以用别的编辑器打开\n- `.yanzhi` 是软件偏好与回收站,删了不影响正文\n- 图片保存在文档所在文件夹的 `assets` 里\n- 复制整个文件夹 = 备份 / 换电脑带走\n- 双链写法:`[[目标文档]]` 或 `[[目标文档|显示名]]`\n\n按 `Ctrl/Cmd+E` 切换代码块语言;输入 `/` 唤起插入菜单。\n";
 
-/// async 命令:跑在运行时线程,blocking_pick_folder 不会卡主线程事件循环
+/// async 命令:跑在运行时线程,blocking_pick_folder 不会卡主线程事件循环。
+/// 默认定位「文档」目录(5.0.2 推荐不强制;定位失败静默用系统默认)。
 #[tauri::command]
 pub async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
     let picked = tauri::async_runtime::spawn_blocking(move || {
-        app.dialog().file().blocking_pick_folder()
+        let mut dialog = app.dialog().file();
+        if let Ok(docs) = app.path().document_dir() {
+            if docs.is_dir() {
+                dialog = dialog.set_directory(docs);
+            }
+        }
+        dialog.blocking_pick_folder()
     })
     .await
     .map_err(|e| e.to_string())?
@@ -633,7 +640,7 @@ fn recent_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("recent.json"))
 }
 
-fn read_recent(app: &tauri::AppHandle) -> RecentState {
+pub fn read_recent(app: &tauri::AppHandle) -> RecentState {
     recent_path(app)
         .ok()
         .and_then(|p| fs::read_to_string(p).ok())
@@ -656,6 +663,8 @@ pub fn set_recent(app: tauri::AppHandle, root: String) -> Result<(), String> {
     let p = recent_path(&app)?;
     let json = serde_json::to_string_pretty(&state).map_err(err)?;
     fs::write(p, json).map_err(err)?;
+    // 菜单「最近打开」跟 recent.json 同步(失败只丢菜单项,不影响打开链路)
+    let _ = crate::build_app_menu(&app);
     Ok(())
 }
 
