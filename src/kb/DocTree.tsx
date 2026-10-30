@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -187,6 +187,7 @@ function TreeRow({
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <button
+            data-path={node.path}
             className={cn(
               "group flex w-full items-center gap-1 rounded-md py-1 pr-2 text-left text-sm",
               active
@@ -382,6 +383,16 @@ export function DocTree({
   const dragPath = useRef<string | null>(null);
   const [dropHint, setDropHint] = useState<{ path: string; zone: DropZone } | null>(null);
   const rootName = useMemo(() => root.split("/").filter(Boolean).pop() ?? root, [root]);
+  const navRef = useRef<HTMLElement>(null);
+
+  // 当前文档行滚进可视区(5.1 文档定位):切文档/搜索定位/后退时生效;
+  // 所在文件夹被折叠时行不在 DOM,展开(collapsed 变)后再补滚
+  useEffect(() => {
+    if (!currentPath) return;
+    navRef.current
+      ?.querySelector(`[data-path="${CSS.escape(currentPath)}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [currentPath, tree, collapsed]);
 
   /** 拖拽落点 → 整组兄弟新顺序(交给上层写 meta.sortIndex) */
   const commitDrop = (target: string, zone: DropZone) => {
@@ -469,6 +480,7 @@ export function DocTree({
         preset={searchPreset}
       />
       <nav
+        ref={navRef}
         className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1"
         onDragOver={(e) => e.preventDefault()} /* 允许拖到空白处松手(仅清除提示) */
       >

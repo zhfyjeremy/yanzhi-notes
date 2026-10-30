@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FolderOpen, FolderPlus, Vault } from "lucide-react";
+import { ChevronDown, FolderOpen, FolderPlus, Vault } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -10,11 +10,21 @@ import { Button } from "@/components/ui/button";
 interface WelcomePageProps {
   recent: string[];
   bootError: string | null;
-  onPickCreate: () => Promise<null | { kind: "not-empty"; root: string } | { kind: "error"; message: string }>;
+  onPickCreate: () => Promise<
+    null | { kind: "not-empty" | "is-yanzhi"; root: string } | { kind: "error"; message: string }
+  >;
   onForceCreate: (root: string) => Promise<string | null>;
   onPickOpen: () => Promise<string | null>;
   onOpenRecent: (root: string) => Promise<string | null>;
 }
+
+/** 「了解存储方式」示意目录树(5.0.1-4,与第 9 章一致的简化图) */
+const STORAGE_TREE = `我的知识库/
+├─ 开始使用.md
+├─ 笔记/
+│  ├─ 周记.md
+│  └─ assets/          ← 周记的图片都在这里
+└─ .yanzhi/            ← 软件偏好与回收站(删了不影响正文)`;
 
 export function WelcomePage({
   recent,
@@ -25,17 +35,17 @@ export function WelcomePage({
   onOpenRecent,
 }: WelcomePageProps) {
   const [error, setError] = useState<string | null>(null);
-  const [pendingRoot, setPendingRoot] = useState<string | null>(null); // 非空目录待确认
+  const [showStorage, setShowStorage] = useState(false);
+  // 非空目录待确认 / 已是砚知库待引导(yanzhi 区分文案与动作)
+  const [pending, setPending] = useState<{ root: string; yanzhi: boolean } | null>(null);
 
   const handleCreate = async () => {
     setError(null);
-    setPendingRoot(null);
+    setPending(null);
     const result = await onPickCreate();
-    if (result?.kind === "not-empty") {
-      setPendingRoot(result.root);
-    } else if (result?.kind === "error") {
-      setError(result.message);
-    }
+    if (result?.kind === "not-empty") setPending({ root: result.root, yanzhi: false });
+    else if (result?.kind === "is-yanzhi") setPending({ root: result.root, yanzhi: true });
+    else if (result?.kind === "error") setError(result.message);
   };
 
   return (
@@ -88,28 +98,66 @@ export function WelcomePage({
           </Button>
         </div>
 
+        <button
+          className="text-muted-foreground hover:text-foreground mt-5 flex cursor-pointer items-center gap-1 text-xs"
+          onClick={() => setShowStorage((v) => !v)}
+        >
+          <ChevronDown className={`size-3.5 transition-transform ${showStorage ? "" : "-rotate-90"}`} />
+          了解存储方式
+        </button>
+        {showStorage && (
+          <pre className="bg-muted/40 text-muted-foreground mt-2 overflow-x-auto rounded-lg p-4 text-xs leading-5">
+            {STORAGE_TREE}
+          </pre>
+        )}
+
         {bootError && <p className="text-destructive mt-6 text-sm">{bootError}</p>}
         {error && <p className="text-destructive mt-6 text-sm">{error}</p>}
-        {pendingRoot && (
+        {pending && (
           <div className="bg-muted/60 mt-6 rounded-lg p-4 text-sm">
-            <p className="mb-3">
-              「{pendingRoot}」不是空文件夹。建议选空文件夹,避免与其它资料混在一起。
-            </p>
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setPendingRoot(null)}>
-                重选
-              </Button>
-              <Button
-                size="sm"
-                onClick={async () => {
-                  const err = await onForceCreate(pendingRoot);
-                  if (err) setError(err);
-                  setPendingRoot(null);
-                }}
-              >
-                仍要在此创建
-              </Button>
-            </div>
+            {pending.yanzhi ? (
+              <>
+                <p className="mb-3">
+                  「{pending.root}」已经是砚知知识库(含 <code>.yanzhi</code>),建议直接打开它。
+                </p>
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setPending(null)}>
+                    重选
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      const err = await onOpenRecent(pending.root);
+                      if (err) setError(err);
+                      setPending(null);
+                    }}
+                  >
+                    打开该知识库
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="mb-3">
+                  「{pending.root}」不是空文件夹。建议选空文件夹,避免与其它资料混在一起。
+                </p>
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setPending(null)}>
+                    重选
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      const err = await onForceCreate(pending.root);
+                      if (err) setError(err);
+                      setPending(null);
+                    }}
+                  >
+                    仍要在此创建
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         )}
 

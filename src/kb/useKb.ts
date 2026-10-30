@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { KbConflictError, KbNotEmptyError, kbBackend } from "./backend";
+import { KbConflictError, KbIsYanzhiError, KbNotEmptyError, kbBackend } from "./backend";
 import type { RecentState, TreeNode, TrashEntry } from "./types";
 import { WikiRefIndex, type BacklinkRow } from "./backlinks";
 import { flattenDocs, resolveWikiTarget } from "./wiki-refs";
@@ -429,6 +429,7 @@ export function useKb() {
         }
       } catch (e) {
         if (e instanceof KbNotEmptyError) return "NOT_EMPTY" as const;
+        if (e instanceof KbIsYanzhiError) return "IS_YANZHI" as const;
         console.error("[kb] 新建知识库失败:", e);
         return `无法在此创建:${String(e)}` as const;
       }
@@ -438,14 +439,15 @@ export function useKb() {
     [enterKb],
   );
 
-  /** 新建流程结果:非空目录把 root 带回来,供「仍要在此创建」确认 */
+  /** 新建流程结果:非空/已是砚知库把 root 带回来,供确认或引导改用「打开」 */
   const pickAndCreate = useCallback(async (): Promise<
-    null | { kind: "not-empty"; root: string } | { kind: "error"; message: string }
+    null | { kind: "not-empty" | "is-yanzhi"; root: string } | { kind: "error"; message: string }
   > => {
     const dir = await kbBackend.pickFolder();
     if (!dir) return null;
     const result = await createKbAt(dir);
     if (result === "NOT_EMPTY") return { kind: "not-empty", root: dir };
+    if (result === "IS_YANZHI") return { kind: "is-yanzhi", root: dir };
     if (result) return { kind: "error", message: result };
     return null;
   }, [createKbAt]);

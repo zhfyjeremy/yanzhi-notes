@@ -18,15 +18,22 @@ export class KbNotEmptyError extends Error {
   }
 }
 
+/** 选中的目录已是砚知库(含 .yanzhi,5.0.2-3):前端提示改用「打开」 */
+export class KbIsYanzhiError extends Error {
+  constructor() {
+    super("IS_YANZHI");
+  }
+}
+
+/** 真机 Tauri 环境(浏览器 vite dev 走 mock;原生菜单/事件监听须以此 gate) */
+export const isTauriEnv = (): boolean =>
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 /** restore_trash 原路径冲突(5.1.1):前端弹「覆盖/新名称/取消」三选一 */
 export class KbConflictError extends Error {
   constructor() {
     super("CONFLICT");
   }
 }
-
-const isTauri = (): boolean =>
-  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 const invoke = async <T>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
   const { invoke } = await import("@tauri-apps/api/core");
@@ -43,6 +50,7 @@ const tauriBackend: KbBackend = {
       await invoke("create_kb", { root });
     } catch (e) {
       if (String(e).includes("NOT_EMPTY")) throw new KbNotEmptyError();
+      if (String(e).includes("已是砚知知识库")) throw new KbIsYanzhiError();
       throw e;
     }
   },
@@ -644,4 +652,4 @@ const browserBackend: KbBackend = {
   },
 };
 
-export const kbBackend: KbBackend = isTauri() ? tauriBackend : browserBackend;
+export const kbBackend: KbBackend = isTauriEnv() ? tauriBackend : browserBackend;

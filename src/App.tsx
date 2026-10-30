@@ -17,6 +17,7 @@ import { compressImageFile, isImageFile } from "./kb/image-compress";
 import { useSettings } from "./settings";
 import { WelcomePage } from "./kb/WelcomePage";
 import { useKb } from "./kb/useKb";
+import { isTauriEnv } from "./kb/backend";
 import { setAssetResolver } from "./kb/asset-src";
 import { buildExportHtml } from "./kb/export-html";
 import { flattenDocs, wikiTargetFor } from "./kb/wiki-refs";
@@ -71,6 +72,35 @@ function App() {
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), 2600);
   }, []);
+
+  // 原生菜单「文件 → 新建/打开/最近打开」(5.0.4-2):Rust 侧建菜单并发 kb-menu 事件。
+  // 非空/已是砚知库的确认走 App 级弹窗(欢迎页按钮触发时仍用页内确认卡,两条路只走一条)
+  const [menuPending, setMenuPending] = useState<{ root: string; yanzhi: boolean } | null>(null);
+  useEffect(() => {
+    if (!isTauriEnv()) return;
+    let un: (() => void) | undefined;
+    void (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      un = await listen<{ action: string; root?: string }>("kb-menu", (e) => {
+        void (async () => {
+          const { action, root } = e.payload;
+          if (action === "new") {
+            const r = await kb.pickAndCreate();
+            if (r?.kind === "not-empty") setMenuPending({ root: r.root, yanzhi: false });
+            else if (r?.kind === "is-yanzhi") setMenuPending({ root: r.root, yanzhi: true });
+            else if (r?.kind === "error") showToast(r.message);
+          } else if (action === "open") {
+            const err = await kb.pickAndOpen();
+            if (err) showToast(err);
+          } else if (action === "open-recent" && root) {
+            const err = await kb.openKbAt(root);
+            if (err) showToast(err);
+          }
+        })();
+      });
+    })();
+    return () => un?.();
+  }, [kb.pickAndCreate, kb.pickAndOpen, kb.openKbAt, showToast]);
 
   // 专注模式:⌘/Ctrl+Shift+F 切换;双链历史:⌘[/⌘] 或 Alt+←/→
   useEffect(() => {
@@ -307,7 +337,7 @@ function App() {
         recent={kb.recent.recent}
         bootError={kb.bootError}
         onPickCreate={kb.pickAndCreate}
-        onForceCreate={kb.createKbAt}
+        onForceCreate={(root) => kb.createKbAt(root, true)}
         onPickOpen={kb.pickAndOpen}
         onOpenRecent={kb.openKbAt}
       />
@@ -453,6 +483,47 @@ function App() {
           void kb.rebuildIndex().then(() => showToast("索引已重建"));
         }}
       />
+      {/* 菜单触发的库切换确认(5.0.2):非空目录 / 已是砚知库 */}
+      <Dialog open={menuPending !== null} onOpenChange={(v) => !v && setMenuPending(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{menuPending?.yanzhi ? "已是砚知知识库" : "不是空文件夹"}</DialogTitle>
+            <DialogDescription>
+              {menuPending?.yanzhi
+                ? `「${menuPending.root}」含 .yanzhi,建议直接打开它。`
+                : `「${menuPending?.root}」不是空文件夹,建议选空文件夹,避免与其它资料混在一起。`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setMenuPending(null)}>
+              重选
+            </Button>
+            {menuPending?.yanzhi ? (
+              <Button
+                size="sm"
+                onClick={() => {
+                  const p = menuPending;
+                  setMenuPending(null);
+                  if (p) void kb.openKbAt(p.root).then((err) => err && showToast(err));
+                }}
+              >
+                打开该知识库
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={() => {
+                  const p = menuPending;
+                  setMenuPending(null);
+                  if (p) void kb.createKbAt(p.root, true).then((err) => err && showToast(err));
+                }}
+              >
+                仍要在此创建
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* 未识别条目整理(5.2.1):外部改名/移动后的失联 meta */}
       <OrphanMetaDialog
         open={orphansOpen}
