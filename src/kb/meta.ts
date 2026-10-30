@@ -22,15 +22,18 @@ export interface KbMeta {
 
 export const EMPTY_META: KbMeta = { version: 1, docs: {}, folders: {} };
 
-/** 容错解析:损坏/缺失回空 meta(索引重建口径,不静默丢文档只丢偏好) */
+/** 容错解析:损坏/缺失/字段异型(含数组)回空 meta(不静默丢文档只丢偏好) */
 export function parseMeta(raw: string): KbMeta {
+  const record = (v: unknown): Record<string, unknown> =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? (v as Record<string, unknown>)
+      : {};
   try {
-    const m = JSON.parse(raw) as Partial<KbMeta>;
-    if (!m || typeof m !== "object") return EMPTY_META;
+    const m = record(JSON.parse(raw));
     return {
       version: typeof m.version === "number" ? m.version : 1,
-      docs: m.docs && typeof m.docs === "object" ? m.docs : {},
-      folders: m.folders && typeof m.folders === "object" ? m.folders : {},
+      docs: record(m.docs) as KbMeta["docs"],
+      folders: record(m.folders) as KbMeta["folders"],
     };
   } catch {
     return EMPTY_META;

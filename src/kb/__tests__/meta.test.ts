@@ -37,6 +37,12 @@ describe("parseMeta 容错", () => {
   it("缺失字段回默认", () => {
     expect(parseMeta('{"version":2}')).toEqual({ version: 2, docs: {}, folders: {} });
   });
+  it("字段异型(数组/数字/字符串)回空对象,顶层非对象回空 meta", () => {
+    expect(parseMeta('{"docs":[1,2],"folders":42}')).toEqual({ version: 1, docs: {}, folders: {} });
+    expect(parseMeta('{"docs":"x"}')).toEqual({ version: 1, docs: {}, folders: {} });
+    expect(parseMeta('"just a string"')).toEqual(EMPTY_META);
+    expect(parseMeta("123")).toEqual(EMPTY_META);
+  });
   it("往返 serialize 不丢", () => {
     const m = parseMeta('{"version":1,"docs":{"a.md":{"sortIndex":1}},"folders":{"a":{"collapsed":true}}}');
     expect(parseMeta(serializeMeta(m))).toEqual(m);

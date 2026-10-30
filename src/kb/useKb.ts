@@ -159,34 +159,40 @@ export function useKb() {
   /** 当前最新正文(dirty 优先;导出/复制等即时消费用,不等落盘) */
   const getMarkdownNow = useCallback((): string => dirtyRef.current ?? markdown, [markdown]);
 
-  /** 读取并呈现文档(不动历史栈);openDoc/navBack/navForward 共用 */
-  const loadDoc = useCallback(async (rel: string) => {
+  /** 读取并呈现文档(不动历史栈);openDoc/navBack/navForward 共用。
+   *  读取失败(被外部删除/权限)置 docError 供上层 toast,返回 false */
+  const [docError, setDocError] = useState<string | null>(null);
+  const loadDoc = useCallback(async (rel: string): Promise<boolean> => {
     const root = rootRef.current;
-    if (!root) return;
+    if (!root) return false;
     try {
       const content = await kbBackend.readDoc(root, rel);
       dirtyRef.current = null;
       setCurrentPath(rel);
       setMarkdown(content);
       setSaveState("saved");
+      setDocError(null);
       if (searchRef.current.size > 0) searchRef.current.add(rel, content);
       wikiRefIdx.current.update(rel, content);
       kbBackend.setLastDoc(rel).catch(() => {});
+      return true;
     } catch (e) {
       console.error("[kb] 打开文档失败:", e);
+      setDocError(rel);
+      return false;
     }
   }, []);
 
-  /** 打开文档(入历史栈);重复点当前文档直接忽略 */
+  /** 打开文档(入历史栈);读取失败不动历史栈(否则后退栈被无效项污染) */
   const openDoc = useCallback(
     async (rel: string) => {
       const cur = pathRef.current;
       if (rel === cur) return;
       await flushSave(); // 切换前冲刷上一篇
+      if (!(await loadDoc(rel))) return;
       if (cur) backRef.current = [...backRef.current, cur];
       frontRef.current = [];
       syncNav();
-      await loadDoc(rel);
     },
     [flushSave, loadDoc],
   );
@@ -196,11 +202,11 @@ export function useKb() {
     if (!back.length) return;
     const cur = pathRef.current;
     const target = back[back.length - 1];
+    await flushSave();
+    if (target !== pathRef.current && !(await loadDoc(target))) return; // 失败:栈保持原状
     backRef.current = back.slice(0, -1);
     if (cur) frontRef.current = [cur, ...frontRef.current];
     syncNav();
-    await flushSave();
-    if (target !== pathRef.current) await loadDoc(target);
   }, [flushSave, loadDoc]);
 
   const navForward = useCallback(async () => {
@@ -208,11 +214,11 @@ export function useKb() {
     if (!front.length) return;
     const cur = pathRef.current;
     const target = front[0];
+    await flushSave();
+    if (target !== pathRef.current && !(await loadDoc(target))) return;
     frontRef.current = front.slice(1);
     if (cur) backRef.current = [...backRef.current, cur];
     syncNav();
-    await flushSave();
-    if (target !== pathRef.current) await loadDoc(target);
   }, [flushSave, loadDoc]);
 
   /** 双链跳转:解析目标 → 打开;未命中返回 null(调用方提示「目标不存在或已移动」) */
@@ -883,6 +889,8 @@ export function useKb() {
     claimOrphan,
     discardOrphan,
     saveImageFiles,
+    /** 最近一次打开失败的文档路径(供上层 toast;成功打开后清空) */
+    docError,
     importImagesFromPicker,
     importDocs,
     exportText,

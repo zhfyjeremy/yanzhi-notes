@@ -474,8 +474,8 @@ const browserBackend: KbBackend = {
     );
   },
   async setLastDoc(rel) {
-    const raw = localStorage.getItem(RECENT_KEY);
-    const state = raw ? (JSON.parse(raw) as RecentState) : { last: "/mock-kb", recent: [] };
+    // recent.json 损坏时 mockRecent 已容错回默认,这里不再裸 parse(否则打开文档链路被炸)
+    const state = mockRecent();
     state.lastDoc = rel;
     localStorage.setItem(RECENT_KEY, JSON.stringify(state));
   },

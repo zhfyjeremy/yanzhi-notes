@@ -264,7 +264,10 @@ pub fn scan_tree(root: &str) -> Result<Vec<TreeNode>, String> {
 #[tauri::command]
 pub fn read_doc(root: &str, rel: &str) -> Result<String, String> {
     let abs = resolve(root, rel)?;
-    fs::read_to_string(&abs).map_err(err)
+    // 非法 UTF-8(外部工具写入/磁盘损坏)用替换字符呈现:能打开、能保存;
+    // 文件不存在仍走 Err(正常业务路径)
+    let bytes = fs::read(&abs).map_err(err)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// 自动保存落盘(5.2.5):临时文件 + 原子替换
@@ -709,10 +712,11 @@ pub fn read_all_docs(root: &str) -> Result<Vec<DocContent>, String> {
     collect_docs(root_path, root_path, &mut abs_docs);
     let mut out = Vec::with_capacity(abs_docs.len());
     for abs in abs_docs {
-        if let Ok(content) = fs::read_to_string(&abs) {
+        // 与 read_doc 同口径:非法 UTF-8 lossy 呈现,不静默跳过(否则索引悄悄缺一篇)
+        if let Ok(bytes) = fs::read(&abs) {
             out.push(DocContent {
                 path: rel_posix(root_path, &abs),
-                content,
+                content: String::from_utf8_lossy(&bytes).into_owned(),
             });
         }
     }
@@ -1144,4 +1148,22 @@ pub async fn export_text(
     let path = picked.to_string();
     fs::write(&path, content).map_err(err)?;
     Ok(Some(path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// M4 异常恢复:非法 UTF-8 的 md 不报错,替换字符呈现(能打开能存)
+    #[test]
+    fn read_doc_lossy_on_invalid_utf8() {
+        let dir = std::env::temp_dir().join(format!("yz-read-doc-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("bad.md"), [0x61, 0xFF, 0x62]).unwrap(); // a<invalid>b
+        let root = dir.to_string_lossy().to_string();
+        let content = read_doc(&root, "bad.md").unwrap();
+        assert!(content.starts_with('a') && content.ends_with('b'));
+        assert!(content.contains('\u{FFFD}'), "非法字节应以替换字符呈现: {content:?}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

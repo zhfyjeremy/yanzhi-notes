@@ -141,6 +141,11 @@ function App() {
     setTitle(currentPath ? docBasename(currentPath) : "");
   }, [currentPath]);
 
+  // 打开失败(文件被外部删除/权限):明确反馈,不静默(M4 异常恢复)
+  useEffect(() => {
+    if (kb.docError) showToast(`无法打开「${docBasename(kb.docError)}」:文件不存在或无法读取`);
+  }, [kb.docError, showToast]);
+
   // 反向链接(5.4-2):refsVersion 在保存/删除/回收站变动时递增,驱动面板重算
   const backlinks = useMemo(
     () => kb.getBacklinks(kb.currentPath),
