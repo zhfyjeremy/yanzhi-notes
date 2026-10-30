@@ -54,7 +54,17 @@
 | 设置与主题 | ✅ 工作区未提交 | §8 设置基座:Rust `get_settings`/`set_settings`(app_config_dir/settings.json 原文透传,前端管结构,mock = localStorage)+ `src/settings.ts`(parse 逐字段校验回退/resolvedIsDark 三态/applyTheme 挂 `.dark` + colorScheme)+ `useSettings`(matchMedia 实时跟随系统,`update(patch)` 合并落盘);`SettingsDialog.tsx` 四组:编辑器(特殊卡片边框开关)/外观(主题三选一 + **主色预设色板 6 色** + 排版只读)/图片(粘贴压缩开关)/搜索(索引时机说明 + 重建索引按钮带 toast);**主色色板**(原 V3 项,2026-10-30 提前):运行时内联覆盖 `--primary/--primary-foreground/--ring/--accent/--accent-foreground` 五 token(浅/深两套,每次主题变化重设),自定义色值仍 V3;入口 = 左栏底部常驻齿轮(主)+ 树头部「⋯ → 设置…」。**卡片边框**:代码块/表格/图片按 PRD 默认带边框(`--border`),关闭 = 容器挂 `yz-flat-cards` 边框全透明(保占位不跳版);**图片压缩**:canvas 前端 WebP q85(`image-compress.ts`,压缩在哈希命名前——同图同设置只存一份;SVG/GIF/压完更大/环境不支持时回退原图),paste/drag 链路生效;**主色色板 = V3,MVP 不做** → 已提前至 MVP(预设 6 色,自定义色值仍 V3) |
 | 未识别条目认领 | ✅ 工作区未提交 | 5.2.1:`meta.ts` 纯函数(findOrphanMeta/claimMetaKey/discardMetaKey,单测锁定)+ `OrphanMetaDialog.tsx`(逐条「认领合并/丢弃」,认领选择器同名优先,丢弃带确认条);入口 = 左栏底部条件渲染「未识别条目 N」(主色)+ 状态栏轻提示;失联扫描点 = 开库 / 外部监听树刷新后 / 整理动作后(`refreshTree` 同步 treeRef,防 .then 先于重渲染);认领的 sortIndex 即时参与树序。**失效双链**(5.2.1-5):点击 → 弹「链接目标不存在」+「搜索同名文档」→ 预置全局搜索(SearchBox 新增 preset) |
 
+### M4 打磨稳定化 🔨 进行中
+
+| 子项 | 状态 | 说明 |
+| --- | --- | --- |
+| 异常恢复 | ✅ 工作区未提交 | 验收 4:read_doc/read_all_docs 非法 UTF-8 → lossy 呈现能打开能存(cargo test `read_doc_lossy_on_invalid_utf8`);meta `parseMeta` 字段异型(数组/数字/字符串)回空对象;mock `setLastDoc` 对损坏 recent.json 容错(原裸 parse 会炸打开链路);loadDoc 失败 → `docError` 状态 → App toast「无法打开」,openDoc/navBack/navForward 失败不动历史栈;已有底子:原子写 + `.tmp` 不入索引、meta/recent/settings 文件级容错、重建索引入口 |
+| 千文档性能 | ✅ mock 链过,真机待验 | 验收 3 全过(mock 链,1000 篇=950 扁平+5 组×10):索引构建 5ms(<5000)/ 搜索端到端(去抖后含渲染)8ms(<100)/ 树滚动最大帧间隔 28ms(<50)。`search.bench.test.ts` 回归断言(千篇 build <5s、三类查询中位 <100ms,实测 build ~30ms、查询 ~1ms)。真机实测目录已生成:`~/Desktop/yanzhi-perf-kb`(1000 篇,测完可删)。E2E:`/tmp/yanzhi-drive/perf1k.js`(注意:勿预置 recent,否则自动开库欢迎页不出现;搜索计时用 insertText+MutationObserver,勿逐字 type) |
+| IME 回归 | ⬜ | Windows/macOS 中文长文输入无异常 + 跨段连续划选(验收 2,真机为主) |
+| 安装包 | ⬜ | `pnpm tauri build` dmg + bundle 右键菜单中文;Windows 包需对应环境 |
+
 ## 工作区未提交变更(M3 全量)
+
 
 - 新增:`src-tauri/src/kb.rs`(fs 命令层 + 双链联动 + watch + assets + trash + 导入导出 + settings)、`src/kb/`(types/backend/useKb/WelcomePage/DocTree/SearchBox/TrashDialog/SettingsDialog/StatusBar/wiki-refs/search/meta/asset-src/export-html)、`src/settings.ts`、`src/editor/word-count.ts`、`src/editor/find-replace.ts`、`src/editor/clipboard.ts`、`src/editor/wiki-link-command.tsx`、`src/editor/toolbar/FindReplaceBar.tsx`、`src/components/hint.tsx` + 测试(search/meta/settings/asset-src/word-count/find-replace/clipboard)
 - 修改:`src-tauri/src/lib.rs`、`src-tauri/Cargo.toml`(+tauri-plugin-dialog/+notify/+`protocol-asset` feature)、`src-tauri/tauri.conf.json`(assetProtocol scope)、`src-tauri/capabilities/default.json`、`src/App.tsx`(三栏/专注模式/导航/toast/双链/搜索定位/assets 解析/外部变更弹窗/回收站/导入导出)、`src/editor/YanzhiEditor.tsx`、`src/editor/extensions/`(wiki-link/image-card)、`src/editor/toolbar/`、`src/editor/slash-command/index.tsx`、`src/components/ui/`(dialog forwardRef 等)、`src/index.css`、`src/editor/editor.css`、PRD、`STATUS.md`
