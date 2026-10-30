@@ -1,5 +1,6 @@
-import { Monitor, Moon, Sun } from "lucide-react";
+import { Check, Monitor, Moon, Sun } from "lucide-react";
 import type { AppSettings, ThemeMode } from "../settings";
+import { ACCENT_PRESETS } from "../settings";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -107,6 +108,28 @@ export function SettingsDialog({
             ))}
           </div>
           <p className="text-muted-foreground text-[11px]">「跟随系统」会随操作系统外观实时切换</p>
+          <div className="flex items-center gap-2.5 px-1 pt-1">
+            {ACCENT_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                title={p.name}
+                aria-label={`主色:${p.name}`}
+                className={cn(
+                  "flex size-6 cursor-pointer items-center justify-center rounded-full transition-transform",
+                  settings.accent === p.id
+                    ? "ring-primary ring-2 ring-offset-2 ring-offset-background"
+                    : "hover:scale-110",
+                )}
+                style={{ backgroundColor: p.swatch }}
+                onClick={() => onChange({ accent: p.id })}
+              >
+                {settings.accent === p.id && <Check className="size-3.5 text-white" strokeWidth={3} />}
+              </button>
+            ))}
+            <span className="text-muted-foreground ml-1 text-xs">
+              {ACCENT_PRESETS.find((p) => p.id === settings.accent)?.name ?? "语雀蓝"}
+            </span>
+          </div>
           <div className="divide-y divide-border rounded-lg border border-border">
             <ValueRow label="字体" value="语雀默认" />
             <ValueRow label="行高" value="语雀默认" />

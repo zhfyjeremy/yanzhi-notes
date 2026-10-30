@@ -1,9 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, parseSettings, resolvedIsDark } from "../settings";
+import {
+  ACCENT_PRESETS,
+  DEFAULT_SETTINGS,
+  accentPresetOf,
+  applyTheme,
+  parseSettings,
+  resolvedIsDark,
+} from "../settings";
 
 describe("settings 解析(PRD §8)", () => {
   it("合法值直读,缺失/损坏回默认", () => {
-    expect(parseSettings('{"theme":"dark"}')).toEqual({ theme: "dark", cardBorder: true, imageCompress: true });
+    expect(parseSettings('{"theme":"dark","accent":"violet"}')).toEqual({
+      theme: "dark",
+      accent: "violet",
+      cardBorder: true,
+      imageCompress: true,
+    });
     expect(parseSettings("{}")).toEqual(DEFAULT_SETTINGS);
     expect(parseSettings("not json")).toEqual(DEFAULT_SETTINGS);
   });
@@ -11,14 +23,37 @@ describe("settings 解析(PRD §8)", () => {
     expect(parseSettings('{"theme":"sepia"}').theme).toBe("system");
     expect(parseSettings('{"theme":null}').theme).toBe("system");
   });
+  it("主色预设:合法 id 直读,未知/异型回语雀蓝", () => {
+    expect(parseSettings('{"accent":"teal"}').accent).toBe("teal");
+    expect(parseSettings('{"accent":"pink"}').accent).toBe("blue");
+    expect(parseSettings('{"accent":123}').accent).toBe("blue");
+    expect(accentPresetOf("nope").id).toBe("blue");
+    expect(accentPresetOf(undefined).id).toBe("blue");
+  });
   it("卡片边框/图片压缩:布尔直读,缺失或异型回 true", () => {
     expect(parseSettings('{"cardBorder":false,"imageCompress":false}')).toEqual({
       theme: "system",
+      accent: "blue",
       cardBorder: false,
       imageCompress: false,
     });
     expect(parseSettings('{"cardBorder":"off"}').cardBorder).toBe(true);
     expect(parseSettings('{"imageCompress":0}').imageCompress).toBe(true);
+  });
+});
+
+describe("applyTheme 主色覆盖(浅/深两套)", () => {
+  it("浅色挂 light 值,深色挂 dark 值;全部预设变量齐全", () => {
+    applyTheme({ theme: "light", accent: "violet" }, false);
+    expect(document.documentElement.style.getPropertyValue("--primary")).toBe("hsl(258 78% 48%)");
+    applyTheme({ theme: "dark", accent: "violet" }, false);
+    expect(document.documentElement.style.getPropertyValue("--primary")).toBe("hsl(258 74% 62%)");
+    for (const p of ACCENT_PRESETS) {
+      for (const key of ["--primary", "--primary-foreground", "--ring", "--accent", "--accent-foreground"]) {
+        expect(p.light[key], `${p.id} light ${key}`).toMatch(/^hsl\(/);
+        expect(p.dark[key], `${p.id} dark ${key}`).toMatch(/^hsl\(/);
+      }
+    }
   });
 });
 
