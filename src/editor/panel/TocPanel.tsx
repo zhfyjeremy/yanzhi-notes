@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { useEditorState } from "@tiptap/react";
-import { PanelRightClose, PanelRightOpen } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
  * 右栏文档大纲 TOC(PRD §5.4):自动抓取 H1~H6、点击跳转、滚动高亮当前标题、可折叠。
  * 滚动监听挂在编辑区滚动容器(YanzhiEditor 的 scrollContainerRef 透传)。
+ * 外层容器是 App 里共享右栏的 aside(下方还挂反向链接面板),本组件占 flex-1。
  */
 
 interface HeadingItem {
@@ -80,39 +81,28 @@ export function TocPanel({
     editor.chain().focus().setTextSelection(pos + 1).scrollIntoView().run();
   };
 
-  if (collapsed) {
-    return (
-      <button
-        onClick={() => setCollapsed(false)}
-        title="展开大纲"
-        className="text-muted-foreground hover:text-foreground hover:bg-accent/50 flex w-8 shrink-0 cursor-pointer flex-col items-center gap-2 py-3 transition-colors"
-      >
-        <PanelRightOpen className="size-4" />
-        <span className="text-[11px]" style={{ writingMode: "vertical-rl" }}>
-          大纲
-        </span>
-      </button>
-    );
-  }
-
   return (
-    <aside className="bg-muted/40 flex w-60 shrink-0 flex-col">
-      <header className="flex h-10 shrink-0 items-center justify-between px-3">
-        <span className="text-muted-foreground text-xs font-medium">大纲</span>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <header className="flex h-9 shrink-0 items-center px-2">
         <button
-          onClick={() => setCollapsed(true)}
-          title="收起大纲"
-          className="text-muted-foreground hover:text-foreground hover:bg-accent rounded p-1 transition-colors"
+          onClick={() => setCollapsed((v) => !v)}
+          className="text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-xs font-medium"
         >
-          <PanelRightClose className="size-4" />
+          {collapsed ? (
+            <ChevronRight className="size-3.5 shrink-0" />
+          ) : (
+            <ChevronDown className="size-3.5 shrink-0" />
+          )}
+          大纲
         </button>
       </header>
-      <div className="flex-1 overflow-y-auto p-1.5">
-        {headings.length === 0 ? (
-          <p className="text-muted-foreground px-2 py-4 text-xs">
-            暂无标题。输入 <code>#</code> 或用斜杠菜单插入标题。
-          </p>
-        ) : (
+      {!collapsed && (
+        <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+          {headings.length === 0 ? (
+            <p className="text-muted-foreground px-2 py-4 text-xs">
+              暂无标题。输入 <code>#</code> 或用斜杠菜单插入标题。
+            </p>
+          ) : (
           headings.map((heading) => (
             <button
               key={heading.pos}
@@ -129,8 +119,9 @@ export function TocPanel({
               {heading.text || "无标题"}
             </button>
           ))
-        )}
-      </div>
-    </aside>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

@@ -3,6 +3,7 @@ import type { Editor } from "@tiptap/react";
 import { useEditorState } from "@tiptap/react";
 import { AlignCenter, AlignLeft, Link2, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Hint } from "@/components/hint";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -10,6 +11,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { resolveRenderSrc } from "@/kb/asset-src";
 
 /**
  * 图片卡片工具条(PRD §5.3.7)M2:选中图片(NodeSelection)时浮出。
@@ -128,32 +130,34 @@ export function ImageToolbar({ editor, onPreview }: ImageToolbarProps) {
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border" />
 
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        title="居左"
-        className={cn(
-          "text-muted-foreground hover:text-foreground",
-          state.align !== "center" && "bg-accent text-accent-foreground hover:text-accent-foreground",
-        )}
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => setAlign("left")}
-      >
-        <AlignLeft className="size-3.5" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        title="居中"
-        className={cn(
-          "text-muted-foreground hover:text-foreground",
-          state.align === "center" && "bg-accent text-accent-foreground hover:text-accent-foreground",
-        )}
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => setAlign("center")}
-      >
-        <AlignCenter className="size-3.5" />
-      </Button>
+      <Hint label="居左">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className={cn(
+            "text-muted-foreground hover:text-foreground",
+            state.align !== "center" && "bg-accent text-accent-foreground hover:text-accent-foreground",
+          )}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setAlign("left")}
+        >
+          <AlignLeft className="size-3.5" />
+        </Button>
+      </Hint>
+      <Hint label="居中">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className={cn(
+            "text-muted-foreground hover:text-foreground",
+            state.align === "center" && "bg-accent text-accent-foreground hover:text-accent-foreground",
+          )}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setAlign("center")}
+        >
+          <AlignCenter className="size-3.5" />
+        </Button>
+      </Hint>
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border" />
 
@@ -168,16 +172,17 @@ export function ImageToolbar({ editor, onPreview }: ImageToolbarProps) {
           setLinkOpen(open);
         }}
       >
-        <PopoverTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            title="编辑图片链接"
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <Link2 className="size-3.5" />
-          </Button>
-        </PopoverTrigger>
+        <Hint label="编辑图片链接">
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <Link2 className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </Hint>
         <PopoverContent align="end" className="w-72 p-2.5">
           <Input
             autoFocus
@@ -206,16 +211,18 @@ export function ImageToolbar({ editor, onPreview }: ImageToolbarProps) {
         </PopoverContent>
       </Popover>
 
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        title="放大预览"
-        className="text-muted-foreground hover:text-foreground"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => onPreview?.(state.src || null)}
+      <Hint label="放大预览">
+        {/* 预览走渲染解析(./assets 相对引用 → asset:/dataURL),不能直接给 md 原始 src */}
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="text-muted-foreground hover:text-foreground"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onPreview?.(state.src ? resolveRenderSrc(state.src) : null)}
       >
         <Maximize2 className="size-3.5" />
-      </Button>
+        </Button>
+      </Hint>
     </div>
   );
 }

@@ -57,6 +57,7 @@
 
 .yz-editor-doc pre {
   background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md, 6px);
   padding: 0.9em 1.1em;
   font-family: var(--font-mono);
@@ -68,6 +69,7 @@
 /* 代码块卡片(CodeBlockCard NodeView):gutter 行号 + code 内容同字号行高 */
 .yz-editor-doc .yz-code-card {
   background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md, 6px);
   padding: 0.9em 1.1em;
   font-family: var(--font-mono);
@@ -138,6 +140,7 @@
 
 /* 表格卡片(GFM 管道表格):全网格细线 + 表头浅底;不做合并单元格 */
 .yz-editor-doc table {
+  border: 1px solid var(--border);
   border-collapse: collapse;
   table-layout: fixed;
   width: 100%;
@@ -174,6 +177,7 @@
 }
 
 .yz-editor-doc .yz-img-card img {
+  border: 1px solid var(--border);
   border-radius: 6px;
   display: inline-block;
   max-width: 100%;
@@ -188,6 +192,17 @@
 /* align=center 且独占段落的图片(image-card.tsx 段落级 decoration) */
 .yz-editor-doc .yz-img-center {
   text-align: center;
+}
+
+/* §8 编辑器设置「特殊卡片显示边框」关闭态:边框全透明而非摘除
+   (透明保占位,开关切换不引起卡片尺寸/布局跳动);类挂编辑器外层容器 */
+.yz-flat-cards .yz-editor-doc .yz-code-card,
+.yz-flat-cards .yz-editor-doc pre,
+.yz-flat-cards .yz-editor-doc table,
+.yz-flat-cards .yz-editor-doc th,
+.yz-flat-cards .yz-editor-doc td,
+.yz-flat-cards .yz-editor-doc .yz-img-card img {
+  border-color: transparent;
 }
 
 .yz-editor-doc ul[data-type="taskList"] {
@@ -205,6 +220,29 @@
   flex-shrink: 0;
   user-select: none;
   margin-top: 0.35em;
+}
+
+/* 文档内查找高亮(find-replace.ts 的 decoration);当前项实底 + 描边 */
+.yz-editor-doc .yz-find-match {
+  background: var(--find-match);
+  border-radius: 2px;
+}
+
+.yz-editor-doc .yz-find-match-current {
+  background: var(--find-match-current);
+  border-radius: 2px;
+  outline: 1px solid color-mix(in oklab, var(--foreground) 30%, transparent);
+}
+
+/* 双链:语雀式链接色,hover 下划线;单击跳转(应用层 handleClick) */
+.yz-editor-doc a[data-type="wiki-link"] {
+  color: var(--primary);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.yz-editor-doc a[data-type="wiki-link"]:hover {
+  text-decoration: underline;
 }
 
 /* Placeholder(Tiptap 首段空态) */

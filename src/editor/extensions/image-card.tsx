@@ -4,11 +4,14 @@ import { NodeSelection, Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { NodeViewProps } from "@tiptap/react";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
+import { resolveRenderSrc } from "@/kb/asset-src";
 
 /**
- * 图片卡片(PRD §5.3.7)M2 阶段:仅 UI。
- * width/align 是视图层属性,不进 md 序列化(imageToMd 只输出 alt/src);
- * 持久化方案随 M3 assets 落盘定(方言表无宽度语法,不擅自扩方言)。
+ * 图片卡片(PRD §5.3.7):attrs.src 始终存 md 相对引用(`./assets/x.png`),
+ * 渲染时经 resolveRenderSrc 解析成可显示 URL(tauri asset: 协议 / mock dataURL);
+ * 序列化零改动,md 真源不被渲染 URL 污染。
+ * width/align 是视图层属性,不进 md 序列化(方言表无宽度语法,不擅自扩方言;
+ * M3 已定:持久化不做,会话级视图属性,见 STATUS 决策记录)。
  * 独占段落的图片居中由段落级 decoration 实现(inline img 自身无法居中)。
  */
 
@@ -42,7 +45,7 @@ function ImageCardView({ node, selected }: NodeViewProps) {
       data-selected={selected || undefined}
     >
       <img
-        src={src}
+        src={resolveRenderSrc(String(src ?? ""))}
         alt={alt ?? ""}
         style={width ? { width } : undefined}
         draggable={false}

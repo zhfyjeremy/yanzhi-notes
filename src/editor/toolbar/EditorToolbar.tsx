@@ -6,6 +6,7 @@ import {
   Bold,
   Check,
   ChevronDown,
+  ClipboardCopy,
   Code,
   Heading1,
   Heading2,
@@ -30,6 +31,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Hint } from "@/components/hint";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,6 +46,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { FONT_COLORS } from "../extensions/font-color";
+import { copyPlainText, copyRichText } from "../clipboard";
 import { cn } from "@/lib/utils";
 
 /**
@@ -81,17 +84,18 @@ function ToolButton({
   children,
 }: ToolButtonProps) {
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      title={title}
-      disabled={disabled}
-      className={cn("text-muted-foreground hover:text-foreground", active && "bg-accent text-accent-foreground hover:text-accent-foreground")}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
-    >
-      {children}
-    </Button>
+    <Hint label={title}>
+      <Button
+        variant="ghost"
+        size="icon"
+        disabled={disabled}
+        className={cn("text-muted-foreground hover:text-foreground", active && "bg-accent text-accent-foreground hover:text-accent-foreground")}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={onClick}
+      >
+        {children}
+      </Button>
+    </Hint>
   );
 }
 
@@ -208,17 +212,18 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
           if (open) setColorSelection(editor.state.selection);
         }}
       >
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            title="文字颜色"
-            className={cn("text-muted-foreground hover:text-foreground", state.fontColor && "bg-accent text-accent-foreground hover:text-accent-foreground")}
-            onMouseDown={(e) => e.preventDefault()}
-          >
-            <Palette className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
+        <Hint label="文字颜色">
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn("text-muted-foreground hover:text-foreground", state.fontColor && "bg-accent text-accent-foreground hover:text-accent-foreground")}
+              onMouseDown={(e) => e.preventDefault()}
+            >
+              <Palette className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+        </Hint>
         <DropdownMenuContent align="start" className="w-40 p-2">
           <div className="grid grid-cols-4 gap-1">
             {FONT_COLORS.map((c) => (
@@ -267,16 +272,17 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
 
       {/* 链接(需输入,不 preventDefault) */}
       <Popover open={linkOpen} onOpenChange={openLinkPopover}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            title="链接"
-            className={cn("text-muted-foreground hover:text-foreground", state.link && "bg-accent text-accent-foreground hover:text-accent-foreground")}
-          >
-            <Link2 className="size-4" />
-          </Button>
-        </PopoverTrigger>
+        <Hint label="链接">
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn("text-muted-foreground hover:text-foreground", state.link && "bg-accent text-accent-foreground hover:text-accent-foreground")}
+            >
+              <Link2 className="size-4" />
+            </Button>
+          </PopoverTrigger>
+        </Hint>
         <PopoverContent align="start" className="w-72 p-2.5">
           <Input
             autoFocus
@@ -335,6 +341,39 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
       </ToolButton>
 
       <Divider />
+
+      {/* 复制为(纯文本 / 富文本 HTML,贴微信邮件等) */}
+      <DropdownMenu modal={false}>
+        <Hint label="复制为">
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground"
+              onMouseDown={(e) => e.preventDefault()}
+            >
+              <ClipboardCopy className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+        </Hint>
+        <DropdownMenuContent align="start" className="w-36">
+          <DropdownMenuItem
+            onClick={() => void copyPlainText(editor.state.doc.textContent)}
+          >
+            复制为纯文本
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() =>
+              void copyRichText(
+                editor.getHTML(),
+                editor.state.doc.textContent,
+              )
+            }
+          >
+            复制为 HTML
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <ToolButton title="撤销" disabled={!state.canUndo} onClick={() => editor.chain().focus().undo().run()}>
         <Undo2 className="size-4" />

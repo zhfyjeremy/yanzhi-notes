@@ -11,6 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Hint } from "@/components/hint";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -133,36 +134,37 @@ export function TableToolbar({ editor }: TableToolbarProps) {
 
       {/* 对齐:整列设置;点击已生效项还原默认 */}
       {ALIGN_ITEMS.map(({ key, label, icon: Icon }) => (
-        <Button
-          key={key}
-          variant="ghost"
-          size="icon-xs"
-          title={label}
-          className={cn(
-            "text-muted-foreground hover:text-foreground",
-            state.align === key && "bg-accent text-accent-foreground hover:text-accent-foreground",
-          )}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() =>
-            setColumnAlign(editor, state.align === key ? null : (key as ColumnAlign))
-          }
-        >
-          <Icon className="size-3.5" />
-        </Button>
+        <Hint key={key} label={label}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className={cn(
+              "text-muted-foreground hover:text-foreground",
+              state.align === key && "bg-accent text-accent-foreground hover:text-accent-foreground",
+            )}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() =>
+              setColumnAlign(editor, state.align === key ? null : (key as ColumnAlign))
+            }
+          >
+            <Icon className="size-3.5" />
+          </Button>
+        </Hint>
       ))}
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border" />
 
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        title="删除表格"
-        className="text-muted-foreground hover:text-foreground"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => editor.chain().focus().deleteTable().run()}
-      >
-        <Trash2 className="size-3.5" />
-      </Button>
+      <Hint label="删除表格">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="text-muted-foreground hover:text-foreground"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => editor.chain().focus().deleteTable().run()}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </Hint>
     </div>
   );
 }

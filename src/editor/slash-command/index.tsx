@@ -1,4 +1,5 @@
 import { Extension, type Editor, type Range } from "@tiptap/core";
+import { PluginKey } from "@tiptap/pm/state";
 import Suggestion, {
   type SuggestionOptions,
   type SuggestionProps,
@@ -21,7 +22,6 @@ import {
   Text,
   TextQuote,
 } from "lucide-react";
-import { insertImage } from "../extensions/image-card";
 import { SlashMenu, type SlashCommandDef } from "./SlashMenu";
 
 /**
@@ -29,7 +29,17 @@ import { SlashMenu, type SlashCommandDef } from "./SlashMenu";
  * MVP 菜单 = 文本类 + 卡片类(代码块/表格/图片/分割线);
  * callout/公式/mermaid 等 V2 解锁后才出现在菜单(PRD:不暴露未解锁项)。
  * UI 交互插件,不进 baseExtensions(不贡献 Schema);定位自算坐标,不引 tippy。
+ * 「图片」走文件选择 → assets 落盘(M3):COMMANDS 是模块级静态表拿不到
+ * React props,由 YanzhiEditor 经 setSlashImagePicker 注入应用层回调。
  */
+
+type SlashImagePicker = (editor: Editor) => void;
+let imagePicker: SlashImagePicker | null = null;
+
+/** YanzhiEditor 挂载时注入;卸载置 null(菜单回落为不执行) */
+export function setSlashImagePicker(fn: SlashImagePicker | null): void {
+  imagePicker = fn;
+}
 
 const heading = (
   level: 1 | 2 | 3 | 4 | 5 | 6,
@@ -108,10 +118,10 @@ const COMMANDS: SlashCommandDef[] = [
     label: "图片",
     icon: ImageIcon,
     keywords: ["image", "picture", "tupian", "tu"],
-    // 插入占位图并选中 → 浮层即出,「编辑图片链接」改地址;拖拽/粘贴落盘在 M3
+    // 文件选择 → assets 落盘 → 插入(应用层回调;取消则不插入)
     action: (editor, range) => {
       editor.chain().focus().deleteRange(range).run();
-      insertImage(editor, { src: "/placeholder.svg", alt: "图片" });
+      imagePicker?.(editor);
     },
   },
   {
@@ -234,6 +244,8 @@ export const SlashMenuExtension = Extension.create<{
   addProseMirrorPlugins() {
     return [
       Suggestion({
+        // 同一 editor 挂多个 suggestion([[双链检索)时必须独立 key,默认 suggestion$ 是模块级单例会冲突
+        pluginKey: new PluginKey("slashMenuSuggest"),
         editor: this.editor,
         ...this.options.suggestion,
         items: ({ query }) => filterCommands(query),
