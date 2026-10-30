@@ -1,0 +1,85 @@
+/** 知识库前端类型(与 src-tauri/src/kb.rs 的 serde 输出对齐) */
+
+export interface TreeNode {
+  name: string;
+  path: string; // 相对库根,POSIX 风格
+  isDir: boolean;
+  children: TreeNode[];
+}
+
+export interface RecentState {
+  last: string | null;
+  recent: string[];
+  lastDoc?: string | null;
+}
+
+/** rename_entry 返回:新路径 + 引用被联动改写的文档 + 替换次数(5.1 重命名联动) */
+export interface RenameResult {
+  newPath: string;
+  updatedFiles: string[];
+  refCount: number;
+}
+
+/** read_all_docs 单条(搜索索引构建用) */
+export interface DocContent {
+  path: string;
+  content: string;
+}
+
+/** 回收站条目(5.1.1):path = 原相对路径 */
+export interface TrashEntry {
+  path: string;
+  isDir: boolean;
+  docs: number;
+}
+
+/** 知识库后端能力面:tauri(真文件系统)与 browser(localStorage mock)同构 */
+export interface KbBackend {
+  readonly kind: "tauri" | "browser";
+  pickFolder(): Promise<string | null>;
+  createKb(root: string): Promise<void>; // 非空目录抛 { kind: "NOT_EMPTY" }
+  forceCreateKb(root: string): Promise<void>;
+  openKb(root: string): Promise<void>;
+  scanTree(root: string): Promise<TreeNode[]>;
+  readDoc(root: string, rel: string): Promise<string>;
+  writeDoc(root: string, rel: string, content: string): Promise<void>;
+  createDoc(root: string, folderRel: string, title: string): Promise<string>;
+  createFolder(root: string, folderRel: string, name: string): Promise<string>;
+  moveToTrash(root: string, rel: string): Promise<string>;
+  renameEntry(root: string, rel: string, newTitle: string): Promise<RenameResult>;
+  /** 移动(改父目录,名字不变;拖拽调整层级 5.1) */
+  moveEntry(root: string, src: string, destFolder: string): Promise<RenameResult>;
+  readMeta(root: string): Promise<string>;
+  writeMeta(root: string, content: string): Promise<void>;
+  getRecent(): Promise<RecentState>;
+  setRecent(root: string): Promise<void>;
+  /* ---- 全局设置(8:应用配置目录 / mock localStorage) ---- */
+  getSettings(): Promise<string>;
+  setSettings(content: string): Promise<void>;
+  setLastDoc(rel: string): Promise<void>;
+  /* ---- M3 增量 ---- */
+  /** 一次读全库(千文档级逐篇 readDoc 的 IPC 往返不可接受) */
+  readAllDocs(root: string): Promise<DocContent[]>;
+  /** 回收站内全部 md(反向链接「已删除」来源);path = 原相对路径 */
+  readAllTrashDocs(root: string): Promise<DocContent[]>;
+  /** 粘贴/拖拽图片字节落盘(9.3),返回 `./assets/<hash>.<ext>` */
+  saveAsset(root: string, docRel: string, ext: string, bytes: Uint8Array): Promise<string>;
+  /** 斜杠菜单「图片」文件选择 → 落盘;取消返回 null */
+  importImagesFromPicker(root: string, docRel: string): Promise<string[] | null>;
+  /** 图片 src 渲染解析(同步;img src 不能等 Promise) */
+  resolveAssetSrc(root: string, docRel: string, src: string): string;
+  /** 回收站列表/恢复;冲突且未给 strategy 抛 KbConflictError */
+  listTrash(root: string): Promise<TrashEntry[]>;
+  restoreTrash(root: string, rel: string, strategy?: "overwrite" | "rename"): Promise<string>;
+  /** 彻底删除回收站单条(不可恢复)/ 清空回收站 */
+  purgeTrash(root: string, rel: string): Promise<void>;
+  emptyTrash(root: string): Promise<void>;
+  /** 导入外部 Markdown(5.6);取消返回 null;返回落库后的相对路径 */
+  importDocsFromPicker(root: string, folderRel: string): Promise<string[] | null>;
+  /** 导出落盘(保存对话框);取消返回 null */
+  exportText(defaultName: string, filterExt: string, content: string): Promise<string | null>;
+  /** 导出 HTML 内联图片用 */
+  readAssetBase64(root: string, rel: string): Promise<{ data: string; mime: string } | null>;
+  /** 订阅库内文件外部变动(notify 去抖后);返回退订函数 */
+  listenFsEvent(cb: (paths: string[]) => void): Promise<() => void>;
+}

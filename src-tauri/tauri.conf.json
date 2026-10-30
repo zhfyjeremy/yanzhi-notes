@@ -14,11 +14,16 @@
       {
         "title": "砚知",
         "width": 1280,
-        "height": 800
+        "height": 800,
+        "dragDropEnabled": false
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**"]
+      }
     }
   },
   "bundle": {
