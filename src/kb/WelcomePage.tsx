@@ -57,7 +57,8 @@ export function WelcomePage({
           </div>
           <div>
             <h1 className="text-xl font-semibold">砚知</h1>
-            <p className="text-muted-foreground text-sm">
+            <p className="text-sm">一方砚,存所知</p>
+            <p className="text-muted-foreground text-xs">
               把笔记存在你电脑上的文件夹里,不上云、无账号
             </p>
           </div>

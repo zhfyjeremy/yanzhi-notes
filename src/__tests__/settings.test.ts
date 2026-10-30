@@ -15,6 +15,9 @@ describe("settings 解析(PRD §8)", () => {
       accent: "violet",
       cardBorder: true,
       imageCompress: true,
+      launch: "last",
+      showRightPanel: true,
+      showToolbar: true,
     });
     expect(parseSettings("{}")).toEqual(DEFAULT_SETTINGS);
     expect(parseSettings("not json")).toEqual(DEFAULT_SETTINGS);
@@ -36,9 +39,24 @@ describe("settings 解析(PRD §8)", () => {
       accent: "blue",
       cardBorder: false,
       imageCompress: false,
+      launch: "last",
+      showRightPanel: true,
+      showToolbar: true,
     });
     expect(parseSettings('{"cardBorder":"off"}').cardBorder).toBe(true);
     expect(parseSettings('{"imageCompress":0}').imageCompress).toBe(true);
+  });
+  it("启动偏好:welcome 直读,缺失/异型/未知回 last(5.0.4 默认直开上次库)", () => {
+    expect(parseSettings('{"launch":"welcome"}').launch).toBe("welcome");
+    expect(parseSettings('{"launch":"last"}').launch).toBe("last");
+    expect(parseSettings('{"launch":"resume"}').launch).toBe("last");
+    expect(parseSettings('{"launch":null}').launch).toBe("last");
+  });
+  it("显示菜单项(右侧面板/工具栏):布尔直读,缺失或异型回 true(默认显示)", () => {
+    expect(parseSettings('{"showRightPanel":false,"showToolbar":false}').showRightPanel).toBe(false);
+    expect(parseSettings('{"showToolbar":false}').showToolbar).toBe(false);
+    expect(parseSettings('{"showToolbar":"off"}').showToolbar).toBe(true);
+    expect(parseSettings('{"showRightPanel":0}').showRightPanel).toBe(true);
   });
 });
 

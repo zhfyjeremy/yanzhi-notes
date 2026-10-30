@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { kbBackend } from "./kb/backend";
+import { isTauriEnv, kbBackend } from "./kb/backend";
 
 /**
  * 全局设置(PRD §8):存 Tauri 应用配置目录 / mock localStorage,**不进知识库 meta**。
@@ -8,6 +8,9 @@ import { kbBackend } from "./kb/backend";
  */
 
 export type ThemeMode = "system" | "light" | "dark";
+
+/** §8 通用-启动:last = 直开上次的知识库(5.0.4 默认);welcome = 总是先看欢迎页 */
+export type LaunchMode = "last" | "welcome";
 
 /** 主色预设(§12:仅覆盖主色系 token,浅/深两套;自定义色值仍 V3)。
  *  accent 系是「主色相的浅灰底/深字」(hover 态),跟随色相走 */
@@ -31,7 +34,7 @@ const accentVars = (h: number, pS: number, pL: number, aS: number, aL: number, f
 export const ACCENT_PRESETS: AccentPreset[] = [
   {
     id: "blue",
-    name: "语雀蓝",
+    name: "砚蓝",
     swatch: "hsl(204 89% 44%)",
     light: accentVars(204, 89, 44, 60, 95, 30),
     dark: accentVars(204, 85, 56, 30, 20, 80),
@@ -89,6 +92,12 @@ export interface AppSettings {
   cardBorder: boolean;
   /** §8 图片:粘贴自动压缩(WebP 质量 85),默认开 */
   imageCompress: boolean;
+  /** §8 通用:启动时直开上次库(默认,5.0.4-1)或显示欢迎页 */
+  launch: LaunchMode;
+  /** 显示菜单勾选项(非设置页项,菜单「显示」控制):右侧大纲+反链面板 */
+  showRightPanel: boolean;
+  /** 显示菜单勾选项:编辑器顶部格式工具栏 */
+  showToolbar: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -96,6 +105,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   accent: DEFAULT_ACCENT,
   cardBorder: true,
   imageCompress: true,
+  launch: "last",
+  showRightPanel: true,
+  showToolbar: true,
 };
 
 const THEME_MODES: readonly ThemeMode[] = ["system", "light", "dark"];
@@ -109,6 +121,9 @@ export function parseSettings(raw: string): AppSettings {
       accent: typeof v?.accent === "string" && ACCENT_IDS.has(v.accent) ? v.accent : DEFAULT_ACCENT,
       cardBorder: typeof v?.cardBorder === "boolean" ? v.cardBorder : true,
       imageCompress: typeof v?.imageCompress === "boolean" ? v.imageCompress : true,
+      launch: v?.launch === "welcome" ? "welcome" : "last",
+      showRightPanel: typeof v?.showRightPanel === "boolean" ? v.showRightPanel : true,
+      showToolbar: typeof v?.showToolbar === "boolean" ? v.showToolbar : true,
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -137,6 +152,8 @@ const systemDark = (): boolean => window.matchMedia("(prefers-color-scheme: dark
 /**
  * 设置 hook:启动恢复 → 即时切换 → 持久化;「跟随系统」监听 OS 切换实时重挂。
  * 设置与知识库无关,欢迎页也要生效,故独立于 useKb。
+ * Tauri 下设置跑在独立窗口:改动经 yz-settings 事件广播,主窗/设置窗各自即时应用
+ * (浏览器 mock 单窗,无此链路)。
  */
 export function useSettings() {
   const [settings, setSettingsState] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -145,6 +162,7 @@ export function useSettings() {
 
   useEffect(() => {
     let alive = true;
+    let unListen: (() => void) | undefined;
     media.current = window.matchMedia("(prefers-color-scheme: dark)");
     void kbBackend
       .getSettings()
@@ -158,19 +176,38 @@ export function useSettings() {
       .catch(() => applyTheme(DEFAULT_SETTINGS, systemDark()));
     const onChange = () => applyTheme(ref.current, systemDark());
     media.current.addEventListener("change", onChange);
+    // 另一窗口改了设置(如设置窗切主色):拉平到同一份,不回写避免环路
+    if (isTauriEnv()) {
+      void import("@tauri-apps/api/event").then(async ({ listen }) => {
+        const un = await listen<AppSettings>("yz-settings", (e) => {
+          const s = e.payload;
+          if (!alive || JSON.stringify(s) === JSON.stringify(ref.current)) return;
+          const parsed = parseSettings(JSON.stringify(s));
+          ref.current = parsed;
+          setSettingsState(parsed);
+          applyTheme(parsed, systemDark());
+        });
+        if (!alive) un();
+        else unListen = un;
+      });
+    }
     return () => {
       alive = false;
+      unListen?.();
       media.current?.removeEventListener("change", onChange);
     };
   }, []);
 
-  /** 更新并落盘(全量 JSON 写,后端校验) */
+  /** 更新并落盘(全量 JSON 写,后端校验),并广播给其它窗口 */
   const update = useCallback((patch: Partial<AppSettings>) => {
     const next = { ...ref.current, ...patch };
     ref.current = next;
     setSettingsState(next);
     applyTheme(next, systemDark());
     void kbBackend.setSettings(JSON.stringify(next)).catch(console.error);
+    if (isTauriEnv()) {
+      void import("@tauri-apps/api/event").then(({ emit }) => emit("yz-settings", next));
+    }
   }, []);
 
   return { settings, update };

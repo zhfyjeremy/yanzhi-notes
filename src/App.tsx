@@ -52,7 +52,7 @@ function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [trashOpen, setTrashOpen] = useState(false);
   const [orphansOpen, setOrphansOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false); // 浏览器 dev 的 Dialog;Tauri 走独立窗口
   const { settings, update: updateSettings } = useSettings();
   // 失效双链弹窗目标 + 「搜索同名文档」预置信号(5.2.1-5)
   const [wikiDead, setWikiDead] = useState<string | null>(null);
@@ -73,7 +73,19 @@ function App() {
     toastTimer.current = window.setTimeout(() => setToast(null), 2600);
   }, []);
 
-  // 原生菜单「文件 → 新建/打开/最近打开」(5.0.4-2):Rust 侧建菜单并发 kb-menu 事件。
+  // 设置入口:浏览器 dev/E2E 用 Dialog;Tauri 独立窗口(open_aux_window 建窗/聚焦)。
+  // tab 供菜单「关于砚知」直落关于分类
+  const openSettings = useCallback((tab?: string) => {
+    if (isTauriEnv()) {
+      void import("@tauri-apps/api/core").then(({ invoke }) =>
+        invoke("open_aux_window", { label: "settings", tab: tab ?? null }).catch((e) => console.error(e)),
+      );
+    } else {
+      setSettingsOpen(true);
+    }
+  }, []);
+
+  // 原生菜单(5.0.4-2):Rust 侧建菜单并发 kb-menu 事件。
   // 非空/已是砚知库的确认走 App 级弹窗(欢迎页按钮触发时仍用页内确认卡,两条路只走一条)
   const [menuPending, setMenuPending] = useState<{ root: string; yanzhi: boolean } | null>(null);
   useEffect(() => {
@@ -81,9 +93,9 @@ function App() {
     let un: (() => void) | undefined;
     void (async () => {
       const { listen } = await import("@tauri-apps/api/event");
-      un = await listen<{ action: string; root?: string }>("kb-menu", (e) => {
+      un = await listen<{ action: string; root?: string; key?: string; value?: boolean }>("kb-menu", (e) => {
         void (async () => {
-          const { action, root } = e.payload;
+          const { action, root, key, value } = e.payload;
           if (action === "new") {
             const r = await kb.pickAndCreate();
             if (r?.kind === "not-empty") setMenuPending({ root: r.root, yanzhi: false });
@@ -95,12 +107,54 @@ function App() {
           } else if (action === "open-recent" && root) {
             const err = await kb.openKbAt(root);
             if (err) showToast(err);
+          } else if (action === "settings") {
+            openSettings();
+          } else if (action === "about") {
+            openSettings("about");
+          } else if (action === "help-keys") {
+            if (isTauriEnv()) {
+              void import("@tauri-apps/api/core").then(({ invoke }) =>
+                invoke("open_aux_window", { label: "shortcuts", tab: null }).catch((e) => console.error(e)),
+              );
+            }
+          } else if (action === "view" && key && typeof value === "boolean") {
+            // 显示菜单勾选项:目标值由 Rust 算好(!当前镜像),前端照单应用
+            if (key === "panel") updateSettings({ showRightPanel: value });
+            else if (key === "toolbar") updateSettings({ showToolbar: value });
+            else if (key === "focus") setFocusMode(value);
           }
         })();
       });
     })();
     return () => un?.();
-  }, [kb.pickAndCreate, kb.pickAndOpen, kb.openKbAt, showToast]);
+  }, [kb.pickAndCreate, kb.pickAndOpen, kb.openKbAt, openSettings, updateSettings, showToast]);
+
+  // 显示菜单勾选态回写(状态源在前端:面板/工具栏持久化在 settings,专注模式会话级)
+  useEffect(() => {
+    if (!isTauriEnv() || !kb.booted) return;
+    void import("@tauri-apps/api/core").then(({ invoke }) =>
+      invoke("set_view_state", {
+        panel: settings.showRightPanel,
+        toolbar: settings.showToolbar,
+        focus: focusMode,
+      }).catch(console.error),
+    );
+  }, [kb.booted, settings.showRightPanel, settings.showToolbar, focusMode]);
+
+  // 设置窗的「重建索引」动到主窗 KB 状态,经事件桥回来执行
+  useEffect(() => {
+    if (!isTauriEnv()) return;
+    let un: (() => void) | undefined;
+    void (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      un = await listen<{ action: string }>("yz-settings-action", (e) => {
+        if (e.payload?.action === "rebuild") {
+          void kb.rebuildIndex().then(() => showToast("索引已重建"));
+        }
+      });
+    })();
+    return () => un?.();
+  }, [kb.rebuildIndex, showToast]);
 
   // 专注模式:⌘/Ctrl+Shift+F 切换;双链历史:⌘[/⌘] 或 Alt+←/→
   useEffect(() => {
@@ -377,7 +431,7 @@ function App() {
             onSearchSelect={onSearchSelect}
             searchPreset={searchPreset}
             onRebuildIndex={() => void kb.rebuildIndex()}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenSettings={() => openSettings()}
             onOpenTrash={() => setTrashOpen(true)}
             orphanCount={kb.orphanMeta.length}
             onOpenOrphans={() => setOrphansOpen(true)}
@@ -388,37 +442,52 @@ function App() {
         )}
         <div className="flex min-h-0 flex-1 flex-col">
           {currentPath ? (
-            <div className="flex w-full shrink-0 items-center gap-1 px-6 pt-6 pb-2">
-              <div className="mb-1 flex items-center gap-0.5">
-                <Hint label="后退 (⌘[ / Alt+←)">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-muted-foreground size-7"
-                    disabled={!kb.canBack}
-                    onClick={() => void kb.navBack()}
-                  >
-                    <ChevronLeft className="size-4" />
-                  </Button>
-                </Hint>
-                <Hint label="前进 (⌘] / Alt+→)">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-muted-foreground size-7"
-                    disabled={!kb.canFront}
-                    onClick={() => void kb.navForward()}
-                  >
-                    <ChevronRight className="size-4" />
-                  </Button>
-                </Hint>
-              </div>
-              <input
-                className="bg-background min-w-0 flex-1 px-10 pb-1 text-3xl font-bold outline-none placeholder:text-muted-foreground/50"
-                value={title}
-                onChange={(e) => onTitleChange(e.target.value)}
-                placeholder="未命名文档"
-              />
+            /* 专注模式:导航按钮收起(纯 chrome,⌘[ ⌘] 仍可用),标题与正文同列对齐
+             * (mx-auto max-w-3xl px-16,同 EditorContent 容器);常态:按钮 + 标题一行 */
+            <div className="w-full shrink-0 px-6 pt-6 pb-2">
+              {focusMode ? (
+                <div className="mx-auto max-w-3xl px-16">
+                  <input
+                    className="bg-background w-full pb-1 text-3xl font-bold outline-none placeholder:text-muted-foreground/50"
+                    value={title}
+                    onChange={(e) => onTitleChange(e.target.value)}
+                    placeholder="未命名文档"
+                  />
+                </div>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <div className="mb-1 flex items-center gap-0.5">
+                    <Hint label="后退 (⌘[ / Alt+←)">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted-foreground size-7"
+                        disabled={!kb.canBack}
+                        onClick={() => void kb.navBack()}
+                      >
+                        <ChevronLeft className="size-4" />
+                      </Button>
+                    </Hint>
+                    <Hint label="前进 (⌘] / Alt+→)">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted-foreground size-7"
+                        disabled={!kb.canFront}
+                        onClick={() => void kb.navForward()}
+                      >
+                        <ChevronRight className="size-4" />
+                      </Button>
+                    </Hint>
+                  </div>
+                  <input
+                    className="bg-background min-w-0 flex-1 px-10 pb-1 text-3xl font-bold outline-none placeholder:text-muted-foreground/50"
+                    value={title}
+                    onChange={(e) => onTitleChange(e.target.value)}
+                    placeholder="未命名文档"
+                  />
+                </div>
+              )}
             </div>
           ) : (
             <div className="h-[76px] shrink-0" />
@@ -434,9 +503,10 @@ function App() {
             onPickImage={onPickImage}
             locateSignal={locateSignal}
             cardBorder={settings.cardBorder}
+            showToolbar={settings.showToolbar && !focusMode}
           />
         </div>
-        {!focusMode && editor && (
+        {!focusMode && settings.showRightPanel && editor && (
           <aside className="bg-muted/40 flex w-60 shrink-0 flex-col">
             <TocPanel editor={editor} scrollContainer={scrollEl} />
             <BacklinksPanel
@@ -473,7 +543,7 @@ function App() {
         emptyTrash={kb.emptyTrash}
         onToast={showToast}
       />
-      {/* 全局设置(8):卡片边框/主题/图片压缩/重建索引,即时生效,存应用目录 */}
+      {/* 全局设置(8):浏览器 dev 的 Dialog 容器(Tauri 为独立窗口);改动即时生效,存应用目录 */}
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}

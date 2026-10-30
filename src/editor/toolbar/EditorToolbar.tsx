@@ -159,7 +159,7 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
     HEADING_ITEMS.find((item) => item.level === state.heading) ?? HEADING_ITEMS[0];
 
   return (
-    <div className="bg-background flex h-12 shrink-0 items-center gap-0.5 px-3">
+    <div role="toolbar" aria-label="格式工具栏" className="bg-background flex h-12 shrink-0 items-center gap-0.5 px-3">
       {/* 标题下拉 */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

@@ -54,6 +54,25 @@
 | 设置与主题 | ✅ 工作区未提交 | §8 设置基座:Rust `get_settings`/`set_settings`(app_config_dir/settings.json 原文透传,前端管结构,mock = localStorage)+ `src/settings.ts`(parse 逐字段校验回退/resolvedIsDark 三态/applyTheme 挂 `.dark` + colorScheme)+ `useSettings`(matchMedia 实时跟随系统,`update(patch)` 合并落盘);`SettingsDialog.tsx` 四组:编辑器(特殊卡片边框开关)/外观(主题三选一 + **主色预设色板 6 色** + 排版只读)/图片(粘贴压缩开关)/搜索(索引时机说明 + 重建索引按钮带 toast);**主色色板**(原 V3 项,2026-10-30 提前):运行时内联覆盖 `--primary/--primary-foreground/--ring/--accent/--accent-foreground` 五 token(浅/深两套,每次主题变化重设),自定义色值仍 V3;入口 = 左栏底部常驻齿轮(主)+ 树头部「⋯ → 设置…」。**卡片边框**:代码块/表格/图片按 PRD 默认带边框(`--border`),关闭 = 容器挂 `yz-flat-cards` 边框全透明(保占位不跳版);**图片压缩**:canvas 前端 WebP q85(`image-compress.ts`,压缩在哈希命名前——同图同设置只存一份;SVG/GIF/压完更大/环境不支持时回退原图),paste/drag 链路生效;**主色色板 = V3,MVP 不做** → 已提前至 MVP(预设 6 色,自定义色值仍 V3) |
 | 未识别条目认领 | ✅ 工作区未提交 | 5.2.1:`meta.ts` 纯函数(findOrphanMeta/claimMetaKey/discardMetaKey,单测锁定)+ `OrphanMetaDialog.tsx`(逐条「认领合并/丢弃」,认领选择器同名优先,丢弃带确认条);入口 = 左栏底部条件渲染「未识别条目 N」(主色)+ 状态栏轻提示;失联扫描点 = 开库 / 外部监听树刷新后 / 整理动作后(`refreshTree` 同步 treeRef,防 .then 先于重渲染);认领的 sortIndex 即时参与树序。**失效双链**(5.2.1-5):点击 → 弹「链接目标不存在」+「搜索同名文档」→ 预置全局搜索(SearchBox 新增 preset) |
 
+### 设置窗口化 + 关于页(Typora 式,2026-10-30)🔨 代码完成,真机菜单/独立窗待肉眼验
+
+用户需求:设置开独立窗口、左右分类布局、加启动选项、主色长方形带名字、菜单可定制、关于页介绍项目;追加:显示菜单控制右侧面板/工具栏。
+
+| 项 | 状态 | 说明 |
+| --- | --- | --- |
+| 设置独立窗口 | ✅ 代码完成 | Tauri:`open_aux_window` 命令建/聚焦 label=`settings` 窗口(url `index.html#/settings[?tab=]`,780×560);`main.tsx` 按 hash 分流到 `SettingsWindow`(不挂主 App)。浏览器 dev/E2E 回落 Dialog(`SettingsDialog` 薄壳,同一 `SettingsPage` 组件)。capabilities `windows` 加 `settings` |
+| 左右分类布局 | ✅ E2E 过 | `SettingsPage`:左导航(通用/外观/编辑器/图片/搜索/关于,icon+文字)+ 右内容(`settings4.js` ①) |
+| 启动选项 | ✅ E2E 过 | 新增 `AppSettings.launch`(last/welcome,默认 last=5.0.4-1 行为);useKb 首启读设置门控自动直开;PRD §8 已同步补【通用设置】 |
+| 主色长方形色板 | ✅ E2E 过 | 3 列卡片:色块(h-7 圆角矩形)+ 名称,选中 ring;六色名:语雀蓝(标默认)/紫罗兰/苔绿/青碧/暖橙/绯红(`settings4.js` ③) |
+| 菜单全量中文化 | ✅ 代码完成待真机 | 弃用「默认菜单+insert」(会双「文件」),改 `Menu::with_items` 全量重建:砚知(关于/服务/隐藏/退出)、文件(+设置…)、编辑(预定义 undo/cut/…,快捷键 OS 接管)、显示(专注模式+全屏)、窗口(min/max/close)。专注模式**不**加菜单快捷键——⌘⇧F 前端已接管,菜单加速键会双触发 |
+| 关于页 | ✅ E2E 过 | 设置「关于」分类:品牌块 + slogan「一方砚,存所知」+ <100 字释义 + 本地优先/开放格式/数据自持三行 + 版本(`src/version.ts` 读 package.json);菜单「关于砚知…」= 设置窗直落 about tab(已开窗时 `yz-settings-tab` 广播切页)。欢迎页副标题加同款 slogan |
+| 设置跨窗同步 | ✅ | 设置窗自持 useSettings(读写同一 settings.json),改动 `yz-settings` 广播 → 主窗即时应用(收端 parse 后比对防环);「重建索引」动主窗状态,经 `yz-settings-action` 事件回主窗执行 |
+| 显示菜单勾选项 | ✅ E2E 过(布局态) | 右侧面板(大纲+反链)/ 工具栏/专注模式为 `CheckMenuItem`;状态源在前端(panel/toolbar 持久化进 settings,focus 会话级),Rust `ViewFlags` 只镜像,点击 → `kb-menu{action:"view",key,value}` → 前端应用 → `set_view_state` 回写重建菜单翻勾。⌘F 查找条不受工具栏开关影响(按需浮出)。**专注模式强制收工具栏与标题栏导航按钮**(临时态覆盖 showToolbar 偏好,与收左右栏同一语义;标题输入保留 = 文档身份/改名入口,⌘[ ⌘] 仍可用;E2E `settings4.js` ⑧)。E2E:`showToolbar/showRightPanel=false` 预置 → 重启格式条与右栏隐藏、目录树不受影响(`settings4.js` ⑥) |
+| 帮助菜单 + 快捷键窗 | ✅ E2E 过(页面体) | 帮助 → 快捷键说明…(macOS 仅此项;Windows 另补关于砚知…,id `yz_about_help` 避免与 App 菜单 `yz_about` 撞 id)。`open_aux_window` 泛化 label(settings/shortcuts),快捷键窗 460×600 不可缩放,hash 路由 `#/shortcuts`(`src/ShortcutsWindow.tsx`);条目与实现逐一对账(全局=App/YanzhiEditor keydown,格式/块级=Tiptap 3 StarterKit 默认键,查找条=find-replace),改键须同步此表。E2E:路由直开五分组 + 25 个 kbd 键帽(`settings4.js` ⑦;坑:同 page goto 只变 hash 不重载,须新开 page) |
+| 起始文档错误快捷键修正 | ✅ | 真机反馈:`STARTER_MD` 写「Ctrl/Cmd+E 切换代码块语言」不实——⌘E 实为行内代码(StarterKit Mod-e),代码块卡片无快捷键、语言只在其顶栏下拉。已改模板文案;**已建知识库的 `开始使用.md` 是用户数据不回写**,旧库那行需手改 |
+
+验证:130/130 单测(+launch/显示项解析)、`settings4.js` 13/13、pnpm build、cargo check 过。**待真机**:菜单栏条目、⌘W/⌘Q、设置独立窗口打开/聚焦/关于直落、设置窗改主色主窗即时变、显示菜单勾选翻勾。
+
 ### PRD §5 对账补齐(MVP 收尾,2026-10-30)🔨 代码完成,菜单待真机
 
 逐项对账 PRD 第 5 章后的补齐项(此前 STATUS「MVP 已全覆盖」表述不准确,现已补齐):

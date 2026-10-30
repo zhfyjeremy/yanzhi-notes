@@ -48,6 +48,8 @@ interface YanzhiEditorProps {
   locateSignal?: { term: string; seq: number } | null;
   /** §8 编辑器设置:特殊卡片边框;false → 容器挂 yz-flat-cards(边框透明) */
   cardBorder?: boolean;
+  /** 显示菜单「工具栏」:编辑器顶部格式条,默认显示 */
+  showToolbar?: boolean;
 }
 
 export function YanzhiEditor({
@@ -61,6 +63,7 @@ export function YanzhiEditor({
   onPickImage,
   locateSignal,
   cardBorder = true,
+  showToolbar = true,
 }: YanzhiEditorProps) {
   // 回调走 ref:onUpdate 闭包不随父组件重渲染重建
   const onChangeRef = useRef(onMarkdownChange);
@@ -208,7 +211,7 @@ export function YanzhiEditor({
 
   return (
     <div className={`flex min-h-0 flex-1 flex-col${cardBorder ? "" : " yz-flat-cards"}`}>
-      {editor && <EditorToolbar editor={editor} />}
+      {editor && showToolbar && <EditorToolbar editor={editor} />}
       {editor && findBar && (
         <FindReplaceBar
           editor={editor}

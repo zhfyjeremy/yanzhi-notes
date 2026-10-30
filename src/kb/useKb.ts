@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KbConflictError, KbIsYanzhiError, KbNotEmptyError, kbBackend } from "./backend";
+import { parseSettings } from "../settings";
 import type { RecentState, TreeNode, TrashEntry } from "./types";
 import { WikiRefIndex, type BacklinkRow } from "./backlinks";
 import { flattenDocs, resolveWikiTarget } from "./wiki-refs";
@@ -813,13 +814,18 @@ export function useKb() {
     return kbBackend.resolveAssetSrc(root, rel, src);
   }, []);
 
-  // 首启(5.0.4):上次库仍有效 → 直开;否则欢迎页
+  // 首启(5.0.4):上次库仍有效 → 直开;否则欢迎页。
+  // §8 通用-启动:「显示欢迎页」偏好下不自动直开(recent 列表照常恢复)
   useEffect(() => {
     void (async () => {
       try {
-        const state = await kbBackend.getRecent();
+        const [state, raw] = await Promise.all([
+          kbBackend.getRecent(),
+          kbBackend.getSettings().catch(() => "{}"),
+        ]);
         setRecent(state);
-        if (state.last) {
+        const launch = parseSettings(raw).launch;
+        if (state.last && launch === "last") {
           try {
             await kbBackend.openKb(state.last);
             await enterKb(state.last);
