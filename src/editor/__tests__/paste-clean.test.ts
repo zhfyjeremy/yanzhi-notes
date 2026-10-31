@@ -210,3 +210,16 @@ describe("cleanPastedHtml:文字颜色吸附(§5.7)", () => {
     expect(marks).toContain("fontColor");
   });
 });
+
+describe("cleanPastedHtml:折叠块归一化(V2 6.1.2)", () => {
+  it("原生 details → div[data-details](open/摘要/内容)", () => {
+    const out = cleanPastedHtml(
+      '<details open><summary>粘贴的摘要</summary><p>粘贴的内容。</p></details>',
+    );
+    expect(out).toContain("data-details");
+    expect(out).toContain('data-summary="粘贴的摘要"');
+    expect(out).toContain("data-open");
+    expect(out).toContain("粘贴的内容。");
+    expect(out).not.toContain("<details");
+  });
+});

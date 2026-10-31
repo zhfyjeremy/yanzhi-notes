@@ -14,6 +14,7 @@ import { RawHtml } from "./extensions/raw-html";
 import { CodeBlockCard } from "./extensions/code-block-card";
 import { ImageCard } from "./extensions/image-card";
 import { Callout } from "./extensions/callout";
+import { Details } from "./extensions/details";
 import { MathInline, MathBlock } from "./extensions/math";
 import { FontColor } from "./extensions/font-color";
 
@@ -50,6 +51,7 @@ export const baseExtensions = [
   StarterKit.configure({ codeBlock: false }),
   CodeBlockCard,
   Callout,
+  Details,
   MathInline,
   MathBlock,
   Highlight,

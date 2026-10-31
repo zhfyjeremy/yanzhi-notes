@@ -6,6 +6,7 @@ import tables from "./fixtures/tables.md?raw";
 import code from "./fixtures/code.md?raw";
 import dialect from "./fixtures/dialect.md?raw";
 import callout from "./fixtures/callout.md?raw";
+import details from "./fixtures/details.md?raw";
 import math from "./fixtures/math.md?raw";
 import mermaid from "./fixtures/mermaid.md?raw";
 import unknownHtml from "./fixtures/unknown-html.md?raw";
@@ -37,6 +38,7 @@ const cases: Record<string, string> = {
   code,
   dialect,
   callout,
+  details,
   math,
   mermaid,
   unknownHtml,

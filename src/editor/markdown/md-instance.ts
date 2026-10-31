@@ -196,6 +196,91 @@ md.core.ruler.after("inline", "yz_math_block", (state) => {
   }
 });
 
+/* <details><summary>标题</summary> … </details> → div[data-details] 折叠摘要块(PRD §6.1.2/§10)。
+ * md-it 把块级开标签吃到空行为止:开+摘要在同一 html_block token,闭标签独立一块;
+ * 紧凑形态(无空行)整块一个 token。仅认空属性或 open;其它属性/未闭合/引用内
+ * 一律不转换,保持 rawHtml 原文(§4.6 禁止静默丢弃)。summary 为纯文本(实体解码后存 attr)。 */
+const DETAILS_COMPACT = /^<details((?:\s[^>]*)?)>\n<summary>([\s\S]*?)<\/summary>\n<\/details>\n?$/;
+const DETAILS_OPEN = /^<details((?:\s[^>]*)?)>\n<summary>([\s\S]*?)<\/summary>\n?$/;
+
+/** open 属性:仅认空/open="open",其它属性返回 null(不转换,原文保留) */
+function detailsOpenAttr(raw: string | undefined): boolean | null {
+  if (!raw) return false;
+  const v = raw.trim();
+  if (v === "open" || v === 'open="open"' || v === "open='open'") return true;
+  return null;
+}
+
+function decodeSummaryEntities(s: string): string {
+  return s.replace(/&(amp|lt|gt|quot|#39);/g, (_, e: string) =>
+    ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" }[e] as string),
+  );
+}
+
+md.core.ruler.after("yz_math_block", "yz_details", (state) => {
+  const tokens = state.tokens;
+  const markDetails = (tok: (typeof tokens)[number], open: boolean, summary: string) => {
+    tok.type = "details_open";
+    tok.tag = "div";
+    tok.markup = "";
+    tok.attrSet("data-details", "1");
+    // md-it 渲染器对属性值自行 HTML 转义,这里存解码后的明文即可
+    tok.attrSet("data-summary", decodeSummaryEntities(summary));
+    if (open) tok.attrSet("data-open", "1");
+  };
+  const closeToken = () =>
+    Object.assign(new state.Token("details_close", "div", -1), { markup: "" });
+  // 空内容补一个空段落:content "block+" 至少一块,保证解析端拿到确定结构
+  const emptyParagraph = () => [
+    new state.Token("paragraph_open", "p", 1),
+    Object.assign(new state.Token("inline", "", 0), { content: "", children: [] }),
+    new state.Token("paragraph_close", "p", -1),
+  ];
+  let quoteDepth = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type === "blockquote_open") quoteDepth++;
+    else if (t.type === "blockquote_close") quoteDepth--;
+    else if (t.type === "html_block" && quoteDepth === 0) {
+      const compact = t.content.match(DETAILS_COMPACT);
+      if (compact) {
+        const open = detailsOpenAttr(compact[1]);
+        if (open === null) continue;
+        markDetails(t, open, compact[2]);
+        tokens.splice(i + 1, 0, ...emptyParagraph(), closeToken());
+        continue;
+      }
+      const openM = t.content.match(DETAILS_OPEN);
+      if (!openM) continue;
+      const open = detailsOpenAttr(openM[1]);
+      if (open === null) continue;
+      // 找配对闭标签(中间嵌套的 <details> 计数);未闭合保持原文
+      let nest = 0;
+      let closeIdx = -1;
+      for (let j = i + 1; j < tokens.length; j++) {
+        if (tokens[j].type !== "html_block") continue;
+        if (/^<\/details/.test(tokens[j].content)) {
+          if (nest === 0) {
+            closeIdx = j;
+            break;
+          }
+          nest--;
+        } else if (/^<details[\s>]/.test(tokens[j].content)) {
+          nest++;
+        }
+      }
+      if (closeIdx === -1) continue;
+      markDetails(t, open, openM[2]);
+      tokens[closeIdx].type = "details_close";
+      tokens[closeIdx].tag = "div";
+      tokens[closeIdx].markup = "";
+      tokens[closeIdx].nesting = -1; // html_block 原 nesting=0,须改成闭标签渲染
+      if (closeIdx === i + 1) tokens.splice(i + 1, 0, ...emptyParagraph());
+      i = closeIdx;
+    }
+  }
+});
+
 /* 块级未知 HTML → data-raw-html 占位(原文保留,见 extensions/raw-html.ts) */
 md.renderer.rules.html_block = (tokens, idx) => {
   const encoded = encodeURIComponent(tokens[idx].content);

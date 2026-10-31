@@ -249,6 +249,23 @@ class MarkdownSerializer {
         this.prefixStack.pop();
         break;
       }
+      case "details": {
+        // <details><summary>标题</summary>(PRD §10,GitHub 原生);open 属性 = 默认展开。
+        // summary 是 HTML 文本上下文,& < 须转义(解析端对应解码)
+        const summary = String(node.attrs.summary ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;");
+        this.write(`<details${node.attrs.open ? " open" : ""}>`);
+        this.newline();
+        this.write(`<summary>${summary}</summary>`);
+        this.newline();
+        this.blankLine();
+        this.renderChildren(node, true);
+        this.blankLine();
+        this.write("</details>");
+        this.newline();
+        break;
+      }
       case "bulletList":
         this.renderList(node, () => "- ");
         break;

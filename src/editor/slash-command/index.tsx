@@ -17,6 +17,7 @@ import {
   Image as ImageIcon,
   Info,
   List,
+  ListCollapse,
   ListOrdered,
   ListTodo,
   Minus,
@@ -137,6 +138,15 @@ const COMMANDS: SlashCommandDef[] = [
     keywords: ["quote", "block", "yinyong"],
     action: (editor, range) =>
       editor.chain().focus().deleteRange(range).toggleBlockquote().run(),
+  },
+  {
+    group: "卡片",
+    label: "折叠块",
+    icon: ListCollapse,
+    keywords: ["details", "collapse", "summary", "zhedie", "shouqi"],
+    // <details><summary> 存储(PRD §6.1.2);插入默认展开便于直接编辑,收起即默认收起
+    action: (editor, range) =>
+      editor.chain().focus().deleteRange(range).setDetails().run(),
   },
   {
     group: "卡片",

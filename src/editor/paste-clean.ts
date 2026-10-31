@@ -26,6 +26,8 @@ const KEEP_ATTRS: Record<string, readonly string[]> = {
   code: ["class"],
   li: ["data-type", "data-checked"],
   ul: ["data-type"],
+  // 折叠块(normalizeDetails 产出的形态,见下)
+  div: ["data-details", "data-summary", "data-open"],
 };
 
 /** 危险/噪音标签,连同内容删除(任务列表的 checkbox 在改造后也已移除) */
@@ -126,9 +128,26 @@ function downgradeMergedTables(root: HTMLElement): void {
   }
 }
 
+/** 原生 <details><summary> → div[data-details]:粘贴(GitHub 等)的折叠块直接转可编辑节点 */
+function normalizeDetails(root: HTMLElement): void {
+  for (const el of [...root.querySelectorAll("details")]) {
+    const summary = el.querySelector("summary");
+    const div = el.ownerDocument.createElement("div");
+    div.setAttribute("data-details", "1");
+    if (summary) div.setAttribute("data-summary", summary.textContent ?? "");
+    if (el.hasAttribute("open")) div.setAttribute("data-open", "1");
+    summary?.remove();
+    while (el.firstChild) div.append(el.firstChild);
+    el.replaceWith(div);
+  }
+}
+
 export function cleanPastedHtml(html: string): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
   const root = doc.body;
+
+  // 0) 原生 details 归一化(在标签白名单 unwrap 之前,折叠结构才不会被拆掉)
+  normalizeDetails(root);
 
   // 1) 任务列表改造(需在删 input 之前)
   normalizeTaskLists(root);
@@ -169,9 +188,11 @@ export function cleanPastedHtml(html: string): string {
   }
 
   // 7) 白名单外标签:私有命名空间(Word/WPS XML)整删,其余 unwrap 保内容
+  //    (normalizeDetails 产出的 div[data-details] 是 schema 可解析形态,豁免)
   for (const el of [...root.querySelectorAll("*")].reverse()) {
     const tag = el.tagName.toLowerCase();
     if (KEEP_TAGS.has(tag)) continue;
+    if (tag === "div" && el.hasAttribute("data-details")) continue;
     if (/^[a-z][a-z0-9]*:/.test(tag) || tag === "xml") el.remove();
     else el.replaceWith(...el.childNodes);
   }

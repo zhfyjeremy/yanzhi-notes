@@ -116,6 +116,69 @@
   font-weight: 400;
 }
 
+/* 折叠摘要块 Details(§6.1.2):<details><summary> 方言;open 属性 = 持久默认态,
+   折叠时 body 隐藏但 contentDOM 保持挂载(PM 要求) */
+.yz-editor-doc .yz-details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 6px);
+  padding: 0.35em 0.75em;
+}
+
+.yz-editor-doc .yz-details[data-selected] {
+  outline: 2px solid color-mix(in oklab, var(--primary) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.yz-editor-doc .yz-details-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  font-weight: 600;
+  font-size: 0.95em;
+  line-height: 1.6;
+}
+
+.yz-editor-doc .yz-details-toggle {
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.yz-editor-doc .yz-details-toggle:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.yz-editor-doc .yz-details-summary {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+
+.yz-editor-doc .yz-details-summary::placeholder {
+  color: var(--muted-foreground);
+  opacity: 0.6;
+  font-weight: 400;
+}
+
+.yz-editor-doc .yz-details-body {
+  padding-top: 0.2em;
+}
+
+.yz-editor-doc .yz-details:not([data-open]) .yz-details-body {
+  display: none;
+}
+
 /* 公式卡片(MathInline/MathBlock NodeView,PRD §6.1.3):KaTeX 离线渲染 */
 .yz-editor-doc .yz-math-inline {
   cursor: pointer;
