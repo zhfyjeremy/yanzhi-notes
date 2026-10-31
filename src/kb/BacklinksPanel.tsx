@@ -52,7 +52,7 @@ function Snippet({ text }: { text: string }) {
 }
 
 export function BacklinksPanel({ rows, onOpenSource, onOpenTrash }: BacklinksPanelProps) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   return (
     <section className="flex max-h-72 shrink-0 flex-col border-t border-border">

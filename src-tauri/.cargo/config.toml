@@ -1,6 +1,7 @@
 # crates.io 国内镜像(项目级);代理覆盖良好时可删除本文件
+# 2026-10-31:tuna 对 index 请求 403,切 USTC(注意 USTC 是 crates.io 上游同步,偶有延迟)
 [source.crates-io]
-replace-with = 'tuna'
+replace-with = 'ustc'
 
-[source.tuna]
-registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
+[source.ustc]
+registry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"

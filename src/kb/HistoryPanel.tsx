@@ -30,7 +30,7 @@ export function formatSnapshotTime(ms: number): string {
 }
 
 export function HistoryPanel({ docRel, version, intervalMin, listHistory, onSnapshot, onOpenEntry }: HistoryPanelProps) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
 
   const refresh = useCallback(() => {

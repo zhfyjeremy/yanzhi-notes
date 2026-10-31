@@ -288,7 +288,12 @@ pub fn write_doc(root: &str, rel: &str, content: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn create_doc(root: &str, folder_rel: &str, title: &str) -> Result<String, String> {
+pub fn create_doc(
+    root: &str,
+    folder_rel: &str,
+    title: &str,
+    content: Option<&str>,
+) -> Result<String, String> {
     let dir = if folder_rel.is_empty() {
         PathBuf::from(root)
     } else {
@@ -297,8 +302,8 @@ pub fn create_doc(root: &str, folder_rel: &str, title: &str) -> Result<String, S
     let title = sanitize_title(title);
     let filename = dedupe(&dir, &title, ".md", None);
     let abs = dir.join(&filename);
-    // 正文为空:显示标题来自文件名(9.2),标题输入框独立于正文
-    fs::write(&abs, "").map_err(err)?;
+    // 无内容时正文为空:显示标题来自文件名(9.2);模板新建由前端传入变换后的正文
+    fs::write(&abs, content.unwrap_or("")).map_err(err)?;
     Ok(rel_posix(Path::new(root), &abs))
 }
 
@@ -583,8 +588,33 @@ pub fn move_entry(root: &str, src: &str, dest_folder: &str) -> Result<RenameResu
             ref_count: 0,
         });
     }
+    // 文档移动前先计算 assets 迁移:目标文件夹 assets 按原文件名复制,
+    // Markdown 引用改写为 ./assets/<name>;源 assets 保留供其它文档共用。
+    let old_doc_dir = src_abs.parent().map(Path::to_path_buf);
+    let new_doc_dir = new_abs.parent().map(Path::to_path_buf);
+    let migrated_content = if !is_dir {
+        match fs::read(&src_abs).ok().and_then(|b| String::from_utf8(b).ok()) {
+            Some(content) if old_doc_dir.is_some() && new_doc_dir.is_some() => {
+                let (next, changed) = migrate_doc_asset_refs(
+                    Path::new(root),
+                    &content,
+                    old_doc_dir.as_deref().unwrap(),
+                    new_doc_dir.as_deref().unwrap(),
+                )?;
+                Some((next, changed))
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
     fs::rename(&src_abs, &new_abs).map_err(err)?;
     let new_rel = rel_posix(Path::new(root), &new_abs);
+    if let Some((content, changed)) = &migrated_content {
+        if *changed {
+            write_atomic(&new_abs, content)?;
+        }
+    }
 
     let mut patterns: Vec<(String, String)> = Vec::new();
     let mut prefix: Option<(&str, &str)> = None;
@@ -599,8 +629,11 @@ pub fn move_entry(root: &str, src: &str, dest_folder: &str) -> Result<RenameResu
             patterns.push((format!("[[{old_stem}|"), format!("[[{new_stem}|")));
         }
     }
-    let (updated_files, ref_count) =
+    let (mut updated_files, ref_count) =
         update_wikilink_refs(Path::new(root), &patterns, None, prefix)?;
+    if migrated_content.as_ref().is_some_and(|(_, changed)| *changed) && !updated_files.contains(&new_rel) {
+        updated_files.push(new_rel.clone());
+    }
     // 快照目录随文件夹整体迁移(子孙文档的快照目录嵌套在内)
     move_history_dir(Path::new(root), src, &new_rel);
 
@@ -609,6 +642,82 @@ pub fn move_entry(root: &str, src: &str, dest_folder: &str) -> Result<RenameResu
         updated_files,
         ref_count,
     })
+}
+
+/// 移动单篇文档时迁移 assets:只处理随文档存在且位于某层 assets/ 的相对目标。
+fn migrate_doc_asset_refs(
+    root: &Path,
+    content: &str,
+    old_doc_dir: &Path,
+    new_doc_dir: &Path,
+) -> Result<(String, bool), String> {
+    let root_canon = root.canonicalize().map_err(err)?;
+    let dest_assets = new_doc_dir.join("assets");
+    let mut out = String::with_capacity(content.len());
+    let mut offset = 0;
+    let mut changed = false;
+
+    while let Some(found) = content[offset..].find("](") {
+        let open = offset + found + 2;
+        let mut start = open;
+        while content[start..].chars().next().is_some_and(char::is_whitespace) {
+            start += content[start..].chars().next().unwrap().len_utf8();
+        }
+        let angle = content[start..].starts_with('<');
+        let target_start = start + usize::from(angle);
+        let target_end = if angle {
+            content[target_start..]
+                .find('>')
+                .map(|i| target_start + i)
+                .unwrap_or(target_start)
+        } else {
+            content[target_start..]
+                .find(|c: char| c == ')' || c.is_whitespace())
+                .map(|i| target_start + i)
+                .unwrap_or(target_start)
+        };
+        if target_end <= target_start {
+            out.push_str(&content[offset..start]);
+            offset = start;
+            continue;
+        }
+        let target = &content[target_start..target_end];
+        let rewritten = (|| -> Option<String> {
+            if target.is_empty()
+                || target.contains("://")
+                || target.starts_with("data:")
+                || target.starts_with('#')
+                || target.starts_with('/')
+                || target.starts_with('\\')
+            {
+                return None;
+            }
+            let source = old_doc_dir.join(target).canonicalize().ok()?;
+            if !source.starts_with(&root_canon)
+                || !source.components().any(|c| c.as_os_str() == "assets")
+                || !source.is_file()
+            {
+                return None;
+            }
+            fs::create_dir_all(&dest_assets).ok()?;
+            let name = source.file_name()?.to_os_string();
+            let dest = dest_assets.join(&name);
+            if !dest.exists() {
+                fs::copy(&source, &dest).ok()?;
+            }
+            Some(format!("./assets/{}", name.to_string_lossy()))
+        })();
+        out.push_str(&content[offset..target_start]);
+        if let Some(next) = rewritten {
+            changed |= next != target;
+            out.push_str(&next);
+        } else {
+            out.push_str(target);
+        }
+        offset = target_end;
+    }
+    out.push_str(&content[offset..]);
+    Ok((out, changed))
 }
 
 /// meta.json 按原文读写(前端管结构;写失败不阻塞文档保存,调用方容错)
@@ -829,18 +938,12 @@ pub fn import_asset(root: &str, doc_rel: &str, src_abs: &str) -> Result<AssetInf
     save_asset_bytes(root, doc_rel, &ext, &bytes)
 }
 
-/// 系统打开库内文件(附件卡片点击,PRD 6.1.5):macOS `open` / Windows `start`;
-/// 路径经 resolve 防逃逸(canonicalize 后须仍在库内)
-#[tauri::command]
-pub fn open_path(root: &str, rel: &str) -> Result<(), String> {
-    let abs = resolve(root, rel)?;
-    if !abs.is_file() {
-        return Err(format!("文件不存在: {rel}"));
-    }
+/// 系统打开(macOS `open` / Windows `start`):附件卡片与模板文件夹共用
+fn spawn_open(abs: &Path) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let mut cmd = {
         let mut c = std::process::Command::new("open");
-        c.arg(&abs);
+        c.arg(abs);
         c
     };
     #[cfg(target_os = "windows")]
@@ -849,8 +952,86 @@ pub fn open_path(root: &str, rel: &str) -> Result<(), String> {
         c.args(["/C", "start", "", &abs.to_string_lossy()]);
         c
     };
-    cmd.spawn().map_err(|e| format!("无法打开文件: {e}"))?;
+    cmd.spawn().map_err(|e| format!("无法打开: {e}"))?;
     Ok(())
+}
+
+/// 系统打开库内文件(附件卡片点击,PRD 6.1.5);
+/// 路径经 resolve 防逃逸(canonicalize 后须仍在库内)
+#[tauri::command]
+pub fn open_path(root: &str, rel: &str) -> Result<(), String> {
+    let abs = resolve(root, rel)?;
+    if !abs.is_file() {
+        return Err(format!("文件不存在: {rel}"));
+    }
+    spawn_open(&abs)
+}
+
+/// 文档模板(PRD 7.5):列出 `.yanzhi/templates/` 下的 .md 文件名(去扩展名,名称序)。
+/// 目录不存在 = 无模板,返回空列表而非错误(模板是可选项)
+#[tauri::command]
+pub fn list_templates(root: &str) -> Result<Vec<String>, String> {
+    let dir = Path::new(root).join(".yanzhi/templates");
+    let mut names: Vec<String> = match fs::read_dir(&dir) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map_or(false, |t| t.is_file()))
+            .filter_map(|e| {
+                let p = e.path();
+                if p.extension().map_or(false, |x| x == "md") {
+                    p.file_stem()?.to_str().map(str::to_string)
+                } else {
+                    None
+                }
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    names.sort();
+    Ok(names)
+}
+
+/// 模板名限单段(无路径分隔与 ..,防逃逸)→ 模板文件绝对路径
+fn template_path(root: &str, name: &str) -> Result<PathBuf, String> {
+    if name.is_empty() || name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err("非法模板名".to_string());
+    }
+    Ok(Path::new(root)
+        .join(".yanzhi/templates")
+        .join(format!("{name}.md")))
+}
+
+/// 读模板原文;非 UTF-8 lossy 呈现(与 read_doc 同口径)
+#[tauri::command]
+pub fn read_template(root: &str, name: &str) -> Result<String, String> {
+    let abs = template_path(root, name)?;
+    let bytes = fs::read(&abs).map_err(|_| format!("模板不存在: {name}"))?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// 写/新建模板(应用内模板管理,7.5);目录不存在则创建
+#[tauri::command]
+pub fn write_template(root: &str, name: &str, content: &str) -> Result<(), String> {
+    let abs = template_path(root, name)?;
+    if let Some(parent) = abs.parent() {
+        fs::create_dir_all(parent).map_err(err)?;
+    }
+    fs::write(&abs, content).map_err(err)
+}
+
+/// 删除模板(移入文件管理器可见的直接删除;模板不是正文,不进回收站)
+#[tauri::command]
+pub fn delete_template(root: &str, name: &str) -> Result<(), String> {
+    let abs = template_path(root, name)?;
+    fs::remove_file(&abs).map_err(|_| format!("模板不存在: {name}"))
+}
+
+/// 打开模板文件夹(不存在则创建):模板管理 = 直接在其中增删 .md 文件
+#[tauri::command]
+pub fn open_templates_dir(root: &str) -> Result<(), String> {
+    let dir = Path::new(root).join(".yanzhi/templates");
+    fs::create_dir_all(&dir).map_err(err)?;
+    spawn_open(&dir)
 }
 
 /// Markdown 文件选择器(导入用,多选);取消返回 null
@@ -935,6 +1116,74 @@ pub fn read_asset_base64(root: &str, rel: &str) -> Result<Option<AssetData>, Str
         b64.push(if chunk.len() > 2 { TABLE[n as usize & 63] as char } else { '=' });
     }
     Ok(Some(AssetData { data: b64, mime: mime.to_string() }))
+}
+
+fn collect_asset_files(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
+    for entry in fs::read_dir(dir).map_err(err)? {
+        let entry = entry.map_err(err)?;
+        let ft = entry.file_type().map_err(err)?;
+        if ft.is_symlink() {
+            continue;
+        }
+        if ft.is_dir() {
+            collect_asset_files(root, &entry.path(), out)?;
+        } else if ft.is_file() {
+            out.push(rel_posix(root, &entry.path()));
+        }
+    }
+    Ok(())
+}
+
+/// V3 未引用资源清理:列出所有 `<folder>/assets/` 内的文件,不进入 .yanzhi。
+#[tauri::command]
+pub fn list_assets(root: &str) -> Result<Vec<String>, String> {
+    let root_path = Path::new(root).canonicalize().map_err(err)?;
+    let mut out = Vec::new();
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
+        for entry in fs::read_dir(dir).map_err(err)? {
+            let entry = entry.map_err(err)?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            let ft = entry.file_type().map_err(err)?;
+            if ft.is_symlink() {
+                continue;
+            }
+            if ft.is_dir() {
+                if name.starts_with('.') || name == "node_modules" {
+                    continue;
+                }
+                if name == "assets" {
+                    collect_asset_files(root, &entry.path(), out)?;
+                } else {
+                    walk(root, &entry.path(), out)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    walk(&root_path, &root_path, &mut out)?;
+    out.sort();
+    Ok(out)
+}
+
+/// 只删除经前端确认无人引用的 assets 文件;任何非 assets 路径直接拒绝。
+#[tauri::command]
+pub fn delete_assets(root: &str, rels: Vec<String>) -> Result<usize, String> {
+    let root_path = Path::new(root).canonicalize().map_err(err)?;
+    let mut removed = 0;
+    for rel in rels {
+        let abs = resolve(root, &rel)?;
+        let under_assets = abs
+            .strip_prefix(&root_path)
+            .map_err(err)?
+            .components()
+            .any(|c| c.as_os_str() == "assets");
+        if !under_assets || !abs.is_file() {
+            return Err(format!("拒绝删除 assets 之外的路径: {rel}"));
+        }
+        fs::remove_file(abs).map_err(err)?;
+        removed += 1;
+    }
+    Ok(removed)
 }
 
 /* ---------------- 回收站(5.1.1) ---------------- */
@@ -1377,6 +1626,36 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// 7.5 模板:目录缺失 = 空列表;列出 .md(去扩展名,忽略非 md);名字防逃逸
+    #[test]
+    fn templates_list_read_and_traversal() {
+        let dir = std::env::temp_dir().join(format!("yz-tpl-test-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".yanzhi/templates")).unwrap();
+        std::fs::write(dir.join(".yanzhi/templates/b.md"), "# b\n").unwrap();
+        std::fs::write(dir.join(".yanzhi/templates/a.md"), "# a\n").unwrap();
+        std::fs::write(dir.join(".yanzhi/templates/note.txt"), "not md").unwrap();
+        let root = dir.to_string_lossy().to_string();
+
+        let names = list_templates(&root).unwrap();
+        assert_eq!(names, vec!["a".to_string(), "b".to_string()], "名称序,非 md 不列: {names:?}");
+        assert_eq!(read_template(&root, "a").unwrap(), "# a\n");
+        assert!(read_template(&root, "../meta").is_err(), "路径段模板名须拒绝");
+        assert!(
+            list_templates(&format!("{}/不存在目录-{}", std::env::temp_dir().to_string_lossy(), std::process::id())).unwrap().is_empty(),
+            "模板目录缺失 = 空列表而非错误"
+        );
+        // 写(目录缺失时连建)/ 读 / 改名另存(写新名 + 删旧)/ 删
+        let empty_root = dir.parent().unwrap().join(format!("yz-tpl-empty-{}", std::process::id()));
+        write_template(&empty_root.to_string_lossy(), "新建", "# 新\n\n骨架\n").unwrap();
+        assert_eq!(read_template(&empty_root.to_string_lossy(), "新建").unwrap(), "# 新\n\n骨架\n");
+        write_template(&root, "c", "# c\n").unwrap();
+        delete_template(&root, "b").unwrap();
+        assert!(delete_template(&root, "b").is_err(), "已删再删应报错");
+        assert_eq!(list_templates(&root).unwrap(), vec!["a".to_string(), "c".to_string()]);
+        std::fs::remove_dir_all(&dir).unwrap();
+        std::fs::remove_dir_all(&empty_root).unwrap();
+    }
+
     fn hist_test_root(tag: &str) -> String {
         let dir = std::env::temp_dir().join(format!("yz-hist-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1431,6 +1710,27 @@ mod tests {
         let list = list_history(&root, "随笔/b.md").unwrap();
         assert_eq!(list.len(), 1, "快照应已迁到新名: {list:?}");
         assert!(list_history(&root, "随笔/a.md").unwrap().is_empty());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// 9.3.4:移动文档时复制引用的 assets,并把上层目录引用改成目标文件夹相对路径
+    #[test]
+    fn move_doc_migrates_referenced_assets() {
+        let root = std::env::temp_dir().join(format!("yz-move-assets-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("assets")).unwrap();
+        std::fs::create_dir_all(root.join("旧")).unwrap();
+        std::fs::create_dir_all(root.join("新")).unwrap();
+        std::fs::write(root.join("assets/a.png"), b"png").unwrap();
+        std::fs::write(root.join("旧/文档.md"), "![图](../assets/a.png)").unwrap();
+        let root_s = root.to_string_lossy().to_string();
+        move_entry(&root_s, "旧/文档.md", "新").unwrap();
+        assert!(!root.join("旧/文档.md").exists());
+        assert_eq!(
+            std::fs::read_to_string(root.join("新/文档.md")).unwrap(),
+            "![图](./assets/a.png)"
+        );
+        assert_eq!(std::fs::read(root.join("新/assets/a.png")).unwrap(), b"png");
+        assert!(root.join("assets/a.png").exists(), "源资源保留供其它文档使用");
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

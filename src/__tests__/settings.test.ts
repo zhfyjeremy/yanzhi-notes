@@ -11,15 +11,9 @@ import {
 describe("settings 解析(PRD §8)", () => {
   it("合法值直读,缺失/损坏回默认", () => {
     expect(parseSettings('{"theme":"dark","accent":"violet"}')).toEqual({
+      ...DEFAULT_SETTINGS,
       theme: "dark",
       accent: "violet",
-      cardBorder: true,
-      imageCompress: true,
-      launch: "last",
-      showRightPanel: true,
-      showToolbar: true,
-      snapshotKeep: 30,
-      snapshotIntervalMin: 5,
     });
     expect(parseSettings("{}")).toEqual(DEFAULT_SETTINGS);
     expect(parseSettings("not json")).toEqual(DEFAULT_SETTINGS);
@@ -37,15 +31,9 @@ describe("settings 解析(PRD §8)", () => {
   });
   it("卡片边框/图片压缩:布尔直读,缺失或异型回 true", () => {
     expect(parseSettings('{"cardBorder":false,"imageCompress":false}')).toEqual({
-      theme: "system",
-      accent: "blue",
+      ...DEFAULT_SETTINGS,
       cardBorder: false,
       imageCompress: false,
-      launch: "last",
-      showRightPanel: true,
-      showToolbar: true,
-      snapshotKeep: 30,
-      snapshotIntervalMin: 5,
     });
     expect(parseSettings('{"cardBorder":"off"}').cardBorder).toBe(true);
     expect(parseSettings('{"imageCompress":0}').imageCompress).toBe(true);
@@ -72,14 +60,41 @@ describe("settings 解析(PRD §8)", () => {
     expect(parseSettings('{"showToolbar":false}').showToolbar).toBe(false);
     expect(parseSettings('{"showToolbar":"off"}').showToolbar).toBe(true);
     expect(parseSettings('{"showRightPanel":0}').showRightPanel).toBe(true);
+    // 右栏分区独立显隐:布尔直读,异型回 true
+    expect(parseSettings('{"showTags":false,"showHistory":false}').showTags).toBe(false);
+    expect(parseSettings('{"showOutline":"off"}').showOutline).toBe(true);
+    expect(parseSettings('{"showBacklinks":0}').showBacklinks).toBe(true);
+  });
+  it("V3 阅读参数与自定义主题:逐字段校验并钳制", () => {
+    const s = parseSettings(
+      '{"customAccent":"#AABBCC","readerFont":"serif","readerFontSize":99,"readerLineHeight":1.4,"readerParagraphSpacing":0.4}',
+    );
+    expect(s.customAccent).toBe("#aabbcc");
+    expect(s.readerFont).toBe("serif");
+    expect(s.readerFontSize).toBe(22);
+    expect(s.readerLineHeight).toBe(1.4);
+    expect(s.readerParagraphSpacing).toBe(0.4);
+    expect(parseSettings('{"customAccent":"red","readerFont":"mono"}')).toMatchObject({
+      customAccent: null,
+      readerFont: "default",
+    });
+  });
+  it("快捷键:合法组合逐项读取,缺失/冲突格式回默认", () => {
+    const s = parseSettings(
+      '{"shortcuts":{"focus":"Alt+KeyG","find":"Mod+Alt+KeyF","replace":"KeyF"}}',
+    );
+    expect(s.shortcuts.focus).toBe("Alt+KeyG");
+    expect(s.shortcuts.find).toBe("Mod+Alt+KeyF");
+    expect(s.shortcuts.replace).toBe(DEFAULT_SETTINGS.shortcuts.replace);
+    expect(s.shortcuts.slashMenu).toBe(DEFAULT_SETTINGS.shortcuts.slashMenu);
   });
 });
 
 describe("applyTheme 主色覆盖(浅/深两套)", () => {
   it("浅色挂 light 值,深色挂 dark 值;全部预设变量齐全", () => {
-    applyTheme({ theme: "light", accent: "violet" }, false);
+    applyTheme({ ...DEFAULT_SETTINGS, theme: "light", accent: "violet" }, false);
     expect(document.documentElement.style.getPropertyValue("--primary")).toBe("hsl(258 78% 48%)");
-    applyTheme({ theme: "dark", accent: "violet" }, false);
+    applyTheme({ ...DEFAULT_SETTINGS, theme: "dark", accent: "violet" }, false);
     expect(document.documentElement.style.getPropertyValue("--primary")).toBe("hsl(258 74% 62%)");
     for (const p of ACCENT_PRESETS) {
       for (const key of ["--primary", "--primary-foreground", "--ring", "--accent", "--accent-foreground"]) {
@@ -87,6 +102,25 @@ describe("applyTheme 主色覆盖(浅/深两套)", () => {
         expect(p.dark[key], `${p.id} dark ${key}`).toMatch(/^hsl\(/);
       }
     }
+  });
+  it("V3 主题参数写入编辑器 CSS 变量,自定义色覆盖主色", () => {
+    applyTheme(
+      {
+        ...DEFAULT_SETTINGS,
+        customAccent: "#336699",
+        readerFont: "kai",
+        readerFontSize: 19,
+        readerLineHeight: 1.9,
+        readerParagraphSpacing: 1.1,
+      },
+      false,
+    );
+    const root = document.documentElement;
+    expect(root.style.getPropertyValue("--editor-font-size")).toBe("19px");
+    expect(root.style.getPropertyValue("--editor-line-height")).toBe("1.9");
+    expect(root.style.getPropertyValue("--editor-paragraph-gap")).toBe("1.1em");
+    expect(root.style.getPropertyValue("--editor-font-family")).toContain("Kaiti");
+    expect(root.style.getPropertyValue("--primary")).toContain("210.0");
   });
 });
 

@@ -21,7 +21,7 @@
   --secondary: hsl(36 20% 94%);
   --secondary-foreground: hsl(25 15% 13%);
   --muted: hsl(36 20% 95%);
-  --muted-foreground: hsl(25 8% 46%);
+  --muted-foreground: hsl(25 8% 44%);
   --accent: hsl(204 60% 95%);
   --accent-foreground: hsl(204 89% 30%);
   --destructive: hsl(0 72% 51%);
@@ -29,13 +29,15 @@
   --border: hsl(34 15% 90%);
   --input: hsl(34 15% 88%);
   --ring: hsl(204 89% 44%);
+  /* 文档正文链接色:比 UI 主色更深一档,长文阅读达到 WCAG AA(4.5:1) */
+  --link: hsl(204 89% 36%);
 
   /* 代码语法色(Shiki 语义槽位,见 editor/extensions/code-highlight.ts) */
   --code-kw: hsl(348 76% 46%);
   --code-fn: hsl(258 55% 52%);
   --code-str: hsl(130 32% 32%);
   --code-emb: hsl(190 75% 30%);
-  --code-cm: hsl(25 8% 50%);
+  --code-cm: hsl(25 8% 42%);
   --code-num: hsl(212 82% 42%);
   --code-var: hsl(212 40% 42%);
   --code-op: hsl(350 22% 46%);
@@ -48,14 +50,15 @@
   --find-match: hsl(45 96% 60% / 0.45);
   --find-match-current: hsl(45 96% 50%);
 
-  /* 提示块 Callout(§6.1.1):每类型一对话语色(图标/标题)+ 浅底 */
-  --callout-info: hsl(204 89% 42%);
+  /* 提示块 Callout(§6.1.1):每类型一对话语色(图标/标题)+ 浅底;
+     话语色需在自身浅底上过 WCAG AA,故比深色侧的纯装饰色更深 */
+  --callout-info: hsl(204 89% 35%);
   --callout-info-bg: hsl(204 60% 96%);
-  --callout-success: hsl(152 62% 34%);
+  --callout-success: hsl(152 62% 27%);
   --callout-success-bg: hsl(152 40% 95%);
-  --callout-warning: hsl(32 92% 38%);
+  --callout-warning: hsl(32 92% 30%);
   --callout-warning-bg: hsl(38 90% 95%);
-  --callout-caution: hsl(4 78% 46%);
+  --callout-caution: hsl(4 78% 44%);
   --callout-caution-bg: hsl(4 70% 96%);
 }
 
@@ -79,13 +82,14 @@
   --border: hsl(25 9% 20%);
   --input: hsl(25 9% 24%);
   --ring: hsl(204 85% 56%);
+  --link: hsl(204 85% 62%);
 
   /* 代码语法色:暗色下整体提亮、略降饱和,靠 muted 底色衬出 */
   --code-kw: hsl(348 78% 68%);
   --code-fn: hsl(258 62% 74%);
   --code-str: hsl(130 38% 64%);
   --code-emb: hsl(190 65% 62%);
-  --code-cm: hsl(25 9% 55%);
+  --code-cm: hsl(25 9% 58%);
   --code-num: hsl(212 88% 68%);
   --code-var: hsl(212 38% 68%);
   --code-op: hsl(350 28% 68%);

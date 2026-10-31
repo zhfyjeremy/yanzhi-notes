@@ -4,7 +4,7 @@
 
 ## 现状一句话
 
-**MVP(第 5 章)与 M4 大部已提交;V2 批次一(Callout + 公式)与批次二全部四项(Mermaid + 历史快照 + 折叠摘要块 + 附件卡片)已提交并真机验证(2026-10-31)**。当前工作重点 = V2 6.3 双链增强已代码完成(待真机)→ 6.4(窗口记忆/PDF 导出/主题打磨)。测试 157/157,`pnpm build` 过。
+**MVP(第 5 章)与 M4 大部已提交;V2 全部完成**(批次一/二+6.3 已提交 b983837;6.4 窗口记忆已真机验证待提交,双主题打磨已完成待真机);**V3 除 BYOK AI 外全部完成**;图谱与模板已真机验证,批量操作/快捷键/有限主题/未引用资源清理与菜单图标本轮完成。PDF 导出两版实现均被否决,2026-10-31 整体撤销(导出回到 md/离线 HTML 两项)。测试 178/178(vitest)+ cargo 6/6,`pnpm build` 过。
 
 ## 里程碑(PRD §11.4 工期表)
 
@@ -44,15 +44,15 @@
 | [[双链]] 跳转 | ✅ 工作区未提交 | `[[` 检索菜单(重名强制路径写法 §517)/手打 `[[x]]` inputrule 即时成链/单击跳转(语雀式)/失效 toast;前进后退:⌘[ ⌘] 或 Alt+←/→ + 标题行按钮;mock E2E 全通(`wiki.js`) |
 | 重命名联动更新引用 | ✅ 工作区未提交 | rename 时全库替换 `[[旧名]]`(裸名/路径/别名;文件夹仅 [[…]] 区间内段级替换);Rust `kb.rs` 与 mock `wiki-refs.ts` 同构;改名 toast「已更新 N 处」;当前文档被改写自动重载 |
 | 文档内查找/替换 | ✅ 工作区未提交 | ⌘F 浮条即时高亮(不区分大小写)/Enter 步进/⌥⌘F 替换行(当前/全部,可撤销);`find-replace.ts` PM plugin + `toolbar/FindReplaceBar.tsx`;E2E 全通(`find.js`) |
-| assets 落盘 | ✅ 工作区未提交 | 粘贴/拖拽/文件选择(斜杠菜单+工具栏)→ 内容哈希 FNV-1a 16hex 命名 → 文档所在 `assets/` → `./assets/x.png` 相对路径;渲染经 assetProtocol(tauri)/dataURL(mock),md 真源不污染;`asset-src.ts` 解析注册表 |
+| assets 落盘 | ✅ 工作区未提交 | 粘贴/拖拽/文件选择(斜杠菜单+工具栏)→ 内容哈希 FNV-1a 16hex 命名 → 文档所在 `assets/` → `./assets/x.png` 相对路径;渲染经 assetProtocol(tauri)/dataURL(mock),md 真源不污染;`asset-src.ts` 解析注册表;**移动文档时 Rust/mock 同步复制被引用资源并改写路径(9.3.4)** |
 | 全局搜索 | ✅ 工作区未提交 | `search.ts`:FlexSearch 三路索引(标题8/路径4/正文1 加权,位次×权重自算排序),CJK bigram+单字、西文整词;160ms 去抖下拉 + `<mark>` 片段高亮 + ↑↓/Enter;点击打开文档并定位(⌘F 查找条联动);空态「重建索引」+ 树菜单入口;增量更新(保存/新建/改名/删除) |
 | 外部监听 | ✅ 工作区未提交 | Rust notify v8 + 400ms 静默窗去抖 → `kb-fs-event`;前端自写抑制窗 1.5s;无 dirty 静默重载,有 dirty 弹窗「保留我的/载入磁盘版本」 |
-| 回收站 UI | ✅ 工作区未提交 | `TrashDialog.tsx`:列表(文件夹含篇数)+ 单条恢复/**单条彻底删除/清空**(确认条,destructive 样式);原路径冲突三选一(覆盖/新名称/取消),KbConflictError 跨端同构。**永久删除/清空原为 V3,已提前至 M3**(PRD 5.1.1 同步);回收站永久保留、无自动清理。入口 = 左栏底部文字项(语雀式),头部只留「+」下拉(新建文档/文件夹)与「⋯」 |
+| 回收站 UI | ✅ 工作区未提交 | `TrashDialog.tsx`:列表(文件夹含篇数)+ 单条/批量恢复/**单条彻底删除/清空**(确认条,destructive 样式);批量恢复遇同名冲突默认恢复为新名称,避免静默覆盖;原路径冲突三选一(覆盖/新名称/取消),KbConflictError 跨端同构。回收站永久保留、无自动清理。入口 = 左栏底部文字项 |
 | 排序与折叠 | ✅ 工作区未提交 | `meta.ts`:sortIndex 持久化(`.yanzhi/meta.json`,300ms 去抖),HTML5 拖拽排序(before/after 同组改序,into = **移动到文件夹**,文件夹 25/50/25),禁拖自身子树;**跨组 before/after = 移动 + 按落位排序**(orderedPaths 传入 moveEntry 走 `applySiblingOrder`,into 落尾 `moveMetaToTail`);折叠状态持久化。**移动 = Rust `move_entry`**(改父目录、名字不变、同名冲突报错、幂等)+ mock 同构:meta 键/折叠键前缀迁移、路径写法 `[[双链]]` 前缀改写(裸名不动)、当前文档/前进后退历史重写;WKWebView 拖拽需 dragstart `setData` + `dragDropEnabled:false`(踩坑清单) |
 | 导入导出 | ✅ 工作区未提交 | 导入 md(文件选择 → `![...](...)` 非 http/data/绝对路径图片迁移进 assets + 引用改写);导出当前文档 md / 离线 HTML(`export-html.ts`:图片转 dataURL + 内联样式,语雀式 780px 页面);mock 走 DOM input/blob 下载同构 |
 | 反向链接面板 | ✅ 工作区未提交 | `backlinks.ts`(WikiRefIndex 出链索引,与搜索索引同点位增量维护)+ `BacklinksPanel.tsx`(右栏大纲下方分区);裸名/路径/别名三写法归一按目标聚合(解析与点击跳转同构 `resolveWikiTarget`),同源多引用计 ×N;来源入回收站 → 灰态「已删除」,点击引导去回收站(5.1.1-3);点击正常行 = 打开来源 + 查找条带词定位;Rust 新增 `read_all_trash_docs`;右栏改共享 aside,TOC 折叠从竖条改为分区头 chevron |
-| 设置与主题 | ✅ 工作区未提交 | §8 设置基座:Rust `get_settings`/`set_settings`(app_config_dir/settings.json 原文透传,前端管结构,mock = localStorage)+ `src/settings.ts`(parse 逐字段校验回退/resolvedIsDark 三态/applyTheme 挂 `.dark` + colorScheme)+ `useSettings`(matchMedia 实时跟随系统,`update(patch)` 合并落盘);`SettingsDialog.tsx` 四组:编辑器(特殊卡片边框开关)/外观(主题三选一 + **主色预设色板 6 色** + 排版只读)/图片(粘贴压缩开关)/搜索(索引时机说明 + 重建索引按钮带 toast);**主色色板**(原 V3 项,2026-10-30 提前):运行时内联覆盖 `--primary/--primary-foreground/--ring/--accent/--accent-foreground` 五 token(浅/深两套,每次主题变化重设),自定义色值仍 V3;入口 = 左栏底部常驻齿轮(主)+ 树头部「⋯ → 设置…」。**卡片边框**:代码块/表格/图片按 PRD 默认带边框(`--border`),关闭 = 容器挂 `yz-flat-cards` 边框全透明(保占位不跳版);**图片压缩**:canvas 前端 WebP q85(`image-compress.ts`,压缩在哈希命名前——同图同设置只存一份;SVG/GIF/压完更大/环境不支持时回退原图),paste/drag 链路生效;**主色色板 = V3,MVP 不做** → 已提前至 MVP(预设 6 色,自定义色值仍 V3) |
-| 未识别条目认领 | ✅ 工作区未提交 | 5.2.1:`meta.ts` 纯函数(findOrphanMeta/claimMetaKey/discardMetaKey,单测锁定)+ `OrphanMetaDialog.tsx`(逐条「认领合并/丢弃」,认领选择器同名优先,丢弃带确认条);入口 = 左栏底部条件渲染「未识别条目 N」(主色)+ 状态栏轻提示;失联扫描点 = 开库 / 外部监听树刷新后 / 整理动作后(`refreshTree` 同步 treeRef,防 .then 先于重渲染);认领的 sortIndex 即时参与树序。**失效双链**(5.2.1-5):点击 → 弹「链接目标不存在」+「搜索同名文档」→ 预置全局搜索(SearchBox 新增 preset) |
+| 设置与主题 | ✅ 工作区未提交 | §8 设置基座:Rust `get_settings`/`set_settings`(app_config_dir/settings.json 原文透传,前端管结构,mock = localStorage)+ `src/settings.ts`(parse 逐字段校验回退/resolvedIsDark 三态/applyTheme)+ `useSettings`(matchMedia 实时跟随系统,`update(patch)` 合并落盘);外观含主题三选一、主色预设 6 色、自定义主色、字体/字号/行高/段间距;编辑器卡片边框、图片压缩、搜索重建入口齐全。主色与阅读参数通过 CSS 变量即时覆盖,浅/深双值;入口 = 左栏齿轮 + 菜单设置 |
+| 未识别条目认领 | ✅ 工作区未提交 | 5.2.1:`meta.ts` 纯函数 + `OrphanMetaDialog.tsx`:支持逐条认领/丢弃、多选同名批量认领、批量丢弃;认领选择器同名优先,丢弃带确认;入口 = 左栏底部条件渲染「未识别条目 N」+ 状态栏轻提示;失联扫描点 = 开库 / 外部监听树刷新后 / 整理动作后。失效双链保留「搜索同名文档」引导 |
 
 ### 设置窗口化 + 关于页(Typora 式,2026-10-30)🔨 代码完成,真机菜单/独立窗待肉眼验
 
@@ -64,11 +64,11 @@
 | 左右分类布局 | ✅ E2E 过 | `SettingsPage`:左导航(通用/外观/编辑器/图片/搜索/关于,icon+文字)+ 右内容(`settings4.js` ①) |
 | 启动选项 | ✅ E2E 过 | 新增 `AppSettings.launch`(last/welcome,默认 last=5.0.4-1 行为);useKb 首启读设置门控自动直开;PRD §8 已同步补【通用设置】 |
 | 主色长方形色板 | ✅ E2E 过 | 3 列卡片:色块(h-7 圆角矩形)+ 名称,选中 ring;六色名:语雀蓝(标默认)/紫罗兰/苔绿/青碧/暖橙/绯红(`settings4.js` ③) |
-| 菜单全量中文化 | ✅ 代码完成待真机 | 弃用「默认菜单+insert」(会双「文件」),改 `Menu::with_items` 全量重建:砚知(关于/服务/隐藏/退出)、文件(+设置…)、编辑(预定义 undo/cut/…,快捷键 OS 接管)、显示(专注模式+全屏)、窗口(min/max/close)。专注模式**不**加菜单快捷键——⌘⇧F 前端已接管,菜单加速键会双触发 |
+| 菜单全量中文化 | ✅ 代码完成,图标待肉眼验 | 弃用「默认菜单+insert」,改 `Menu::with_items` 全量重建:砚知/文件/编辑/显示/窗口/帮助。系统预定义项由 macOS 提供原生快捷键与行为;自定义动作项改用 `IconMenuItem + NativeIcon` 显示左侧原生模板图标。设置紧邻「关于砚知…」下方,使用 `NativeIcon::Advanced` 真实齿轮并右侧显示 `⌘,`(`PreferencesGeneral` 实际是开关图,已弃用);可勾选分区保留系统勾选标记 |
 | 关于页 | ✅ E2E 过 | 设置「关于」分类:品牌块 + slogan「一方砚,存所知」+ <100 字释义 + 本地优先/开放格式/数据自持三行 + 版本(`src/version.ts` 读 package.json);菜单「关于砚知…」= 设置窗直落 about tab(已开窗时 `yz-settings-tab` 广播切页)。欢迎页副标题加同款 slogan |
 | 设置跨窗同步 | ✅ | 设置窗自持 useSettings(读写同一 settings.json),改动 `yz-settings` 广播 → 主窗即时应用(收端 parse 后比对防环);「重建索引」动主窗状态,经 `yz-settings-action` 事件回主窗执行 |
-| 显示菜单勾选项 | ✅ E2E 过(布局态) | 右侧面板(大纲+反链)/ 工具栏/专注模式为 `CheckMenuItem`;状态源在前端(panel/toolbar 持久化进 settings,focus 会话级),Rust `ViewFlags` 只镜像,点击 → `kb-menu{action:"view",key,value}` → 前端应用 → `set_view_state` 回写重建菜单翻勾。⌘F 查找条不受工具栏开关影响(按需浮出)。**专注模式强制收工具栏与标题栏导航按钮**(临时态覆盖 showToolbar 偏好,与收左右栏同一语义;标题输入保留 = 文档身份/改名入口,⌘[ ⌘] 仍可用;E2E `settings4.js` ⑧)。E2E:`showToolbar/showRightPanel=false` 预置 → 重启格式条与右栏隐藏、目录树不受影响(`settings4.js` ⑥) |
-| 帮助菜单 + 快捷键窗 | ✅ E2E 过(页面体) | 帮助 → 快捷键说明…(macOS 仅此项;Windows 另补关于砚知…,id `yz_about_help` 避免与 App 菜单 `yz_about` 撞 id)。`open_aux_window` 泛化 label(settings/shortcuts),快捷键窗 460×600 不可缩放,hash 路由 `#/shortcuts`(`src/ShortcutsWindow.tsx`);条目与实现逐一对账(全局=App/YanzhiEditor keydown,格式/块级=Tiptap 3 StarterKit 默认键,查找条=find-replace),改键须同步此表。E2E:路由直开五分组 + 25 个 kbd 键帽(`settings4.js` ⑦;坑:同 page goto 只变 hash 不重载,须新开 page) |
+| 显示菜单勾选项 | ✅ E2E 过(布局态) | 右侧面板(总开关)/ **四个分区独立勾选(大纲/反向链接/标签/历史版本,2026-10-31 用户需求;总开关关时分区项置灰)**/ 工具栏/专注模式为 `CheckMenuItem`;状态源在前端(panel/toolbar/四分区持久化进 settings,focus 会话级),Rust `ViewFlags` 只镜像,点击 → `kb-menu{action:"view",key,value}` → 前端应用 → `set_view_state` 回写重建菜单翻勾。⌘F 查找条不受工具栏开关影响(按需浮出)。**专注模式强制收工具栏与标题栏导航按钮**(临时态覆盖 showToolbar 偏好,与收左右栏同一语义;标题输入保留 = 文档身份/改名入口,⌘[ ⌘] 仍可用;E2E `settings4.js` ⑧)。四分区全关时右栏显示空态提示「分区均已隐藏」;右栏 aside 加 `aria-label="右侧面板"`(E2E/无障碍标识)。E2E:`showToolbar/showRightPanel=false` 预置 → 重启格式条与右栏隐藏、目录树不受影响(`settings4.js` ⑥);分区开关渲染链路 `panel-sections.js` 4/4 |
+| 帮助菜单 + 快捷键窗 | ✅ E2E 过(页面体) | 帮助 → 快捷键说明…;`open_aux_window` 通用 label(settings/shortcuts),快捷键窗 460×600 不可缩放,hash 路由 `#/shortcuts`。全局快捷键可直接录制、冲突检测、恢复默认并跨窗同步;格式/块级/查找条保留固定说明并与实现逐项对账。E2E 覆盖录制与主窗实际触发 |
 | 起始文档错误快捷键修正 | ✅ | 真机反馈:`STARTER_MD` 写「Ctrl/Cmd+E 切换代码块语言」不实——⌘E 实为行内代码(StarterKit Mod-e),代码块卡片无快捷键、语言只在其顶栏下拉。已改模板文案;**已建知识库的 `开始使用.md` 是用户数据不回写**,旧库那行需手改 |
 
 验证:130/130 单测(+launch/显示项解析)、`settings4.js` 13/13、pnpm build、cargo check 过。**待真机**:菜单栏条目、⌘W/⌘Q、设置独立窗口打开/聚焦/关于直落、设置窗改主色主窗即时变、显示菜单勾选翻勾。
@@ -88,7 +88,55 @@
 | TOC 大纲面板 | 5.4-1 | ✅ 核对为已有实现(`src/editor/panel/TocPanel.tsx`),此前审计 grep 截断误报缺失 |
 | bug:「仍要在此创建」再撞 NOT_EMPTY | — | ✅ `onForceCreate={kb.createKbAt}` 漏传 force,真 bug(E2E 未覆盖非空路径),已改 `(root) => kb.createKbAt(root, true)` |
 
-## V2 双链增强(6.3 批次,2026-10-31)🔨 代码完成,待真机验证
+## V3 自定义文档模板(2026-10-31)✅ 代码完成,用户真机已验证
+
+| 子项 | PRD | 状态 | 说明 |
+| --- | --- | --- | --- |
+| 模板存储与命令 | 7.5 | ✅ 代码完成 | 模板 = `.yanzhi/templates/*.md`,文件名即模板名;Rust `list_templates`(目录缺失 = 空列表不报错,只列 .md 去扩展名,名称序)/`read_template`(名字防逃逸,非 UTF-8 lossy 同 read_doc)/`write_template`(目录缺失则建)/`delete_template`(模板非正文,不进回收站)/`open_templates_dir`(不存在则创建 + 系统 open,抽 `spawn_open` 与 open_path 共用);`create_doc` 加 `content` 可选参(缺省仍建空文件)。mock 同构:`MockFs.templates`,并**顺手修 mock createDoc 不同构**(此前误写 `# title`,真机 Rust 一直是空文件,9.2) |
+| 新建时选择器 | 7.5 | ✅ 代码完成 | App `handleCreateDoc` 拦截 4 个新建入口:`listTemplates` 空 → 零打扰直建(现状不变);非空 → `TemplatePicker`(语雀式:名称输入(打开即全选)+ listbox「空白文档 + 模板」;Enter/创建/双击确认,Esc 取消;底部「管理模板…」互通);模板读取失败回退空白不挡新建 |
+| 应用内模板管理 | 7.5 | ✅ 代码完成 | `TemplateManager`(2026-10-31 用户需求「页面直接写模板,不用开文件夹」):列表 + 新建/编辑/删除(二次确认);**编辑内嵌正式 YanzhiEditor**(方言卡片可直接写进模板;markdown prop 传冻结初值防回灌重载,key 锁实例);改名 = 写新名 + 删旧文件;非法字符/撞名校验。入口:设置 → 通用「管理模板…」(SettingsPage 内挂,设置窗/Dialog 两容器零穿透)+ 选择器底部;onChanged 通知主窗刷新选择器列表。已知边界:编辑器 onMarkdownChange 去抖 300ms,输入后 <300ms 极速点保存可能丢最后几个字(人类手速达不到,E2E 已对齐时序) |
+| 首行 H1 剥离 | 7.5 | ✅ | `templates.ts templateToContent`:模板首行恰为 `# ` 开头时剥离该行 + 紧邻空行——砚知标题由文件名承担(9.2,空白新建正文无 H1),模板建出的同构;H2 以下骨架原样。索引用真实正文(模板可带 [[双链]],反链/搜索立即生效);`#无空格`/H2 开头/无 H1 均原样(单测 8 用例锁定) |
+| 设置入口 | 7.5 | ✅ | 设置 → 通用「文档模板」分区:root 经 getRecent(设置窗独立于主窗),「管理模板…」(主)+「打开」文件夹(留给习惯文件系统的用户);Hint 说明模板即 .md 文件 |
+
+验证:E2E `templates.js` 15/15,用户 2026-10-31 真机确认模板新建、应用内管理、打开模板文件夹均正常。
+
+## V3 文档关系图谱(2026-10-31)✅ 代码完成,用户真机已验证
+
+| 子项 | PRD | 状态 | 说明 |
+| --- | --- | --- | --- |
+| 图谱窗口 | 7.x | ✅ 代码完成 | aux window 复用 `open_aux_window`(label `graph`,1080×760,hash 路由 `#/graph`,显示菜单「文档图谱…」入口);`GraphWindow.tsx` + `main.tsx` lazy 分流(**React.lazy 隔离 d3 进独立 chunk**,主 bundle 零污染);capabilities windows 加 `graph` |
+| 力导向布局 | 7.x | ✅ | d3-force + SVG:link(90/0.3)/charge(-260)/collide(nodeR+8)/x/y 定心(**不用 forceCenter**,与 x/y 叠加会把图压紧);**alphaDecay 0.05 加速收敛**——默认 ~300 tick(≈5s)才触发 "end",自动 fitView 等不起(首版实录:截图窗口内 end 未触发、canvas 无 transform,图偏挤偏右被观感审计抓到);度数 = 出+入(同源同目标去重),nodeR = 5+√degree×2.4 |
+| 数据链 | 7.x | ✅ | getRecent(root/lastDoc)→ readAllDocs 全文 → parseWikiOut 出链 → resolveWikiTarget 归一(与编辑器点击跳转同一解析);失效目标不画边、自链跳过;current = lastDoc 打开时快照(高亮外环 + 标签加粗) |
+| 交互 | 7.x | ✅ | 拖拽节点(drag,dragMoved 布尔区分拖拽/点击)、滚轮缩放(zoom filter 排除节点上 mousedown 让给 drag)、k<0.7 隐藏标签;fitView 包围盒自适应(`sim.on("end")` + fitted 标志只首次,**d3-dispatch 无 once 选项**)+「适应窗口/重新读取」按钮;StrictMode 双挂载需 canvas 清场防 join 重复 |
+| 跨窗打开 | 7.x | ✅ | 点击节点 → tauri `emit("yz-graph-open", rel)` / 浏览器 CustomEvent(E2E 断言);主窗 App.tsx listen → kb.openDoc + `setFocus()` 拉回前台 |
+
+验证:E2E `graph.js` 12/12(渲染/高亮环/点击事件/无链文案/空态/刷新)、d3 独立 chunk、截图观感过;用户 2026-10-31 真机确认图谱窗、节点交互与跨窗打开正常。
+
+## V3 批量操作 / 快捷键 / 主题 / 资源清理(2026-10-31)✅ 本轮完成
+
+| 子项 | PRD | 状态 | 说明 |
+| --- | --- | --- | --- |
+| 批量文档操作 | 7.2 | ✅ | 默认树行无勾选框;标题栏「进入批量选择」显式切换模式,模式内整行勾选,支持 Shift 连选、`Cmd/Ctrl+A` 全选可见文档、Esc 退出;文档右键批量选择、文件夹右键选择全部文档;顶部紧凑 `⋯` 菜单提供移动、加/减标签、查找替换与前缀/后缀改名。改名有目标预览、空名/重名/重复目标预检;移动和改名沿用双链联动 |
+| 回收站批量恢复 | 7.2 | ✅ | 支持整行点击、复选框与全选;文件夹和子项均可勾选,执行时自动折叠为最上层路径;批量恢复默认 `rename` 冲突策略,不静默覆盖同名文档 |
+| 未识别 meta 批量认领 | 7.2 | ✅ | 多选后按「同类型 + 同名」自动匹配未被占用的目标;匹配不到的原样保留;另支持批量丢弃偏好 |
+| 快捷键自定义 | 7.3 | ✅ | `src/shortcuts.ts`:跨平台 `Mod/Alt/Shift + KeyboardEvent.code` 存储;专注模式、前进/后退、查找/替换、斜杠菜单均可录制,冲突检测、恢复默认;帮助窗直接编辑并跨窗同步 |
+| 有限主题定制 | 7.6 | ✅ | 自定义 `#rrggbb` 主色(按浅/深生成五 token)、系统默认/宋体/楷体、13–22px 字号、1.3–2.2 行高、0.2–1.6em 段间距;设置即时预览,不写 Markdown |
+| 移动文档 assets 迁移 | 9.3.4 | ✅ | Rust/mock 同构:移动文档时复制其仍引用的 assets 到目标文件夹并改写相对路径;源资源保留,避免误删其它文档共用资源 |
+| 未引用资源清理 | 7 V3 可选项 | ✅ | 设置 → 存储扫描全库 Markdown(含回收站,防恢复后丢图);只列各层 `assets/` 冗余文件,二次确认后删除;Rust 再校验路径必须位于 `assets/` |
+
+验证:vitest **178/178**、cargo **6/6**、`pnpm build` 过;浏览器真实交互 `remaining-v3.js` **15/15**(选择模式默认无勾选/Shift 连选/Cmd+A/Esc、主题参数、快捷键录制/实际触发、批量移动/标签/改名、批量恢复/多选/认领、Toast 层级、assets 迁移与清理)。
+
+## V2 导出与主题(6.4 批次,2026-10-31)✅ 全部完成(窗口记忆/双主题待提交)
+
+| 子项 | PRD | 状态 | 说明 |
+| --- | --- | --- | --- |
+| 窗口记忆 | 6.4-3 | ✅ 真机已验 | **tauri-plugin-window-state**(Rust 端注册即可,前端零改动,npm 包不装):主窗大小/位置关闭时自动落盘 app_config_dir、启动恢复,多屏/DPI/越界夹回由插件处理。`skip_initial_state("settings"/"shortcuts")`——辅助窗不恢复旧状态(快捷键窗固定尺寸、设置窗有最小尺寸约束,恢复会破坏布局)。库/文档/面板折叠记忆此前已有(recent.json/meta/settings),本项是最后一块拼图 |
+| PDF 导出 | 6.4-1 | ❌ 已撤销 | 两版均下线:①「打印版 HTML + 浏览器打印」(PRD 原主方案)被用户否决——链路太长体验不佳;②改「砚知内直出 .pdf」(屏外 webview + WKWebView printOperation/NSPrintSaveJob)实测**有问题**,用户拍板撤销不做了。功能整体移除(菜单/命令/依赖/打印样式全清,vitest 回 157/157),导出回到 md/离线 HTML 两项。**PRD 6.4-1 已标暂缓;后续重做教训:直出方案的屏外窗口渲染/打印时机在本机表现不稳,先做小样验证再上** |
+| 双主题打磨 | 6.4-2 | ✅ 代码完成 | **自动化 WCAG 对比度审计**代替凭感觉调色:E2E 内取 computed fg/bg(向上爬祖先链做半透明 alpha 合成 + opacity 链乘积),正文 4.5:1 / 大字与 UI 3.0:1 双阈值,覆盖 26 项目标(callout×4 标题+正文/表格/引用/代码四类 token/公式/折叠/附件/任务/双链/栏栏)浅深两轮,脚本 `/tmp/yanzhi-drive/audit-contrast.js`。修复(全在 token 层,组件零改动):① 新增 `--link` token(浅 hsl(204 89% 36%)/深 62%)——文内链接与 UI 主色语义分离,主色保持鲜亮用于按钮/选中,正文链接深一档保长文 AA,`editor.css` 链接(含双链)统一引用;② `--muted-foreground` 浅色 46%→44%(引用块顺带达标);③ callout 浅色话语色四色加深到 27-44%(深色侧本来就 5.6+ 不动);④ `--code-cm` 浅 42%/深 58%。结果 26/26 深浅全 PASS(浅色最低 4.71、深色最低 4.76);截图 theme-light/dark.png 观感确认无退化。测试 157/157 + build 过 |
+
+窗口记忆验证:改窗口大小/位置 → ⌘Q 退出 → 重开恢复(2026-10-31 真机过)。
+
+## V2 双链增强(6.3 批次,2026-10-31)✅ 已提交(b983837)并真机验证
 
 | 子项 | PRD | 状态 | 说明 |
 | --- | --- | --- | --- |
@@ -96,7 +144,7 @@
 | 文档置顶 | 6.3-3 | ✅ 代码完成 | `meta.docs.pinned`(DocMeta 字段早预留)+ sortTree 第一关键字(仅文档,置顶组内仍按 sortIndex/名称;**不越级** = 只作用于所在层级,子层置顶不影响根层);右键「置顶/取消置顶」,置顶行名称旁 Pin 图标;置顶行禁拖、不作 before/after 落点(永远最上,落位无意义);setDocPinned 幂等,false 不留脏键 |
 | 文档标签 | 6.3-2 | ✅ 代码完成 | 纯 meta(`tags: string[]` 不进正文,§10 无标签方言);搜索索引把 tags 以 `#tag` 拼进正文尾部参与 content 匹配(raws 片段仍取原文,命中位置不漂移);右栏 TagsPanel(折叠头 + chips:点击 = 左栏按标签过滤树(带标签文档保留,空文件夹隐藏,过滤态全树禁拖)、× = 移除;底部输入框回车批量添加,逗号/分号拆分——**onAdd 批量单调用**,避免连续多次展开同一渲染的 currentTags 互相覆盖的闭包竞态);树搜索框下标签筛选下拉(全库标签);setTags 原位更新搜索索引 |
 
-验证:vitest 157/157(backlinks 重写:heading 栈/fence 门控/片段截断;meta +8 用例:置顶序含组内 sortIndex/不越级/setDocPinned 幂等/setDocTags 去重保序/allTagsOf/filterTreeByTag 空文件夹隐藏)、`pnpm build` 过、E2E `v23.js` 12/12(反链两行展开+章节位置+高亮、置顶右键→最上+重载持久+取消恢复、标签批量添加→chip 过滤树只剩目标→清除恢复→搜索「#tag 词」命中→meta localStorage 持久化)。真机待验:树右键置顶/右栏标签面板添加与筛选/反链面板片段观感。截图分析服务故障未跑成,观感以 E2E DOM 断言为准,截图在 `/tmp/yanzhi-drive/v23-final.png`
+验证:vitest 157/157(backlinks 重写:heading 栈/fence 门控/片段截断;meta +8 用例:置顶序含组内 sortIndex/不越级/setDocPinned 幂等/setDocTags 去重保序/allTagsOf/filterTreeByTag 空文件夹隐藏)、`pnpm build` 过、E2E `v23.js` 12/12(反链两行展开+章节位置+高亮、置顶右键→最上+重载持久+取消恢复、标签批量添加→chip 过滤树只剩目标→清除恢复→搜索「#tag 词」命中→meta localStorage 持久化)。真机已验(2026-10-31 用户确认「OK 了」,b983837 提交)。截图 `/tmp/yanzhi-drive/v23-final.png`(分析服务当日故障未跑成,观感以 E2E DOM 断言为准)
 
 ## V2 特殊卡片(批次二,2026-10-31)✅ 全部完成并真机验证
 
@@ -135,15 +183,16 @@
 
 ## 决策记录
 
+- **右栏低频分区默认折叠(2026-10-31)**:反向链接与历史版本初始为收起态,点击分区头可展开;仍受菜单「显示」中的独立显隐控制,展开状态维持会话级、不持久化。
+- **Toast 必须盖过 Dialog(2026-10-31)**:回收站恢复提示曾被同 `z-50` 的 mask 遮挡;全局 toast 固定 `z-[100]`,并加 `role=status/aria-live`,弹窗内操作反馈保持可见。
 - **标签只存 meta 不进正文(6.3 定)**:§10 方言表无 #tag 行内语法,标签写入正文会污染往返与外部编辑;搜索把 tags 以 `#tag` 拼进正文索引只是命中技巧(raws 片段仍取原文)。置顶沿用同思路(meta.docs.pinned),与 sortIndex/折叠同一存储层。
 - **图片 width/align 不入方言(M3 定)**:§10 方言表无宽度语法,不擅自扩;两者是会话级视图属性,重启即回原始尺寸(≤正文宽),持久化与 HTML 导出均不带。PRD §10 未加条目 = 明确不加。
 - **左栏入口归置(语雀式,2026-10-30)**:新建收敛为头部单个「+」下拉(文档/文件夹);回收站为低频入口,挪到左栏底部文字项;头部仅「+」「⋯」两个 icon。**lucide 1.x 里 `Trash` 与 `Trash2` 是同一图形**(带桶内两竖线,14px 细线下轮廓碎),无更干净的桶形候选,回收站图标改为 `DocTree.tsx` 自绘 `TrashGlyph`(盖沿+提手+锥形桶身)。**2026-10-31 用户反馈再收敛:树头部「⋯」整个移除**——导入 Markdown/导出当前文档/导出离线 HTML 三项移入原生菜单「文件」(最近打开与设置之间);重建索引只留设置(搜索分区)与搜索空态;设置入口 = 左栏底部齿轮 + 文件菜单。三个导入导出回调从 App.tsx 后段挪到菜单 useEffect 之前(依赖数组引用受 TDZ 限制);无文档时菜单导出 toast「未打开文档」。冒烟 `menu-smoke.js` 4/4(⋯ 移除/+ 下拉两项/左栏无导入导出/齿轮仍在);**菜单条目本身需真机肉眼**
 
 ## 下一步开工
 
-1. **V2 收尾(6.4)**:窗口大小位置记忆 → PDF 导出(打印版 HTML + 系统打印对话框入口 + 文案)→ 双主题打磨;6.3 已代码完成待真机(树右键置顶/标签面板/反链片段)
-2. **真机肉眼验证(a905c86 批)**:菜单栏条目、⌘W/⌘Q、设置独立窗口打开/聚焦/关于直落、设置窗改主色主窗即时变、显示菜单勾选翻勾(文件菜单导入导出三项 + 树头部 ⋯ 移除已验,2026-10-31);**V2 批次一真机**:演示文档「V2 卡片演示.md」的 callout 类型切换/公式双击编辑(库 = Desktop/zhishi)
-3. **真实链路手测**(dev 常驻且 Rust 命令全量已注册;未验子项):
+1. **真机肉眼验证(a905c86 批)**:菜单栏条目、⌘W/⌘Q、设置独立窗口打开/聚焦/关于直落、设置窗改主色主窗即时变、显示菜单勾选翻勾;**V2 批次一真机**:演示文档「V2 卡片演示.md」的 callout 类型切换/公式双击编辑(库 = Desktop/zhishi);**6.4 双主题打磨**:深浅两态过一遍各卡片观感
+2. **真实链路手测**(dev 常驻且 Rust 命令全量已注册;未验子项):
    - 双链:插入/跳转/前进后退/改名联动(裸名+路径+别名+文件夹段级);反向链接面板(聚合/×N/已删除灰态/点击定位)
    - 查找替换:⌘F/⌥⌘F/步进/全部替换/Esc;搜索定位(下拉点击 → 打开文档 + 查找条带词)
    - 文件树:文件夹改名(当前路径重写)/右键菜单/+ 下拉定位/移入回收站 → 回收站恢复(含冲突三选一)/单条彻底删除/清空
@@ -153,8 +202,8 @@
    - **导入导出**:导入含外链图片的 md(迁移进 assets);导出 md/离线 HTML(图片内嵌)另存对话框
    - 拖拽排序 + 折叠持久化(重开库保持);复制为 HTML 贴微信/邮件
    - **设置与主题**:切深色即时生效重启保持;「跟随系统」实时切换;卡片边框开关;粘贴图片压缩(真机粘贴截图 → assets 出现 .webp;设置真实落盘在 app_config_dir,与 mock 的 localStorage 不同链路)
-4. **M4 尾项**:IME 组合键回归(真机)、Windows 安装包(缺环境)
-5. V3 前置:BYOK AI(PRD §5.8/§11.4)
+3. **M4 尾项**:IME 组合键回归(真机)、Windows 安装包(缺环境)
+4. V3 剩余:BYOK AI(PRD §7.8);PDF 导出保持暂缓
 
 ## 踩过的坑(新代码前必读)
 
@@ -179,6 +228,7 @@
 - **mock 库首开文档是树序第一篇**(随笔/第一篇,不是开始使用):树序 = 文件夹递归在前。E2E 脚本要先点树切到目标文档再断言,同文档点击会被 openDoc 的 `rel===cur` 守卫拦下(行为正确,脚本易误判)
 - **macOS Option 组合快捷键的 `e.key` 是特殊字符**(⌥F → `ƒ`):判断组合键用 `e.code === "KeyF"`,别用 e.key;浮层类组件的 Esc 关闭挂 window 级,不能只挂在 input(焦点在按钮/正文时也要能关);**同修饰键家族的快捷键必须互斥检查**(⌘F 查找没排除 shift → ⌘⇧F 专注模式把查找条也一起打开;两个 handler 都挂 window,preventDefault 不拦其它 listener)
 - **WKWebView 的 navigator.clipboard.write 对 text/html 不稳**(手测实录:复制带表格文档贴出只剩拍平文本):富文本/纯文本复制统一走 tauri-plugin-clipboard-manager(`writeHtml(html, 纯文本回退)`,capabilities 加 allow-write-text/allow-write-html);且 getHTML 输出无样式,贴到微信/邮件必须先 `inlineStyles` 注入内联样式(无边框表格观感即"结构丢了")
+- **清华 crates.io 镜像对 index 请求 403(2026-10-31 实录)**:`mirrors.tuna.tsinghua.edu.cn/crates.io-index/config.json` 被拒(HTML 拒绝页),拉新 crate 必挂;已切 USTC(`src-tauri/.cargo/config.toml`,sparse+https://mirrors.ustc.edu.cn/crates.io-index/,curl 200 实测)。已缓存的 crate 不走 index 不受影响,所以平时无感、加新依赖才炸
 - 修改任何解析/序列化行为:**必须跑全量 fixtures**(`pnpm test`,当前 157/157)
 - **flexsearch 0.7.31 的 d.ts 是错的**(描述 async/worker 形态:`FlexSearch.create`、Promise search、number id),实际 ESM 默认导出 = Index 构造函数、同步 search 返回数组、string id 可用;vitest 走 CJS main 是 `{ Index }` 对象——`search.ts` 头部有运行时探测双兼容。**自定义切词必须挂 `encode`(返回 token 数组)**:挂 `tokenize` 函数静默不生效,CJK 会被默认拉丁编码器整段剥掉(搜索返回空)。多 token 默认 AND,`suggest:true` 兜底 OR
 - **内容哈希跨端必须逐字符对齐**:Rust `format!("{hash:016x}")` 是完整 16 hex(`:012x` 是最小宽度不是截断,u64 会打出 16 位,JS 手写截断曾错位);JS BigInt 侧 `toString(16).padStart(16,"0")`。mock 与 Rust 两份实现靠测试向量锁定([0x61] → `af63dc4c8601ec8c`)

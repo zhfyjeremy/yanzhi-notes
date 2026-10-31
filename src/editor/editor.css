@@ -1,14 +1,15 @@
 /* 砚知正文排版(语雀式,初版):正文排版是颜值主战场,持续打磨 */
 .yz-editor-doc {
   outline: none;
-  font-size: 16px;
-  line-height: 1.75;
+  font-family: var(--editor-font-family, var(--font-sans));
+  font-size: var(--editor-font-size, 16px);
+  line-height: var(--editor-line-height, 1.75);
   color: var(--foreground);
   caret-color: var(--primary);
 }
 
 .yz-editor-doc > * + * {
-  margin-top: 0.75em;
+  margin-top: var(--editor-paragraph-gap, 0.75em);
 }
 
 .yz-editor-doc h1,
@@ -516,9 +517,12 @@
   outline: 1px solid color-mix(in oklab, var(--foreground) 30%, transparent);
 }
 
-/* 双链:语雀式链接色,hover 下划线;单击跳转(应用层 handleClick) */
+/* 正文链接(含双链)统一 --link(比 UI 主色深一档保证长文 AA);双链 hover 下划线;单击跳转(应用层 handleClick) */
+.yz-editor-doc a {
+  color: var(--link);
+}
+
 .yz-editor-doc a[data-type="wiki-link"] {
-  color: var(--primary);
   cursor: pointer;
   text-decoration: none;
 }

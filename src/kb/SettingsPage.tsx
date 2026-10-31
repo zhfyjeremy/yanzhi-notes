@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   Check,
   Database,
@@ -10,9 +11,13 @@ import {
   Search,
   SlidersHorizontal,
   Sun,
+  Trash2,
   Vault,
 } from "lucide-react";
-import type { AppSettings, LaunchMode, ThemeMode } from "../settings";
+import { kbBackend } from "./backend";
+import { TemplateManager } from "./TemplateManager";
+import { AssetCleanupDialog } from "./AssetCleanupDialog";
+import type { AppSettings, LaunchMode, ReaderFont, ThemeMode } from "../settings";
 import { ACCENT_PRESETS } from "../settings";
 import { APP_VERSION } from "../version";
 import { Button } from "@/components/ui/button";
@@ -132,6 +137,86 @@ const Hint = ({ children }: { children: React.ReactNode }) => (
   <p className="text-muted-foreground text-[11px]">{children}</p>
 );
 
+/** 模板文件夹行(7.5):设置窗独立于主窗,root 经 getRecent 取;
+ *  主入口 = 应用内管理对话框,「打开」文件夹留给习惯文件系统的用户 */
+function TemplatesRow() {
+  const [root, setRoot] = useState<string | null>(null);
+  const [mgrOpen, setMgrOpen] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void kbBackend
+      .getRecent()
+      .then((r) => {
+        if (alive) setRoot(r.last);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return (
+    <Row label="模板文件夹">
+      {root ? (
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2.5 text-xs"
+            aria-label="管理模板"
+            onClick={() => setMgrOpen(true)}
+          >
+            管理模板…
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground h-7 px-2.5 text-xs"
+            aria-label="打开模板文件夹"
+            onClick={() => void kbBackend.openTemplatesDir(root)}
+          >
+            打开
+          </Button>
+        </div>
+      ) : (
+        <span className="text-muted-foreground text-xs">未打开知识库</span>
+      )}
+      <TemplateManager open={mgrOpen} onOpenChange={setMgrOpen} root={root} />
+    </Row>
+  );
+}
+
+function AssetCleanupRow() {
+  const [root, setRoot] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void kbBackend
+      .getRecent()
+      .then((r) => {
+        if (alive) setRoot(r.last);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return (
+    <Row label="未引用资源">
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 px-2.5 text-xs"
+        disabled={!root}
+        onClick={() => setOpen(true)}
+      >
+        <Trash2 className="size-3.5" />
+        扫描并清理…
+      </Button>
+      <AssetCleanupDialog open={open} onOpenChange={setOpen} root={root} />
+    </Row>
+  );
+}
+
 /** 数字输入(快照上限/间隔):失焦与输入都即时钳制,parseSettings 同口径兜底 */
 function NumberInput({
   value,
@@ -169,15 +254,17 @@ const SectionTitle = ({ children }: { children: React.ReactNode }) => (
 /** 主色色板(长方形色块 + 名称,3 列) */
 function AccentPicker({
   value,
+  customAccent,
   onChange,
 }: {
   value: string;
+  customAccent: string | null;
   onChange: (id: string) => void;
 }) {
   return (
     <div className="grid grid-cols-3 gap-2">
       {ACCENT_PRESETS.map((p) => {
-        const active = value === p.id;
+        const active = !customAccent && value === p.id;
         return (
           <button
             key={p.id}
@@ -205,6 +292,42 @@ function AccentPicker({
         );
       })}
     </div>
+  );
+}
+
+function RangeRow({
+  label,
+  value,
+  min,
+  max,
+  step,
+  display,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  display: string;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <Row label={label}>
+      <span className="flex items-center gap-2">
+        <input
+          type="range"
+          aria-label={label}
+          className="accent-primary w-28 cursor-pointer"
+          value={value}
+          min={min}
+          max={max}
+          step={step}
+          onChange={(e) => onChange(Number(e.target.value))}
+        />
+        <span className="text-muted-foreground w-12 text-right text-xs tabular-nums">{display}</span>
+      </span>
+    </Row>
   );
 }
 
@@ -298,6 +421,13 @@ export function SettingsPage({ settings, onChange, onRebuildIndex, tab, onTabCha
                 </Group>
                 <Hint>设置与知识库分开存放,不写进知识库文件夹</Hint>
               </section>
+              <section className="space-y-2">
+                <SectionTitle>文档模板</SectionTitle>
+                <Group>
+                  <TemplatesRow />
+                </Group>
+                <Hint>模板是知识库 `.yanzhi/templates` 文件夹里的 .md 文件;放入后新建文档可选择从模板创建</Hint>
+              </section>
             </>
           )}
 
@@ -315,17 +445,80 @@ export function SettingsPage({ settings, onChange, onRebuildIndex, tab, onTabCha
               </section>
               <section className="space-y-2">
                 <SectionTitle>主色</SectionTitle>
-                <AccentPicker value={settings.accent} onChange={(id) => onChange({ accent: id })} />
-                <Hint>仅覆盖主色系;自定义色值将在后续版本提供</Hint>
+                <AccentPicker
+                  value={settings.accent}
+                  customAccent={settings.customAccent}
+                  onChange={(id) => onChange({ accent: id, customAccent: null })}
+                />
+                <Group>
+                  <Row label="自定义主色">
+                    <span className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        aria-label="自定义主色"
+                        className="border-border bg-background h-7 w-10 cursor-pointer rounded border p-0.5"
+                        value={settings.customAccent ?? "#2f80c1"}
+                        onChange={(e) => onChange({ customAccent: e.target.value })}
+                      />
+                      {settings.customAccent && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-muted-foreground h-7 px-2 text-xs"
+                          onClick={() => onChange({ customAccent: null })}
+                        >
+                          恢复预设
+                        </Button>
+                      )}
+                    </span>
+                  </Row>
+                </Group>
+                <Hint>自定义颜色会生成匹配的浅色、深色主色与选中底色</Hint>
               </section>
               <section className="space-y-2">
                 <SectionTitle>排版</SectionTitle>
                 <Group>
-                  <ValueRow label="字体" value="默认" />
-                  <ValueRow label="行高" value="默认" />
-                  <ValueRow label="段间距" value="默认" />
+                  <Row label="字体">
+                    <select
+                      aria-label="正文字体"
+                      className="border-border bg-background h-8 cursor-pointer rounded-md border px-2 text-xs outline-none"
+                      value={settings.readerFont}
+                      onChange={(e) => onChange({ readerFont: e.target.value as ReaderFont })}
+                    >
+                      <option value="default">系统默认</option>
+                      <option value="serif">宋体</option>
+                      <option value="kai">楷体</option>
+                    </select>
+                  </Row>
+                  <RangeRow
+                    label="字号"
+                    value={settings.readerFontSize}
+                    min={13}
+                    max={22}
+                    step={1}
+                    display={`${settings.readerFontSize}px`}
+                    onChange={(v) => onChange({ readerFontSize: v })}
+                  />
+                  <RangeRow
+                    label="行高"
+                    value={settings.readerLineHeight}
+                    min={1.3}
+                    max={2.2}
+                    step={0.05}
+                    display={settings.readerLineHeight.toFixed(2)}
+                    onChange={(v) => onChange({ readerLineHeight: v })}
+                  />
+                  <RangeRow
+                    label="段间距"
+                    value={settings.readerParagraphSpacing}
+                    min={0.2}
+                    max={1.6}
+                    step={0.05}
+                    display={`${settings.readerParagraphSpacing.toFixed(2)}em`}
+                    onChange={(v) => onChange({ readerParagraphSpacing: v })}
+                  />
                 </Group>
-                <Hint>自定义排版参数将在后续版本提供</Hint>
+                <Hint>只影响正文阅读观感,不写入 Markdown</Hint>
               </section>
             </>
           )}
@@ -345,9 +538,10 @@ export function SettingsPage({ settings, onChange, onRebuildIndex, tab, onTabCha
           )}
 
           {tab === "storage" && (
-            <section className="space-y-2">
-              <SectionTitle>历史快照</SectionTitle>
-              <Group>
+            <>
+              <section className="space-y-2">
+                <SectionTitle>历史快照</SectionTitle>
+                <Group>
                 <Row label="每篇文档保留快照上限">
                   <NumberInput
                     ariaLabel="保留快照上限"
@@ -366,11 +560,19 @@ export function SettingsPage({ settings, onChange, onRebuildIndex, tab, onTabCha
                     onChange={(v) => onChange({ snapshotIntervalMin: v })}
                   />
                 </Row>
-              </Group>
-              <Hint>
-                快照存在知识库的 .yanzhi/history 里;自动快照要求内容有变化,超出上限自动清理最旧的
-              </Hint>
-            </section>
+                </Group>
+                <Hint>
+                  快照存在知识库的 .yanzhi/history 里;自动快照要求内容有变化,超出上限自动清理最旧的
+                </Hint>
+              </section>
+              <section className="space-y-2">
+                <SectionTitle>资源文件</SectionTitle>
+                <Group>
+                  <AssetCleanupRow />
+                </Group>
+                <Hint>删除后不可恢复;Markdown 仍会引用到的图片和附件不会出现在候选列表</Hint>
+              </section>
+            </>
           )}
 
           {tab === "image" && (

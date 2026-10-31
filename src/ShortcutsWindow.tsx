@@ -1,24 +1,25 @@
+import { useEffect, useState } from "react";
+import { RotateCcw } from "lucide-react";
 import { useSettings } from "./settings";
+import { Button } from "@/components/ui/button";
+import {
+  DEFAULT_SHORTCUTS,
+  SHORTCUT_ACTIONS,
+  SHORTCUT_LABELS,
+  formatShortcut,
+  shortcutConflict,
+  shortcutFromEvent,
+  type ShortcutAction,
+} from "./shortcuts";
 
 /**
  * 快捷键说明独立窗口(hash 路由 #/shortcuts,帮助菜单进入):
- * 条目与实现一一对应——全局(App/YanzhiEditor keydown)、文本格式与块级
- * (Tiptap 扩展默认键)、查找条(find-replace)。改键或新增时同步此表。
+ * 全局快捷键可直接录制;固定条目与文本格式/块级(Tiptap 扩展默认键)、
+ * 查找条(find-replace)实现一一对应。改键或新增时同步此表。
  * useSettings 只为挂主题(跟随主窗/设置窗的 yz-settings 广播)。
  */
 
-const GROUPS: { title: string; rows: [string, string][] }[] = [
-  {
-    title: "全局",
-    rows: [
-      ["专注模式", "⌘⇧F"],
-      ["后退 / 前进(双链历史)", "⌘[ · ⌘]"],
-      ["后退 / 前进", "⌥← · ⌥→"],
-      ["查找", "⌘F"],
-      ["查找并替换", "⌥⌘F"],
-      ["关闭浮层(查找条/斜杠/双链建议)", "Esc"],
-    ],
-  },
+const FIXED_GROUPS: { title: string; rows: [string, string][] }[] = [
   {
     title: "文本格式",
     rows: [
@@ -58,17 +59,91 @@ function Kbd({ combo }: { combo: string }) {
 }
 
 export function ShortcutsWindow() {
-  useSettings();
+  const { settings, update } = useSettings();
+  const [capturing, setCapturing] = useState<ShortcutAction | null>(null);
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    if (!capturing) return;
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        setCapturing(null);
+        setNotice("已取消改键");
+        return;
+      }
+      const combo = shortcutFromEvent(e);
+      if (!combo) {
+        setNotice("快捷键需包含 ⌘/Ctrl 或 Alt,且不能只按修饰键");
+        return;
+      }
+      const conflict = shortcutConflict(settings.shortcuts, capturing, combo);
+      if (conflict) {
+        setNotice(`与「${SHORTCUT_LABELS[conflict]}」冲突,请换一个组合`);
+        return;
+      }
+      update({ shortcuts: { ...settings.shortcuts, [capturing]: combo } });
+      setNotice(`已将「${SHORTCUT_LABELS[capturing]}」设为 ${formatShortcut(combo)}`);
+      setCapturing(null);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [capturing, settings.shortcuts, update]);
+
   return (
     <div className="bg-background text-foreground h-screen overflow-y-auto">
       <div className="mx-auto max-w-md space-y-6 p-6 pb-10 text-sm">
         <header>
           <h1 className="text-base font-semibold">快捷键</h1>
           <p className="text-muted-foreground mt-1 text-xs">
-            ⌘ / ⌥ 对应 Windows 的 Ctrl / Alt;列表与当前版本行为一致
+            ⌘ / ⌥ 对应 Windows 的 Ctrl / Alt;点击快捷键即可重新录制
           </p>
         </header>
-        {GROUPS.map((g) => (
+        <section className="space-y-1">
+          <div className="flex items-center justify-between">
+            <h2 className="text-muted-foreground text-xs font-medium">全局</h2>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-muted-foreground h-6 px-2 text-[11px]"
+              onClick={() => {
+                update({ shortcuts: { ...DEFAULT_SHORTCUTS } });
+                setCapturing(null);
+                setNotice("已恢复默认快捷键");
+              }}
+            >
+              <RotateCcw className="size-3" />
+              恢复默认
+            </Button>
+          </div>
+          <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+            {SHORTCUT_ACTIONS.map((action) => (
+              <div key={action} className="flex items-center justify-between gap-4 px-3 py-2">
+                <span>{SHORTCUT_LABELS[action]}</span>
+                <button
+                  type="button"
+                  aria-label={`修改快捷键:${SHORTCUT_LABELS[action]}`}
+                  className={`focus:ring-ring rounded-md outline-none focus:ring-2 ${
+                    capturing === action ? "text-primary animate-pulse" : ""
+                  }`}
+                  onClick={() => {
+                    setNotice("");
+                    setCapturing(action);
+                  }}
+                >
+                  <Kbd combo={capturing === action ? "请按键…" : formatShortcut(settings.shortcuts[action])} />
+                </button>
+              </div>
+            ))}
+            <div className="flex items-center justify-between gap-4 px-3 py-2">
+              <span>关闭浮层</span>
+              <Kbd combo="Esc" />
+            </div>
+          </div>
+          {notice && <p className="text-muted-foreground px-1 text-[11px]">{notice}</p>}
+        </section>
+        {FIXED_GROUPS.map((g) => (
           <section key={g.title} className="space-y-1">
             <h2 className="text-muted-foreground text-xs font-medium">{g.title}</h2>
             <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">

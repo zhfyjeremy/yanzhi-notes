@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { FileText, FolderOpen, Trash2, Undo2 } from "lucide-react";
+import { CheckSquare2, FileText, FolderOpen, Square, Trash2, Undo2 } from "lucide-react";
 import type { TrashEntry } from "./types";
 import { KbConflictError } from "./backend";
 import {
@@ -12,11 +12,12 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/hint";
+import { minimalRestoreRoots, type BatchResult } from "./batch";
 
 /**
  * 回收站(PRD 5.1.1,语雀式):列表 + 单条恢复 / 单条彻底删除 / 清空。
  * 破坏性操作(彻底删除/清空)走顶部确认条 —— 与恢复冲突三选一同款交互;
- * 批量恢复仍是 V3。删除进站后永久保留,直至恢复或手动彻底删除。
+ * 支持任意多选与批量恢复。删除进站后永久保留,直至恢复或手动彻底删除。
  */
 
 const CONFIRM_ALL = "__all__";
@@ -26,6 +27,7 @@ interface TrashDialogProps {
   onOpenChange: (open: boolean) => void;
   listTrash: () => Promise<TrashEntry[]>;
   restoreTrash: (rel: string, strategy?: "overwrite" | "rename") => Promise<string>;
+  restoreTrashMany: (rels: string[], strategy?: "overwrite" | "rename") => Promise<BatchResult>;
   purgeTrash: (rel: string) => Promise<void>;
   emptyTrash: () => Promise<void>;
   onToast: (message: string) => void;
@@ -36,6 +38,7 @@ export function TrashDialog({
   onOpenChange,
   listTrash,
   restoreTrash,
+  restoreTrashMany,
   purgeTrash,
   emptyTrash,
   onToast,
@@ -44,10 +47,12 @@ export function TrashDialog({
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState<string | null>(null); // 待三选一的原路径
   const [confirming, setConfirming] = useState<string | null>(null); // 待确认彻底删除的路径 / CONFIRM_ALL
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
     try {
       setEntries(await listTrash());
+      setSelected(new Set());
     } catch (e) {
       console.error("[kb] 读取回收站失败:", e);
       setEntries([]);
@@ -92,6 +97,32 @@ export function TrashDialog({
       await refresh();
     } catch (e) {
       console.error("[kb] 彻底删除失败:", e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleSelected = (entry: TrashEntry) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(entry.path)) next.delete(entry.path);
+      else next.add(entry.path);
+      return next;
+    });
+  };
+
+  const restoreSelected = async () => {
+    // 父文件夹和子项都可勾选;执行时去掉已由父文件夹覆盖的子路径。
+    const rels = minimalRestoreRoots([...selected]);
+    if (!rels.length) return;
+    setBusy(true);
+    try {
+      const result = await restoreTrashMany(rels, "rename");
+      onToast(
+        `已恢复 ${result.ok} 条${result.failed ? `,${result.failed} 条失败` : ""};同名冲突项已使用新名称`,
+      );
+      if (result.errors.length) onToast(result.errors[0]);
+      await refresh();
     } finally {
       setBusy(false);
     }
@@ -158,10 +189,29 @@ export function TrashDialog({
                 <li
                   key={e.path}
                   className={
-                    "hover:bg-accent/50 flex items-center gap-2 rounded-md px-2 py-1.5 " +
+                    "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 " +
+                    (selected.has(e.path) ? "bg-primary/10 " : "hover:bg-accent/50 ") +
                     (confirming === e.path ? "bg-destructive/5" : "")
                   }
+                  onClick={() => toggleSelected(e)}
                 >
+                  <button
+                    type="button"
+                    aria-label={selected.has(e.path) ? `取消选择「${e.path}」` : `选择「${e.path}」`}
+                    aria-pressed={selected.has(e.path)}
+                    className="text-muted-foreground hover:text-primary flex size-4 shrink-0 cursor-pointer items-center justify-center"
+                    disabled={busy || conflict !== null || confirming !== null}
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      toggleSelected(e);
+                    }}
+                  >
+                    {selected.has(e.path) ? (
+                      <CheckSquare2 className="text-primary size-4" />
+                    ) : (
+                      <Square className="size-4" />
+                    )}
+                  </button>
                   {e.isDir ? (
                     <FolderOpen className="text-muted-foreground size-4 shrink-0" />
                   ) : (
@@ -179,7 +229,10 @@ export function TrashDialog({
                       variant="ghost"
                       className="text-muted-foreground size-7"
                       disabled={busy || conflict !== null || confirming !== null}
-                      onClick={() => void tryRestore(e.path)}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        void tryRestore(e.path);
+                      }}
                     >
                       <Undo2 className="size-3.5" />
                     </Button>
@@ -190,7 +243,10 @@ export function TrashDialog({
                       variant="ghost"
                       className="text-muted-foreground hover:text-destructive size-7"
                       disabled={busy || conflict !== null || confirming !== null}
-                      onClick={() => setConfirming(e.path)}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        setConfirming(e.path);
+                      }}
                     >
                       <Trash2 className="size-3.5" />
                     </Button>
@@ -202,6 +258,26 @@ export function TrashDialog({
         </div>
 
         <DialogFooter>
+          {entries.length > 0 && confirming === null && conflict === null && (
+            <Button
+              variant="ghost"
+              disabled={busy}
+              className="text-muted-foreground"
+              onClick={() => {
+                setSelected((prev) =>
+                  prev.size === entries.length ? new Set() : new Set(entries.map((entry) => entry.path)),
+                );
+              }}
+            >
+              {selected.size === entries.length ? "取消全选" : "全选"}
+            </Button>
+          )}
+          {selected.size > 0 && confirming === null && conflict === null && (
+            <Button variant="outline" disabled={busy} onClick={() => void restoreSelected()}>
+              <Undo2 className="size-3.5" />
+              恢复所选({selected.size})
+            </Button>
+          )}
           {entries.length > 0 && confirming === null && (
             <Button
               variant="ghost"

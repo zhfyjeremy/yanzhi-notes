@@ -20,6 +20,7 @@ import type {
 } from "./types";
 import { movePatternsFor, refPatternsFor, updateWikiRefs } from "./wiki-refs";
 import { assetRelPosix, isExternalSrc } from "./asset-src";
+import { migrateMarkdownAssetRefs } from "./assets";
 
 export class KbNotEmptyError extends Error {
   constructor() {
@@ -78,8 +79,23 @@ const tauriBackend: KbBackend = {
   async writeDoc(root, rel, content) {
     await invoke("write_doc", { root, rel, content });
   },
-  async createDoc(root, folderRel, title) {
-    return invoke<string>("create_doc", { root, folderRel, title });
+  async createDoc(root, folderRel, title, content) {
+    return invoke<string>("create_doc", { root, folderRel, title, content: content ?? null });
+  },
+  async listTemplates(root) {
+    return invoke<string[]>("list_templates", { root });
+  },
+  async readTemplate(root, name) {
+    return invoke<string>("read_template", { root, name });
+  },
+  async writeTemplate(root, name, content) {
+    await invoke("write_template", { root, name, content });
+  },
+  async deleteTemplate(root, name) {
+    await invoke("delete_template", { root, name });
+  },
+  async openTemplatesDir(root) {
+    await invoke("open_templates_dir", { root });
   },
   async createFolder(root, folderRel, name) {
     return invoke<string>("create_folder", { root, folderRel, name });
@@ -196,6 +212,12 @@ const tauriBackend: KbBackend = {
   async readAssetBase64(root, rel) {
     return invoke<{ data: string; mime: string } | null>("read_asset_base64", { root, rel });
   },
+  async listAssets(root) {
+    return invoke<string[]>("list_assets", { root });
+  },
+  async deleteAssets(root, rels) {
+    return invoke<number>("delete_assets", { root, rels });
+  },
   async listHistory(root, rel) {
     return invoke<HistoryEntry[]>("list_history", { root, rel });
   },
@@ -227,6 +249,7 @@ interface MockFs {
   trashFolders: string[]; // 被删文件夹原相对路径
   assets: Record<string, string>; // rel -> dataURL(浏览器 mock 的"图片盘")
   history: Record<string, Record<string, string>>; // rel -> 快照文件名 -> 内容(6.2)
+  templates: Record<string, string>; // 模板名 -> md 原文(7.5,= .yanzhi/templates)
 }
 
 const SEED_DOCS: Record<string, string> = {
@@ -245,6 +268,7 @@ function freshMock(): MockFs {
     trashFolders: [],
     assets: {},
     history: {},
+    templates: {},
   };
 }
 
@@ -418,14 +442,37 @@ const browserBackend: KbBackend = {
     fs.files[rel] = content;
     saveMock(fs);
   },
-  async createDoc(_root, folderRel, title) {
+  async createDoc(_root, folderRel, title, content) {
     const fs = loadMock();
     let rel = (folderRel ? folderRel + "/" : "") + title + ".md";
     let n = 2;
     while (rel in fs.files) rel = `${folderRel ? folderRel + "/" : ""}${title} (${n++}).md`;
-    fs.files[rel] = `# ${title}\n`;
+    // 与 Rust 同构:无内容建空文档(此前 mock 误写 `# title`,真机一直是空文件)
+    fs.files[rel] = content ?? "";
     saveMock(fs);
     return rel;
+  },
+  async listTemplates() {
+    return Object.keys(loadMock().templates).sort();
+  },
+  async readTemplate(_root, name) {
+    const t = loadMock().templates[name];
+    if (t === undefined) throw new Error("模板不存在: " + name);
+    return t;
+  },
+  async writeTemplate(_root, name, content) {
+    const fs = loadMock();
+    fs.templates[name] = content;
+    saveMock(fs);
+  },
+  async deleteTemplate(_root, name) {
+    const fs = loadMock();
+    if (!(name in fs.templates)) throw new Error("模板不存在: " + name);
+    delete fs.templates[name];
+    saveMock(fs);
+  },
+  async openTemplatesDir() {
+    /* mock 无系统文件管理器,noop */
   },
   async createFolder(_root, folderRel, name) {
     const fs = loadMock();
@@ -511,6 +558,7 @@ const browserBackend: KbBackend = {
     if (isDir ? fs.folders.includes(newRel) : newRel in fs.files) {
       throw new Error("目标位置已有同名条目");
     }
+    let assetMigrated = false;
     if (isDir) {
       fs.folders = fs.folders.map((f) =>
         f === src ? newRel : f.startsWith(src + "/") ? newRel + f.slice(src.length) : f,
@@ -522,7 +570,12 @@ const browserBackend: KbBackend = {
         }
       }
     } else {
-      fs.files[newRel] = fs.files[src];
+      const migrated = migrateMarkdownAssetRefs(fs.files[src], src, newRel);
+      for (const copy of migrated.copies) {
+        if (!(copy.to in fs.assets) && copy.from in fs.assets) fs.assets[copy.to] = fs.assets[copy.from];
+      }
+      fs.files[newRel] = migrated.content;
+      assetMigrated = migrated.content !== fs.files[src];
       delete fs.files[src];
     }
     // 快照 key 跟随移动(与 Rust move_history_dir 同构)
@@ -533,7 +586,7 @@ const browserBackend: KbBackend = {
     }
     // 引用联动(与 Rust move_entry 同构:路径前缀改写,名字不变裸名不动)
     const refs = movePatternsFor(src, newRel, isDir);
-    const updatedFiles: string[] = [];
+    const updatedFiles: string[] = assetMigrated ? [newRel] : [];
     let refCount = 0;
     for (const key of Object.keys(fs.files)) {
       const { content, count } = updateWikiRefs(fs.files[key], refs);
@@ -767,6 +820,22 @@ const browserBackend: KbBackend = {
     const m = /^data:([^;,]*);base64,(.*)$/s.exec(dataUrl);
     if (!m) return null;
     return { mime: m[1], data: m[2] };
+  },
+  async listAssets() {
+    return Object.keys(loadMock().assets).sort();
+  },
+  async deleteAssets(_root, rels) {
+    const fs = loadMock();
+    let removed = 0;
+    for (const rel of rels) {
+      if (!rel.split("/").includes("assets")) continue;
+      if (rel in fs.assets) {
+        delete fs.assets[rel];
+        removed++;
+      }
+    }
+    saveMock(fs);
+    return removed;
   },
   async listHistory(_root, rel) {
     const h = loadMock().history[rel] ?? {};

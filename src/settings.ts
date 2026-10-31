@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isTauriEnv, kbBackend } from "./kb/backend";
+import {
+  DEFAULT_SHORTCUTS,
+  normalizeShortcutBindings,
+  type ShortcutBindings,
+} from "./shortcuts";
 
 /**
  * 全局设置(PRD §8):存 Tauri 应用配置目录 / mock localStorage,**不进知识库 meta**。
@@ -11,6 +16,7 @@ export type ThemeMode = "system" | "light" | "dark";
 
 /** §8 通用-启动:last = 直开上次的知识库(5.0.4 默认);welcome = 总是先看欢迎页 */
 export type LaunchMode = "last" | "welcome";
+export type ReaderFont = "default" | "serif" | "kai";
 
 /** 主色预设(§12:仅覆盖主色系 token,浅/深两套;自定义色值仍 V3)。
  *  accent 系是「主色相的浅灰底/深字」(hover 态),跟随色相走 */
@@ -88,6 +94,13 @@ export interface AppSettings {
   theme: ThemeMode;
   /** §8 外观:主色预设 id(默认语雀系蓝) */
   accent: string;
+  /** V3 有限主题:自定义主色(#rrggbb);null = 使用 accent 预设 */
+  customAccent: string | null;
+  /** V3 阅读参数 */
+  readerFont: ReaderFont;
+  readerFontSize: number;
+  readerLineHeight: number;
+  readerParagraphSpacing: number;
   /** §8 编辑器设置:特殊卡片(代码块/表格/图片)显示边框,默认开 */
   cardBorder: boolean;
   /** §8 图片:粘贴自动压缩(WebP 质量 85),默认开 */
@@ -98,30 +111,53 @@ export interface AppSettings {
   showRightPanel: boolean;
   /** 显示菜单勾选项:编辑器顶部格式工具栏 */
   showToolbar: boolean;
+  /** 显示菜单勾选项:右栏四个分区独立显隐(2026-10-31 用户需求),全关时右栏收起 */
+  showOutline: boolean;
+  showBacklinks: boolean;
+  showTags: boolean;
+  showHistory: boolean;
   /** §8 存储&快照(V2,6.2-5):每篇文档快照上限(自动+手动共用),超出清最旧 */
   snapshotKeep: number;
   /** §8 存储&快照(6.2-1):自动快照最小间隔(分钟;0 = 每次保存都尝试,仍要求内容有差异) */
   snapshotIntervalMin: number;
+  /** V3 全局快捷键(KeyboardEvent.code 存储,跨平台显示) */
+  shortcuts: ShortcutBindings;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "system",
   accent: DEFAULT_ACCENT,
+  customAccent: null,
+  readerFont: "default",
+  readerFontSize: 16,
+  readerLineHeight: 1.75,
+  readerParagraphSpacing: 0.75,
   cardBorder: true,
   imageCompress: true,
   launch: "last",
   showRightPanel: true,
   showToolbar: true,
+  showOutline: true,
+  showBacklinks: true,
+  showTags: true,
+  showHistory: true,
   snapshotKeep: 30,
   snapshotIntervalMin: 5,
+  shortcuts: { ...DEFAULT_SHORTCUTS },
 };
 
 const clampInt = (v: unknown, dflt: number, min: number, max: number): number => {
   const n = typeof v === "number" && Number.isFinite(v) ? Math.round(v) : dflt;
   return Math.min(max, Math.max(min, n));
 };
+const clampNumber = (v: unknown, dflt: number, min: number, max: number): number => {
+  const n = typeof v === "number" && Number.isFinite(v) ? v : dflt;
+  return Math.min(max, Math.max(min, n));
+};
 
 const THEME_MODES: readonly ThemeMode[] = ["system", "light", "dark"];
+const READER_FONTS: readonly ReaderFont[] = ["default", "serif", "kai"];
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 /** 容错解析:损坏/缺失/未知值逐字段回默认(丢的只是偏好,不阻塞启动) */
 export function parseSettings(raw: string): AppSettings {
@@ -130,13 +166,28 @@ export function parseSettings(raw: string): AppSettings {
     return {
       theme: THEME_MODES.includes(v?.theme as ThemeMode) ? (v.theme as ThemeMode) : "system",
       accent: typeof v?.accent === "string" && ACCENT_IDS.has(v.accent) ? v.accent : DEFAULT_ACCENT,
+      customAccent:
+        typeof v?.customAccent === "string" && HEX_COLOR.test(v.customAccent)
+          ? v.customAccent.toLowerCase()
+          : null,
+      readerFont: READER_FONTS.includes(v?.readerFont as ReaderFont)
+        ? (v.readerFont as ReaderFont)
+        : "default",
+      readerFontSize: clampInt(v?.readerFontSize, 16, 13, 22),
+      readerLineHeight: clampNumber(v?.readerLineHeight, 1.75, 1.3, 2.2),
+      readerParagraphSpacing: clampNumber(v?.readerParagraphSpacing, 0.75, 0.2, 1.6),
       cardBorder: typeof v?.cardBorder === "boolean" ? v.cardBorder : true,
       imageCompress: typeof v?.imageCompress === "boolean" ? v.imageCompress : true,
       launch: v?.launch === "welcome" ? "welcome" : "last",
       showRightPanel: typeof v?.showRightPanel === "boolean" ? v.showRightPanel : true,
       showToolbar: typeof v?.showToolbar === "boolean" ? v.showToolbar : true,
+      showOutline: typeof v?.showOutline === "boolean" ? v.showOutline : true,
+      showBacklinks: typeof v?.showBacklinks === "boolean" ? v.showBacklinks : true,
+      showTags: typeof v?.showTags === "boolean" ? v.showTags : true,
+      showHistory: typeof v?.showHistory === "boolean" ? v.showHistory : true,
       snapshotKeep: clampInt(v?.snapshotKeep, 30, 1, 200),
       snapshotIntervalMin: clampInt(v?.snapshotIntervalMin, 5, 0, 120),
+      shortcuts: normalizeShortcutBindings(v?.shortcuts),
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -148,16 +199,81 @@ export function resolvedIsDark(mode: ThemeMode, systemDark: boolean): boolean {
   return mode === "dark" || (mode === "system" && systemDark);
 }
 
+const READER_FONT_STACKS: Record<ReaderFont, string> = {
+  default:
+    '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  serif: '"Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", serif',
+  kai: '"Kaiti SC", "STKaiti", "KaiTi", "Noto Serif CJK SC", serif',
+};
+
+function hexToHsl(hex: string): { h: number; s: number; l: number } {
+  const n = Number.parseInt(hex.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255;
+  const g = ((n >> 8) & 255) / 255;
+  const b = (n & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return { h: 0, s: 0, l: l * 100 };
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h =
+    max === r
+      ? (g - b) / d + (g < b ? 6 : 0)
+      : max === g
+        ? (b - r) / d + 2
+        : (r - g) / d + 4;
+  h *= 60;
+  return { h, s: s * 100, l: l * 100 };
+}
+
+function customAccentVars(hex: string, dark: boolean): Record<string, string> {
+  const { h, s, l } = hexToHsl(hex);
+  const primaryL = dark ? Math.max(52, Math.min(68, l)) : Math.max(34, Math.min(52, l));
+  const accentS = Math.max(20, Math.min(65, s * (dark ? 0.45 : 0.6)));
+  return {
+    "--primary": `hsl(${h.toFixed(1)} ${s.toFixed(1)}% ${primaryL.toFixed(1)}%)`,
+    "--primary-foreground":
+      primaryL >= 62 ? "hsl(0 0% 12%)" : "hsl(0 0% 100%)",
+    "--ring": `hsl(${h.toFixed(1)} ${s.toFixed(1)}% ${primaryL.toFixed(1)}%)`,
+    "--accent": dark
+      ? `hsl(${h.toFixed(1)} ${accentS.toFixed(1)}% 20%)`
+      : `hsl(${h.toFixed(1)} ${accentS.toFixed(1)}% 95%)`,
+    "--accent-foreground": dark
+      ? `hsl(${h.toFixed(1)} ${Math.max(35, s * 0.7).toFixed(1)}% 80%)`
+      : `hsl(${h.toFixed(1)} ${Math.max(35, s * 0.7).toFixed(1)}% 30%)`,
+  };
+}
+
 /** 挂载主题:.dark class 驱动灰阶 token 切换;colorScheme 让滚动条/原生控件跟随;
  *  主色用内联变量覆盖(浅/深值随模式一起换,所以每次主题变化都要重设) */
-export function applyTheme(s: Pick<AppSettings, "theme" | "accent">, systemDark: boolean): void {
+export function applyTheme(
+  s: Pick<
+    AppSettings,
+    | "theme"
+    | "accent"
+    | "customAccent"
+    | "readerFont"
+    | "readerFontSize"
+    | "readerLineHeight"
+    | "readerParagraphSpacing"
+  >,
+  systemDark: boolean,
+): void {
   const dark = resolvedIsDark(s.theme, systemDark);
   const root = document.documentElement;
   root.classList.toggle("dark", dark);
   root.style.colorScheme = dark ? "dark" : "light";
-  for (const [k, v] of Object.entries(accentPresetOf(s.accent)[dark ? "dark" : "light"])) {
+  const accentVars = s.customAccent
+    ? customAccentVars(s.customAccent, dark)
+    : accentPresetOf(s.accent)[dark ? "dark" : "light"];
+  for (const [k, v] of Object.entries(accentVars)) {
     root.style.setProperty(k, v);
   }
+  root.style.setProperty("--editor-font-family", READER_FONT_STACKS[s.readerFont]);
+  root.style.setProperty("--editor-font-size", `${s.readerFontSize}px`);
+  root.style.setProperty("--editor-line-height", String(s.readerLineHeight));
+  root.style.setProperty("--editor-paragraph-gap", `${s.readerParagraphSpacing}em`);
 }
 
 const systemDark = (): boolean => window.matchMedia("(prefers-color-scheme: dark)").matches;

@@ -60,7 +60,15 @@ export interface KbBackend {
   scanTree(root: string): Promise<TreeNode[]>;
   readDoc(root: string, rel: string): Promise<string>;
   writeDoc(root: string, rel: string, content: string): Promise<void>;
-  createDoc(root: string, folderRel: string, title: string): Promise<string>;
+  /** content = 模板新建时的初始正文(7.5);缺省建空文档(标题来自文件名,9.2) */
+  createDoc(root: string, folderRel: string, title: string, content?: string): Promise<string>;
+  /* ---- 文档模板(7.5:.yanzhi/templates/*.md,文件名即模板名) ---- */
+  listTemplates(root: string): Promise<string[]>;
+  readTemplate(root: string, name: string): Promise<string>;
+  /** 应用内模板管理(7.5):写/新建(目录缺失则建)、删除 */
+  writeTemplate(root: string, name: string, content: string): Promise<void>;
+  deleteTemplate(root: string, name: string): Promise<void>;
+  openTemplatesDir(root: string): Promise<void>;
   createFolder(root: string, folderRel: string, name: string): Promise<string>;
   moveToTrash(root: string, rel: string): Promise<string>;
   renameEntry(root: string, rel: string, newTitle: string): Promise<RenameResult>;
@@ -101,6 +109,10 @@ export interface KbBackend {
   exportText(defaultName: string, filterExt: string, content: string): Promise<string | null>;
   /** 导出 HTML 内联图片用 */
   readAssetBase64(root: string, rel: string): Promise<{ data: string; mime: string } | null>;
+  /** V3 未引用资源清理:列出知识库内所有 assets/ 文件(相对路径) */
+  listAssets(root: string): Promise<string[]>;
+  /** 删除明确的 assets/ 文件;后端拒绝 assets 之外的路径 */
+  deleteAssets(root: string, rels: string[]): Promise<number>;
   /* ---- 历史快照(6.2,.yanzhi/history,与 Rust kb.rs 同构) ---- */
   /** 时间倒序;无快照 = 空数组 */
   listHistory(root: string, rel: string): Promise<HistoryEntry[]>;

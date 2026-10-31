@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,15 +18,20 @@ import { StatusBar } from "./kb/StatusBar";
 import { TrashDialog } from "./kb/TrashDialog";
 import { OrphanMetaDialog } from "./kb/OrphanMetaDialog";
 import { SettingsDialog } from "./kb/SettingsDialog";
+import { TemplatePicker } from "./kb/TemplatePicker";
+import { TemplateManager } from "./kb/TemplateManager";
+import { templateToContent } from "./kb/templates";
 import { compressImageFile, isImageFile } from "./kb/image-compress";
 import { useSettings } from "./settings";
 import { WelcomePage } from "./kb/WelcomePage";
 import { useKb } from "./kb/useKb";
-import { isTauriEnv } from "./kb/backend";
+import { isTauriEnv, kbBackend } from "./kb/backend";
 import { setAssetResolver } from "./kb/asset-src";
 import { buildExportHtml } from "./kb/export-html";
 import { flattenDocs, wikiTargetFor } from "./kb/wiki-refs";
 import type { HistoryEntry } from "./kb/types";
+import { formatShortcut, shortcutMatches } from "./shortcuts";
+import type { BatchRenameItem, BatchResult } from "./kb/batch";
 import {
   Dialog,
   DialogContent,
@@ -68,6 +74,10 @@ function App() {
   const [searchPreset, setSearchPreset] = useState<{ term: string; seq: number } | null>(null);
   /* 标签筛选(6.3-2):左栏树只显示带该标签的文档;null = 未筛选 */
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  /* 新建文档模板选择(7.5):知识库有模板时「新建文档」先经 TemplatePicker */
+  const [tplPicker, setTplPicker] = useState<{ folder: string; name: string } | null>(null);
+  const [tplNames, setTplNames] = useState<string[]>([]);
+  const [tplMgrOpen, setTplMgrOpen] = useState(false);
   const searchPresetSeq = useRef(0);
   // 全局搜索定位信号(seq 单调递增:同文档重复点击也能触发定位)
   const [locateSignal, setLocateSignal] = useState<{ term: string; seq: number } | null>(null);
@@ -169,10 +179,20 @@ function App() {
                 invoke("open_aux_window", { label: "shortcuts", tab: null }).catch((e) => console.error(e)),
               );
             }
+          } else if (action === "graph") {
+            if (isTauriEnv()) {
+              void import("@tauri-apps/api/core").then(({ invoke }) =>
+                invoke("open_aux_window", { label: "graph", tab: null }).catch((e) => console.error(e)),
+              );
+            }
           } else if (action === "view" && key && typeof value === "boolean") {
             // 显示菜单勾选项:目标值由 Rust 算好(!当前镜像),前端照单应用
             if (key === "panel") updateSettings({ showRightPanel: value });
             else if (key === "toolbar") updateSettings({ showToolbar: value });
+            else if (key === "outline") updateSettings({ showOutline: value });
+            else if (key === "backlinks") updateSettings({ showBacklinks: value });
+            else if (key === "tags") updateSettings({ showTags: value });
+            else if (key === "history") updateSettings({ showHistory: value });
             else if (key === "focus") setFocusMode(value);
           }
         })();
@@ -181,7 +201,7 @@ function App() {
     return () => un?.();
   }, [kb.pickAndCreate, kb.pickAndOpen, kb.openKbAt, onImportDocs, onExportMd, onExportHtml, openSettings, updateSettings, showToast]);
 
-  // 显示菜单勾选态回写(状态源在前端:面板/工具栏持久化在 settings,专注模式会话级)
+  // 显示菜单勾选态回写(状态源在前端:面板/工具栏/分区持久化在 settings,专注模式会话级)
   useEffect(() => {
     if (!isTauriEnv() || !kb.booted) return;
     void import("@tauri-apps/api/core").then(({ invoke }) =>
@@ -189,9 +209,39 @@ function App() {
         panel: settings.showRightPanel,
         toolbar: settings.showToolbar,
         focus: focusMode,
+        outline: settings.showOutline,
+        backlinks: settings.showBacklinks,
+        tags: settings.showTags,
+        history: settings.showHistory,
       }).catch(console.error),
     );
-  }, [kb.booted, settings.showRightPanel, settings.showToolbar, focusMode]);
+  }, [
+    kb.booted,
+    settings.showRightPanel,
+    settings.showToolbar,
+    settings.showOutline,
+    settings.showBacklinks,
+    settings.showTags,
+    settings.showHistory,
+    focusMode,
+  ]);
+
+  // 文档图谱(V3 ①):图谱窗点击节点 → 打开文档并把主窗拉回前台
+  useEffect(() => {
+    if (!isTauriEnv()) return;
+    let un: (() => void) | undefined;
+    void (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      un = await listen<string>("yz-graph-open", (e) => {
+        void (async () => {
+          await kb.openDoc(e.payload);
+          const { getCurrentWindow } = await import("@tauri-apps/api/window");
+          await getCurrentWindow().setFocus();
+        })();
+      });
+    })();
+    return () => un?.();
+  }, [kb.openDoc]);
 
   // 设置窗的「重建索引」动到主窗 KB 状态,经事件桥回来执行
   useEffect(() => {
@@ -208,38 +258,32 @@ function App() {
     return () => un?.();
   }, [kb.rebuildIndex, showToast]);
 
-  // 专注模式:⌘/Ctrl+Shift+F 切换;双链历史:⌘[/⌘] 或 Alt+←/→
+  // V3 全局快捷键(设置来自应用配置;查找/替换由 Editor 内监听)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
+      if (shortcutMatches(e, settings.shortcuts.focus)) {
         e.preventDefault();
         setFocusMode((v) => !v);
         return;
       }
-      if (mod && !e.shiftKey && (e.key === "[" || e.key === "{")) {
+      if (shortcutMatches(e, settings.shortcuts.navBack)) {
         e.preventDefault();
         void kb.navBack();
         return;
       }
-      if (mod && !e.shiftKey && (e.key === "]" || e.key === "}")) {
+      if (shortcutMatches(e, settings.shortcuts.navForward)) {
         e.preventDefault();
         void kb.navForward();
         return;
       }
-      if (e.altKey && e.key === "ArrowLeft") {
+      if (shortcutMatches(e, settings.shortcuts.slashMenu)) {
         e.preventDefault();
-        void kb.navBack();
-        return;
-      }
-      if (e.altKey && e.key === "ArrowRight") {
-        e.preventDefault();
-        void kb.navForward();
+        editor?.chain().focus().insertContent("/").run();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [kb.navBack, kb.navForward]);
+  }, [editor, kb.navBack, kb.navForward, settings.shortcuts]);
 
   const handleReady = useCallback((e: Editor) => setEditor(e), []);
   const handleScrollRef = useCallback((el: HTMLDivElement | null) => setScrollEl(el), []);
@@ -314,6 +358,104 @@ function App() {
       }
     },
     [kb.moveEntry, showToast],
+  );
+
+  const batchMoveDocs = useCallback(
+    async (rels: string[], destFolder: string): Promise<BatchResult> => {
+      let ok = 0;
+      let refCount = 0;
+      const errors: string[] = [];
+      for (const rel of rels) {
+        const result = await kb.moveEntry(rel, destFolder);
+        if (result) {
+          ok++;
+          refCount += result.refCount;
+        } else {
+          errors.push(`移动「${rel}」失败:目标位置已有同名条目`);
+        }
+      }
+      if (refCount) showToast(`已更新 ${refCount} 处双链引用`);
+      return { ok, failed: rels.length - ok, errors };
+    },
+    [kb.moveEntry, showToast],
+  );
+
+  const batchSetDocTags = useCallback(
+    async (rels: string[], add: string[], remove: string[]): Promise<BatchResult> => {
+      const changed = kb.setTagsMany(rels, add, remove);
+      return {
+        ok: changed,
+        failed: 0,
+        errors: changed ? [] : ["所选文档没有发生标签变化"],
+      };
+    },
+    [kb.setTagsMany],
+  );
+
+  const batchRenameDocs = useCallback(
+    async (items: BatchRenameItem[]): Promise<BatchResult> => {
+      let ok = 0;
+      let refCount = 0;
+      const errors: string[] = [];
+      for (const item of items) {
+        if (item.rel === item.newRel) {
+          ok++;
+          continue;
+        }
+        const result = await kb.renameEntry(item.rel, item.newName);
+        if (result) {
+          ok++;
+          refCount += result.refCount;
+        } else {
+          errors.push(`重命名「${item.rel}」失败`);
+        }
+      }
+      if (refCount) showToast(`已更新 ${refCount} 处双链引用`);
+      return { ok, failed: items.length - ok, errors };
+    },
+    [kb.renameEntry, showToast],
+  );
+
+  // 新建文档(7.5):知识库有模板(.yanzhi/templates/*.md)时先弹选择器;无模板零打扰直建。
+  // 模板目录读取失败按无模板处理,不能挡住新建
+  const handleCreateDoc = useCallback(
+    async (folder: string, name: string) => {
+      let names: string[] = [];
+      if (kb.kbRoot) {
+        try {
+          names = await kbBackend.listTemplates(kb.kbRoot);
+        } catch {
+          /* noop */
+        }
+      }
+      if (!names.length) {
+        void kb.createDoc(folder, name);
+        return;
+      }
+      setTplNames(names);
+      setTplPicker({ folder, name });
+    },
+    [kb.kbRoot, kb.createDoc],
+  );
+
+  // 模板选择器确认:读模板原文 → 剥离首行 H1(标题由文件名承担,9.2)→ 建文档;
+  // 读失败回退空白,不让用户卡在新建
+  const confirmCreateFromTemplate = useCallback(
+    async (name: string, template: string | null) => {
+      const p = tplPicker;
+      setTplPicker(null);
+      if (!p) return;
+      let content: string | undefined;
+      if (template && kb.kbRoot) {
+        try {
+          content = templateToContent(await kbBackend.readTemplate(kb.kbRoot, template));
+        } catch {
+          /* noop:回退空白 */
+        }
+      }
+      await kb.createDoc(p.folder, name, content);
+    },
+    [tplPicker, kb.kbRoot, kb.createDoc],
   );
 
   // 标题编辑 → 重命名文件(debounce;文件名与标题始终同步)
@@ -460,7 +602,7 @@ function App() {
             indexReady={kb.indexReady}
             onToggleCollapse={kb.toggleCollapse}
             onOpenDoc={(rel) => void kb.openDoc(rel)}
-            onCreateDoc={(folder, name) => void kb.createDoc(folder, name)}
+            onCreateDoc={(folder, name) => void handleCreateDoc(folder, name)}
             onCreateFolder={(folder, name) => void kb.createFolder(folder, name)}
             onRenameEntry={(rel, name) => void renameWithToast(rel, name)}
             onRemoveEntry={(rel) => void kb.removeEntry(rel)}
@@ -479,6 +621,10 @@ function App() {
             allTags={kb.allTags}
             tagFilter={tagFilter}
             onTagFilter={setTagFilter}
+            onBatchMove={batchMoveDocs}
+            onBatchSetTags={batchSetDocTags}
+            onBatchRename={batchRenameDocs}
+            onToast={showToast}
           />
         )}
         <div className="flex min-h-0 flex-1 flex-col">
@@ -498,7 +644,7 @@ function App() {
               ) : (
                 <div className="flex items-center gap-1">
                   <div className="mb-1 flex items-center gap-0.5">
-                    <Hint label="后退 (⌘[ / Alt+←)">
+                    <Hint label={`后退 (${formatShortcut(settings.shortcuts.navBack)})`}>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -509,7 +655,7 @@ function App() {
                         <ChevronLeft className="size-4" />
                       </Button>
                     </Hint>
-                    <Hint label="前进 (⌘] / Alt+→)">
+                    <Hint label={`前进 (${formatShortcut(settings.shortcuts.navForward)})`}>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -547,11 +693,12 @@ function App() {
             locateSignal={locateSignal}
             cardBorder={settings.cardBorder}
             showToolbar={settings.showToolbar && !focusMode}
+            shortcuts={settings.shortcuts}
           />
         </div>
         {!focusMode && settings.showRightPanel && editor && (
-          <aside className="bg-muted/40 flex w-60 shrink-0 flex-col">
-            {kb.currentPath && (
+          <aside aria-label="右侧面板" className="bg-muted/40 flex w-60 shrink-0 flex-col">
+            {kb.currentPath && settings.showTags && (
               <TagsPanel
                 tags={kb.currentTags}
                 activeFilter={tagFilter}
@@ -560,16 +707,18 @@ function App() {
                 onRemove={(t) => kb.currentPath && kb.setTags(kb.currentPath, kb.currentTags.filter((x) => x !== t))}
               />
             )}
-            <TocPanel editor={editor} scrollContainer={scrollEl} />
-            <BacklinksPanel
-              rows={backlinks}
-              onOpenSource={(rel) => {
-                // 跳到来源文档并高亮其内的引用写法(裸名最常见,作定位词)
-                if (kb.currentPath) onSearchSelect(rel, docBasename(kb.currentPath));
-              }}
-              onOpenTrash={() => setTrashOpen(true)}
-            />
-            <HistoryPanel
+            {settings.showOutline && <TocPanel editor={editor} scrollContainer={scrollEl} />}
+            {settings.showBacklinks && (
+              <BacklinksPanel
+                rows={backlinks}
+                onOpenSource={(rel) => {
+                  // 跳到来源文档并高亮其内的引用写法(裸名最常见,作定位词)
+                  if (kb.currentPath) onSearchSelect(rel, docBasename(kb.currentPath));
+                }}
+                onOpenTrash={() => setTrashOpen(true)}
+              />
+            )}
+            {settings.showHistory && <HistoryPanel
               docRel={kb.currentPath}
               version={kb.historyVersion}
               intervalMin={settings.snapshotIntervalMin}
@@ -584,7 +733,13 @@ function App() {
                 setHistoryEntry(entry);
                 setHistoryOpen(true);
               }}
-            />
+            />}
+            {/* 四分区全关:右栏留空壳会突兀,给个找回入口 */}
+            {!settings.showOutline && !settings.showBacklinks && !settings.showHistory && !settings.showTags && (
+              <div className="text-muted-foreground flex flex-1 items-center justify-center px-4 text-center text-xs">
+                分区均已隐藏,可在菜单「显示」中开启
+              </div>
+            )}
           </aside>
         )}
       </div>
@@ -597,19 +752,48 @@ function App() {
         orphanCount={kb.orphanMeta.length}
         onOpenOrphans={() => setOrphansOpen(true)}
       />
-      {toast && (
-        <div className="bg-popover text-popover-foreground pointer-events-none fixed bottom-10 left-1/2 z-50 -translate-x-1/2 rounded-md px-3 py-1.5 text-sm shadow-md ring-1 ring-foreground/10">
-          {toast}
-        </div>
-      )}
+      {toast &&
+        createPortal(
+          <div
+            role="status"
+            aria-live="polite"
+            className="bg-popover text-popover-foreground pointer-events-none fixed bottom-10 left-1/2 z-[100] -translate-x-1/2 rounded-md px-3 py-1.5 text-sm shadow-md ring-1 ring-foreground/10"
+          >
+            {toast}
+          </div>,
+          document.body,
+        )}
       <TrashDialog
         open={trashOpen}
         onOpenChange={setTrashOpen}
         listTrash={kb.listTrash}
         restoreTrash={kb.restoreTrash}
+        restoreTrashMany={kb.restoreTrashMany}
         purgeTrash={kb.purgeTrash}
         emptyTrash={kb.emptyTrash}
         onToast={showToast}
+      />
+      {/* 新建文档模板选择(7.5):仅知识库存在模板时出现 */}
+      <TemplatePicker
+        open={!!tplPicker}
+        defaultName={tplPicker?.name ?? ""}
+        templates={tplNames}
+        onCancel={() => setTplPicker(null)}
+        onConfirm={(name, tpl) => void confirmCreateFromTemplate(name, tpl)}
+        onManage={() => {
+          setTplPicker(null);
+          setTplMgrOpen(true);
+        }}
+      />
+      {/* 模板管理(7.5):onChanged 重拉列表,新建选择器与管理器永不分叉 */}
+      <TemplateManager
+        open={tplMgrOpen}
+        onOpenChange={setTplMgrOpen}
+        root={kb.kbRoot}
+        onToast={showToast}
+        onChanged={() => {
+          if (kb.kbRoot) void kbBackend.listTemplates(kb.kbRoot).then(setTplNames).catch(() => undefined);
+        }}
       />
       {/* 历史快照查看/对比/恢复(6.2);恢复前 useKb 会先为当前内容自动存快照 */}
       <HistoryDialog
@@ -687,9 +871,17 @@ function App() {
           kb.claimOrphan(entry, target);
           showToast(`已认领「${entry.path}」→「${target}」`);
         }}
+        onClaimBatch={(pairs) => {
+          kb.claimOrphansBatch(pairs);
+          showToast(`已批量认领 ${pairs.length} 条偏好记录`);
+        }}
         onDiscard={(entry) => {
           kb.discardOrphan(entry);
           showToast(`已丢弃「${entry.path}」的偏好记录`);
+        }}
+        onDiscardBatch={(entries) => {
+          kb.discardOrphansBatch(entries);
+          showToast(`已丢弃 ${entries.length} 条偏好记录`);
         }}
       />
       {/* 失效双链(5.2.1-5):提示 + 搜索同名文档快捷入口 */}

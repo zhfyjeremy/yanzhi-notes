@@ -26,6 +26,7 @@ import {
   type OrphanMetaEntry,
 } from "./meta";
 import { KbSearchIndex, type SearchHit } from "./search";
+import type { BatchResult } from "./batch";
 
 /**
  * 知识库状态中枢(M3):库根/目录树/当前文档/自动保存/浏览历史,
@@ -378,10 +379,37 @@ export function useKb(settings: AppSettings) {
     [persistMeta],
   );
 
+  const claimOrphansBatch = useCallback(
+    (pairs: { entry: OrphanMetaEntry; targetRel: string }[]) => {
+      let next = metaRef.current;
+      for (const { entry, targetRel } of pairs) {
+        next = claimMetaKey(next, entry.path, targetRel, entry.isDir);
+      }
+      metaRef.current = next;
+      persistMeta();
+      const sorted = sortTree(treeRef.current, metaRef.current);
+      treeRef.current = sorted;
+      setTree(sorted);
+      setOrphanMeta(findOrphanMeta(metaRef.current, sorted));
+    },
+    [persistMeta],
+  );
+
   /** 丢弃单条失联 meta(逐条;批量是 V3) */
   const discardOrphan = useCallback(
     (entry: OrphanMetaEntry) => {
       metaRef.current = discardMetaKey(metaRef.current, entry.path, entry.isDir);
+      persistMeta();
+      setOrphanMeta(findOrphanMeta(metaRef.current, treeRef.current));
+    },
+    [persistMeta],
+  );
+
+  const discardOrphansBatch = useCallback(
+    (entries: OrphanMetaEntry[]) => {
+      let next = metaRef.current;
+      for (const entry of entries) next = discardMetaKey(next, entry.path, entry.isDir);
+      metaRef.current = next;
       persistMeta();
       setOrphanMeta(findOrphanMeta(metaRef.current, treeRef.current));
     },
@@ -586,12 +614,12 @@ export function useKb(settings: AppSettings) {
   /* ---------------- 增删改(目录树操作) ---------------- */
 
   const createDoc = useCallback(
-    async (folderRel: string, title: string) => {
+    async (folderRel: string, title: string, content?: string) => {
       const root = rootRef.current;
       if (!root) return;
       try {
         markSelfWrite();
-        const rel = await kbBackend.createDoc(root, folderRel, title);
+        const rel = await kbBackend.createDoc(root, folderRel, title, content);
         // 新条目排在所在文件夹末尾(meta 记序,树序唯一出处)
         metaRef.current = {
           ...metaRef.current,
@@ -601,8 +629,9 @@ export function useKb(settings: AppSettings) {
           },
         };
         persistMeta();
-        searchRef.current.add(rel, `# ${title}\n`); // 新文档无标签,默认空
-        wikiRefIdx.current.update(rel, `# ${title}\n`); // 新文档无出链,占位保持索引与树一致
+        // 索引用真实正文(模板可能带 [[双链]]/待搜内容);空文档索引空串,标题索引自动取文件名
+        searchRef.current.add(rel, content ?? "");
+        wikiRefIdx.current.update(rel, content ?? "");
         await refreshTree();
         await openDoc(rel);
       } catch (e) {
@@ -851,6 +880,33 @@ export function useKb(settings: AppSettings) {
     [persistMeta],
   );
 
+  /** V3 批量加/减标签:一次重建树与索引,避免逐篇多次渲染。 */
+  const setTagsMany = useCallback(
+    (rels: string[], add: string[], remove: string[]) => {
+      const drop = new Set(remove);
+      let changed = 0;
+      let nextMeta = metaRef.current;
+      for (const rel of rels) {
+        if (!rel.endsWith(".md")) continue;
+        const current = nextMeta.docs[rel]?.tags ?? [];
+        const merged = [...current, ...add].filter((tag) => !drop.has(tag));
+        const next = setDocTags(nextMeta, rel, merged).docs[rel]?.tags ?? [];
+        if (next.length === current.length && next.every((tag, i) => tag === current[i])) continue;
+        nextMeta = setDocTags(nextMeta, rel, next);
+        changed++;
+      }
+      if (!changed) return 0;
+      metaRef.current = nextMeta;
+      persistMeta();
+      const sorted = sortTree(treeRef.current, metaRef.current);
+      treeRef.current = sorted;
+      setTree(sorted);
+      scheduleIndexRebuild();
+      return changed;
+    },
+    [persistMeta, scheduleIndexRebuild],
+  );
+
   /** 全库标签清单(树/meta 更新点位刷新) */
   const allTags = useMemo(() => allTagsOf(metaRef.current), [tree, kbRoot]);
   /** 当前文档标签 */
@@ -899,6 +955,30 @@ export function useKb(settings: AppSettings) {
       return finalRel;
     },
     [rebuildIndex, refreshTree],
+  );
+
+  /** V3 批量恢复:默认在冲突时恢复为新名称,绝不静默覆盖库内文档。 */
+  const restoreTrashMany = useCallback(
+    async (rels: string[], strategy: "overwrite" | "rename" = "rename"): Promise<BatchResult> => {
+      const root = rootRef.current;
+      if (!root) throw new Error("未打开知识库");
+      let ok = 0;
+      const errors: string[] = [];
+      for (const rel of rels) {
+        try {
+          markSelfWrite();
+          await kbBackend.restoreTrash(root, rel, strategy);
+          ok++;
+        } catch (e) {
+          errors.push(`恢复「${rel}」失败:${String(e)}`);
+        }
+      }
+      await refreshTree();
+      void rebuildIndex();
+      void refreshTrashRefs();
+      return { ok, failed: rels.length - ok, errors };
+    },
+    [rebuildIndex, refreshTree, refreshTrashRefs],
   );
 
   /** 彻底删除/清空回收站(不可恢复);不碰库内文件 → 无需刷树/重建索引 */
@@ -1084,19 +1164,23 @@ export function useKb(settings: AppSettings) {
     persistSiblingOrder,
     togglePinned,
     setTags,
+    setTagsMany,
     allTags,
     currentTags,
     pinnedDocs,
     docsByTag,
     listTrash,
     restoreTrash,
+    restoreTrashMany,
     purgeTrash,
     emptyTrash,
     getBacklinks,
     refsVersion,
     orphanMeta,
     claimOrphan,
+    claimOrphansBatch,
     discardOrphan,
+    discardOrphansBatch,
     saveImageFiles,
     /** 最近一次打开失败的文档路径(供上层 toast;成功打开后清空) */
     docError,

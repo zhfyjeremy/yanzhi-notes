@@ -106,6 +106,7 @@ export class WikiRefIndex {
 
   /** 指向 targetRel 的全部引用,每次引用一行;docs = 当前树平铺(解析用,与跳转同构) */
   backlinks(targetRel: string, docs: WikiDoc[]): BacklinkRow[] {
+    const sourceOrder = new Map(docs.map((doc, i) => [doc.path, i]));
     const rows: BacklinkRow[] = [];
     for (const [source, links] of this.out) {
       for (const l of links) {
@@ -121,6 +122,12 @@ export class WikiRefIndex {
         }
       }
     }
-    return rows.sort((a, b) => a.source.localeCompare(b.source));
+    // 与目录树平铺顺序一致,避免 locale 差异导致面板行序随系统变化。
+    return rows.sort(
+      (a, b) =>
+        (sourceOrder.get(a.source) ?? Number.MAX_SAFE_INTEGER) -
+          (sourceOrder.get(b.source) ?? Number.MAX_SAFE_INTEGER) ||
+        a.source.localeCompare(b.source),
+    );
   }
 }

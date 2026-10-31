@@ -3,15 +3,18 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  CheckSquare2,
   FileText,
   FolderClosed,
   FolderOpen,
   FolderPlus,
   Hash,
+  ListChecks,
   PenLine,
   Pin,
   Plus,
   Settings,
+  Square,
   SquarePen,
   Trash2,
   X,
@@ -34,6 +37,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/hint";
+import { BatchDocActions } from "./BatchDocActions";
+import type { BatchRenameItem, BatchResult } from "./batch";
 
 /**
  * 左栏目录树(M3 / PRD 5.1):递归渲染、点击切换文档、当前文档高亮、拖拽排序。
@@ -78,9 +83,30 @@ interface DocTreeProps {
   /** 激活中的标签筛选;null = 未筛选(树已由上层过滤,过滤态禁拖) */
   tagFilter: string | null;
   onTagFilter: (tag: string | null) => void;
+  /* ---- V3 批量文档操作 ---- */
+  onBatchMove: (rels: string[], destFolder: string) => Promise<BatchResult>;
+  onBatchSetTags: (rels: string[], add: string[], remove: string[]) => Promise<BatchResult>;
+  onBatchRename: (items: BatchRenameItem[]) => Promise<BatchResult>;
+  onToast: (message: string) => void;
 }
 
 type DropZone = "before" | "after" | "into";
+
+/** 当前展开可见的文档顺序(选择模式的范围选择与全选只作用于可见项) */
+function visibleDocPaths(nodes: TreeNode[], collapsed: Set<string>): string[] {
+  const out: string[] = [];
+  const walk = (items: TreeNode[]) => {
+    for (const node of items) {
+      if (node.isDir) {
+        if (!collapsed.has(node.path)) walk(node.children);
+      } else {
+        out.push(node.path);
+      }
+    }
+  };
+  walk(nodes);
+  return out;
+}
 
 function countDocs(node: TreeNode): number {
   return node.isDir ? node.children.reduce((n, c) => n + countDocs(c), 0) : 1;
@@ -128,6 +154,8 @@ function TreeRow({
   collapsed,
   pinnedSet,
   pinned,
+  selectedPaths,
+  selectionMode,
   dragLocked,
   onToggle,
   onOpenDoc,
@@ -136,6 +164,9 @@ function TreeRow({
   onRenameEntry,
   onRemoveEntry,
   onTogglePin,
+  selected,
+  onToggleSelect,
+  onSelectSubtree,
   dragPath,
   dropHint,
   onDragOverRow,
@@ -147,6 +178,8 @@ function TreeRow({
   collapsed: Set<string>;
   pinnedSet: Set<string>;
   pinned: boolean;
+  selectedPaths: Set<string>;
+  selectionMode: boolean;
   /** 标签筛选态:树是过滤视图,拖拽排序/移动会错位隐藏兄弟 → 全禁 */
   dragLocked: boolean;
   onToggle: (path: string) => void;
@@ -156,6 +189,9 @@ function TreeRow({
   onRenameEntry: (rel: string, name: string) => void;
   onRemoveEntry: (rel: string) => void;
   onTogglePin: (rel: string, pinned: boolean) => void;
+  selected: boolean;
+  onToggleSelect: (rel: string, shift: boolean) => void;
+  onSelectSubtree: (folderRel: string) => void;
   dragPath: React.MutableRefObject<string | null>;
   dropHint: { path: string; zone: DropZone } | null;
   onDragOverRow: (path: string, zone: DropZone | null) => void;
@@ -201,13 +237,17 @@ function TreeRow({
     <div>
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <button
+          <div
+            role="button"
+            tabIndex={0}
             data-path={node.path}
             className={cn(
               "group flex w-full items-center gap-1 rounded-md py-1 pr-2 text-left text-sm",
               active
                 ? "bg-accent text-accent-foreground"
-                : "hover:bg-accent/50 text-foreground/90",
+                : selected
+                  ? "bg-primary/10 text-foreground"
+                  : "hover:bg-accent/50 text-foreground/90",
               hint === "into" && "bg-primary/10 ring-primary/40 ring-1",
             )}
             style={{
@@ -268,8 +308,39 @@ function TreeRow({
                   : "after";
               onDropRow(node.path, zone);
             }}
-            onClick={() => (node.isDir ? onToggle(node.path) : onOpenDoc(node.path))}
+            onClick={(e) => {
+              if (node.isDir) onToggle(node.path);
+              else if (selectionMode || e.metaKey || e.ctrlKey) onToggleSelect(node.path, e.shiftKey);
+              else onOpenDoc(node.path);
+            }}
+            onKeyDown={(e) => {
+              if (e.target !== e.currentTarget) return;
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                if (node.isDir) onToggle(node.path);
+                else onOpenDoc(node.path);
+              }
+            }}
           >
+            {node.isDir || !selectionMode ? (
+              <span className="size-3.5 shrink-0" />
+            ) : (
+              <button
+                type="button"
+                aria-label={selected ? `取消选择「${node.name}」` : `选择「${node.name}」`}
+                aria-pressed={selected}
+                className={cn(
+                  "text-muted-foreground hover:text-primary flex size-3.5 shrink-0 cursor-pointer items-center justify-center",
+                  selected && "text-primary",
+                )}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleSelect(node.path, false);
+                }}
+              >
+                {selected ? <CheckSquare2 className="size-3.5" /> : <Square className="size-3.5" />}
+              </button>
+            )}
             {node.isDir ? (
               <>
                 {isCollapsed ? (
@@ -284,7 +355,7 @@ function TreeRow({
                 )}
               </>
             ) : (
-              <FileText className="text-muted-foreground ml-[18px] size-4 shrink-0" />
+              <FileText className="text-muted-foreground size-4 shrink-0" />
             )}
             <span className="truncate">{node.name}</span>
             {pinned && !node.isDir && (
@@ -318,7 +389,7 @@ function TreeRow({
                 </DropdownMenu>
               </span>
             )}
-          </button>
+          </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
           {node.isDir && (
@@ -329,13 +400,26 @@ function TreeRow({
               <ContextMenuItem onClick={() => onCreateFolder(node.path, "新文件夹")}>
                 <FolderPlus /> 新建子文件夹
               </ContextMenuItem>
+              <ContextMenuItem disabled={countDocs(node) === 0} onClick={() => onSelectSubtree(node.path)}>
+                <ListChecks /> 选择文件夹内全部文档
+              </ContextMenuItem>
               <ContextMenuSeparator />
             </>
           )}
           {!node.isDir && (
-            <ContextMenuItem onClick={() => onTogglePin(node.path, !pinned)}>
-              <Pin /> {pinned ? "取消置顶" : "置顶"}
-            </ContextMenuItem>
+            <>
+              <ContextMenuItem onClick={() => onToggleSelect(node.path, false)}>
+                {selectionMode ? (
+                  selected ? <CheckSquare2 /> : <Square />
+                ) : (
+                  <ListChecks />
+                )}
+                {selectionMode ? (selected ? "取消选择" : "选择") : "批量选择"}
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => onTogglePin(node.path, !pinned)}>
+                <Pin /> {pinned ? "取消置顶" : "置顶"}
+              </ContextMenuItem>
+            </>
           )}
           <ContextMenuItem onClick={() => setRenaming(true)}>
             <PenLine /> 重命名
@@ -365,9 +449,14 @@ function TreeRow({
               collapsed={collapsed}
               pinnedSet={pinnedSet}
               pinned={pinnedSet.has(child.path)}
+              selectedPaths={selectedPaths}
               dragLocked={dragLocked}
               onToggle={onToggle}
               onTogglePin={onTogglePin}
+              selected={selectedPaths.has(child.path)}
+              onToggleSelect={onToggleSelect}
+              selectionMode={selectionMode}
+              onSelectSubtree={onSelectSubtree}
               onOpenDoc={onOpenDoc}
               onCreateDoc={onCreateDoc}
               onCreateFolder={onCreateFolder}
@@ -412,11 +501,88 @@ export function DocTree({
   allTags,
   tagFilter,
   onTagFilter,
+  onBatchMove,
+  onBatchSetTags,
+  onBatchRename,
+  onToast,
 }: DocTreeProps) {
   const dragPath = useRef<string | null>(null);
   const [dropHint, setDropHint] = useState<{ path: string; zone: DropZone } | null>(null);
   const rootName = useMemo(() => root.split("/").filter(Boolean).pop() ?? root, [root]);
   const navRef = useRef<HTMLElement>(null);
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
+  const selectionAnchor = useRef<string | null>(null);
+  const visibleDocs = useMemo(() => visibleDocPaths(tree, collapsed), [tree, collapsed]);
+  const allVisibleSelected = visibleDocs.length > 0 && visibleDocs.every((p) => selectedPaths.has(p));
+
+  const clearSelection = () => {
+    setSelectionMode(false);
+    setSelectedPaths(new Set());
+    selectionAnchor.current = null;
+  };
+
+  const enterSelection = () => {
+    setSelectionMode(true);
+  };
+
+  const selectDoc = (rel: string, shift: boolean) => {
+    setSelectionMode(true);
+    if (shift && selectionAnchor.current) {
+      const from = visibleDocs.indexOf(selectionAnchor.current);
+      const to = visibleDocs.indexOf(rel);
+      if (from >= 0 && to >= 0) {
+        const [start, end] = from < to ? [from, to] : [to, from];
+        setSelectedPaths((prev) => {
+          const next = new Set(prev);
+          for (const path of visibleDocs.slice(start, end + 1)) next.add(path);
+          return next;
+        });
+        return;
+      }
+    }
+    setSelectedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(rel)) next.delete(rel);
+      else next.add(rel);
+      return next;
+    });
+    selectionAnchor.current = rel;
+  };
+
+  const selectSubtree = (folderRel: string) => {
+    const paths = visibleDocPaths(tree, new Set()).filter((p) => p.startsWith(folderRel + "/"));
+    setSelectionMode(true);
+    setSelectedPaths((prev) => new Set([...prev, ...paths]));
+    if (paths.length) selectionAnchor.current = paths[0];
+  };
+
+  const toggleSelectAll = () => {
+    setSelectionMode(true);
+    setSelectedPaths(allVisibleSelected ? new Set() : new Set(visibleDocs));
+    selectionAnchor.current = visibleDocs[0] ?? null;
+  };
+
+  useEffect(() => {
+    if (tagFilter !== null) clearSelection();
+  }, [tagFilter]);
+
+  useEffect(() => {
+    if (!selectionMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        clearSelection();
+      } else if ((e.metaKey || e.ctrlKey) && e.code === "KeyA") {
+        e.preventDefault();
+        toggleSelectAll();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectionMode, allVisibleSelected, visibleDocs]);
 
   // 当前文档行滚进可视区(5.1 文档定位):切文档/搜索定位/后退时生效;
   // 所在文件夹被折叠时行不在 DOM,展开(collapsed 变)后再补滚
@@ -457,30 +623,55 @@ export function DocTree({
   return (
     <aside className="bg-background flex w-60 min-w-60 flex-col border-r border-border">
       <div className="flex h-10 shrink-0 items-center gap-1 px-3">
-        <span className="truncate text-xs font-medium" title={root}>
-          {rootName}
-        </span>
-        <span className="ml-auto flex gap-0.5">
-          {/* 语雀式:新建收敛为单个「+」下拉(文档/文件夹),头部只留 +;
-              导入导出在原生菜单「文件」里,重建索引在设置/搜索空态,设置 = 左栏底部齿轮 */}
-          <DropdownMenu>
-            <Hint label="新建">
-              <DropdownMenuTrigger asChild>
-                <span className="text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer rounded p-1">
-                  <Plus className="size-4" />
-                </span>
-              </DropdownMenuTrigger>
-            </Hint>
-            <DropdownMenuContent align="end" alignOffset={-4}>
-              <DropdownMenuItem onClick={() => onCreateDoc("", "未命名文档")}>
-                <SquarePen /> 新建文档
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onCreateFolder("", "新文件夹")}>
-                <FolderPlus /> 新建文件夹
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </span>
+        {selectionMode ? (
+          <BatchDocActions
+            selected={[...selectedPaths]}
+            tree={tree}
+            allTags={allTags}
+            allSelected={allVisibleSelected}
+            onClear={clearSelection}
+            onSelectAll={toggleSelectAll}
+            onMove={onBatchMove}
+            onSetTags={onBatchSetTags}
+            onRename={onBatchRename}
+            onToast={onToast}
+          />
+        ) : (
+          <>
+            <span className="truncate text-xs font-medium" title={root}>
+              {rootName}
+            </span>
+            <span className="ml-auto flex gap-0.5">
+              <Hint label="进入批量选择">
+                <button
+                  type="button"
+                  aria-label="进入批量选择"
+                  className="text-muted-foreground hover:text-foreground hover:bg-accent flex cursor-pointer rounded p-1"
+                  onClick={enterSelection}
+                >
+                  <ListChecks className="size-4" />
+                </button>
+              </Hint>
+              <DropdownMenu>
+                <Hint label="新建">
+                  <DropdownMenuTrigger asChild>
+                    <span className="text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer rounded p-1">
+                      <Plus className="size-4" />
+                    </span>
+                  </DropdownMenuTrigger>
+                </Hint>
+                <DropdownMenuContent align="end" alignOffset={-4}>
+                  <DropdownMenuItem onClick={() => onCreateDoc("", "未命名文档")}>
+                    <SquarePen /> 新建文档
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onCreateFolder("", "新文件夹")}>
+                    <FolderPlus /> 新建文件夹
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </span>
+          </>
+        )}
       </div>
       <SearchBox
         indexReady={indexReady}
@@ -546,9 +737,14 @@ export function DocTree({
               collapsed={collapsed}
               pinnedSet={pinnedSet}
               pinned={pinnedSet.has(node.path)}
+              selectedPaths={selectedPaths}
               dragLocked={tagFilter !== null}
               onToggle={onToggleCollapse}
               onTogglePin={onTogglePin}
+              selected={selectedPaths.has(node.path)}
+              onToggleSelect={selectDoc}
+              selectionMode={selectionMode}
+              onSelectSubtree={selectSubtree}
               onOpenDoc={onOpenDoc}
               onCreateDoc={onCreateDoc}
               onCreateFolder={onCreateFolder}

@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { FileText, FolderOpen, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CheckSquare2, FileText, FolderOpen, Square, Trash2 } from "lucide-react";
 import type { TreeNode } from "./types";
 import type { OrphanMetaEntry } from "./meta";
 import {
@@ -26,7 +26,9 @@ interface OrphanMetaDialogProps {
   entries: OrphanMetaEntry[];
   tree: TreeNode[];
   onClaim: (entry: OrphanMetaEntry, targetRel: string) => void;
+  onClaimBatch: (pairs: { entry: OrphanMetaEntry; targetRel: string }[]) => void;
   onDiscard: (entry: OrphanMetaEntry) => void;
+  onDiscardBatch: (entries: OrphanMetaEntry[]) => void;
 }
 
 interface Candidate {
@@ -67,12 +69,22 @@ export function OrphanMetaDialog({
   entries,
   tree,
   onClaim,
+  onClaimBatch,
   onDiscard,
+  onDiscardBatch,
 }: OrphanMetaDialogProps) {
   // claiming = 正在选择认领目标的失联路径;discarding = 待确认丢弃的失联路径
   const [claiming, setClaiming] = useState<string | null>(null);
   const [discarding, setDiscarding] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    const live = new Set(entries.map((e) => e.path));
+    setSelected((prev) => new Set([...prev].filter((p) => live.has(p))));
+  }, [entries]);
 
   const entry = entries.find((e) => e.path === claiming) ?? null;
   const candidates = useMemo(() => {
@@ -89,6 +101,38 @@ export function OrphanMetaDialog({
     // 清空过滤展示全部,避免改名后搜不到
     setFilter("");
   };
+
+  const toggleSelected = (path: string) => {
+    setConfirmDiscard(false);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
+
+  const claimSameName = () => {
+    const used = new Set<string>();
+    const pairs: { entry: OrphanMetaEntry; targetRel: string }[] = [];
+    for (const e of entries.filter((entry) => selected.has(entry.path))) {
+      const target = candidatesOf(tree, e.isDir, basenameOf(e.path)).find(
+        (candidate) => candidate.sameBasename && !used.has(candidate.path),
+      );
+      if (!target) continue;
+      used.add(target.path);
+      pairs.push({ entry: e, targetRel: target.path });
+    }
+    if (!pairs.length) {
+      setNotice("所选条目没有可用的同名目标");
+      return;
+    }
+    onClaimBatch(pairs);
+    setSelected(new Set());
+    setNotice(`已批量认领 ${pairs.length} 条${pairs.length < selected.size ? ",其余未匹配" : ""}`);
+  };
+
+  const selectedEntries = entries.filter((e) => selected.has(e.path));
 
   return (
     <Dialog
@@ -109,6 +153,49 @@ export function OrphanMetaDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {selected.size > 0 && (
+          <div className="bg-accent/40 flex flex-wrap items-center gap-1.5 rounded-md px-2 py-1.5 text-xs">
+            <span className="text-primary mr-auto font-medium">已选 {selected.size} 条</span>
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={claimSameName}>
+              认领同名
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive hover:text-destructive h-6 px-2 text-[11px]"
+              onClick={() => setConfirmDiscard(true)}
+            >
+              丢弃所选
+            </Button>
+          </div>
+        )}
+
+        {confirmDiscard && (
+          <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs">
+            <span className="text-destructive min-w-0 flex-1">
+              丢弃所选 {selected.size} 条偏好记录?不会影响任何文件。
+            </span>
+            <Button
+              size="sm"
+              variant="destructive"
+              className="h-6 px-2 text-xs"
+              onClick={() => {
+                onDiscardBatch(selectedEntries);
+                setSelected(new Set());
+                setConfirmDiscard(false);
+                setNotice(`已丢弃 ${selectedEntries.length} 条偏好记录`);
+              }}
+            >
+              确认丢弃
+            </Button>
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setConfirmDiscard(false)}>
+              取消
+            </Button>
+          </div>
+        )}
+
+        {notice && <p className="text-muted-foreground text-[11px]">{notice}</p>}
+
         <div className="max-h-80 min-h-16 overflow-y-auto">
           {entries.length === 0 ? (
             <p className="text-muted-foreground py-8 text-center text-xs">
@@ -127,6 +214,19 @@ export function OrphanMetaDialog({
                     )}
                   >
                     <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        aria-label={selected.has(e.path) ? `取消选择「${e.path}」` : `选择「${e.path}」`}
+                        aria-pressed={selected.has(e.path)}
+                        className="text-muted-foreground hover:text-primary flex size-4 shrink-0 cursor-pointer items-center justify-center"
+                        onClick={() => toggleSelected(e.path)}
+                      >
+                        {selected.has(e.path) ? (
+                          <CheckSquare2 className="text-primary size-4" />
+                        ) : (
+                          <Square className="size-4" />
+                        )}
+                      </button>
                       {e.isDir ? (
                         <FolderOpen className="text-muted-foreground size-4 shrink-0" />
                       ) : (

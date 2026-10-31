@@ -20,6 +20,7 @@ import { FindReplaceBar } from "./toolbar/FindReplaceBar";
 import { ImageToolbar } from "./toolbar/ImageToolbar";
 import { TableToolbar } from "./toolbar/TableToolbar";
 import { WikiLinkSuggestExtension, type WikiDocRef } from "./wiki-link-command";
+import { DEFAULT_SHORTCUTS, shortcutMatches, type ShortcutBindings } from "../shortcuts";
 import "./editor.css";
 
 /**
@@ -59,6 +60,8 @@ interface YanzhiEditorProps {
   cardBorder?: boolean;
   /** 显示菜单「工具栏」:编辑器顶部格式条,默认显示 */
   showToolbar?: boolean;
+  /** V3 可自定义全局快捷键 */
+  shortcuts?: ShortcutBindings;
 }
 
 export function YanzhiEditor({
@@ -75,6 +78,7 @@ export function YanzhiEditor({
   locateSignal,
   cardBorder = true,
   showToolbar = true,
+  shortcuts = DEFAULT_SHORTCUTS,
 }: YanzhiEditorProps) {
   // 回调走 ref:onUpdate 闭包不随父组件重渲染重建
   const onChangeRef = useRef(onMarkdownChange);
@@ -100,15 +104,19 @@ export function YanzhiEditor({
   // 用 e.code 判断:macOS Option+F 的 e.key 是特殊字符(ƒ),code 不受影响
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Shift 交给专注模式(⌘⇧F,App 层处理),这里必须排除,否则两个一起触发
-      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.code !== "KeyF") return;
-      e.preventDefault();
-      setFindBar(true);
-      if (e.altKey) setReplaceRow(true);
+      if (shortcutMatches(e, shortcuts.replace)) {
+        e.preventDefault();
+        setFindBar(true);
+        setReplaceRow(true);
+      } else if (shortcutMatches(e, shortcuts.find)) {
+        e.preventDefault();
+        setFindBar(true);
+        setReplaceRow(false);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [shortcuts.find, shortcuts.replace]);
 
   const editor = useEditor({
     // SlashMenu / WikiLinkSuggest / FindReplace 是 UI 交互插件不贡献 Schema,单独挂载(baseExtensions 保持纯 Schema 集合)
