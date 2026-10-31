@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { KbConflictError, KbIsYanzhiError, KbNotEmptyError, kbBackend } from "./backend";
 import { parseSettings, type AppSettings } from "../settings";
 import type { HistoryEntry, RecentState, TreeNode, TrashEntry } from "./types";
 import { WikiRefIndex, type BacklinkRow } from "./backlinks";
 import { flattenDocs, resolveWikiTarget } from "./wiki-refs";
 import {
+  allTagsOf,
   applySiblingOrder,
   claimMetaKey,
   collapsedFolders,
@@ -18,6 +19,8 @@ import {
   renameMetaKeys,
   serializeMeta,
   setCollapsed as metaSetCollapsed,
+  setDocPinned,
+  setDocTags,
   sortTree,
   type KbMeta,
   type OrphanMetaEntry,
@@ -139,7 +142,7 @@ export function useKb(settings: AppSettings) {
       await kbBackend.writeDoc(root, rel, content);
       setSaveState("saved");
       savedMdRef.current = content;
-      searchRef.current.add(rel, content); // 保存时增量更新索引(5.5.3)
+      searchRef.current.add(rel, content, metaRef.current.docs[rel]?.tags); // 保存时增量更新索引(5.5.3)
       wikiRefIdx.current.update(rel, content); // 出链随内容变(反向链接即时反映)
       bumpRefs();
       void maybeAutoSnapshot(rel, content); // 落盘后顺带检查自动快照(6.2-1)
@@ -281,7 +284,7 @@ export function useKb(settings: AppSettings) {
       savedMdRef.current = content;
       setSaveState("saved");
       setDocError(null);
-      if (searchRef.current.size > 0) searchRef.current.add(rel, content);
+      if (searchRef.current.size > 0) searchRef.current.add(rel, content, metaRef.current.docs[rel]?.tags);
       wikiRefIdx.current.update(rel, content);
       kbBackend.setLastDoc(rel).catch(() => {});
       return true;
@@ -404,7 +407,7 @@ export function useKb(settings: AppSettings) {
     if (!root) return;
     try {
       const docs = await kbBackend.readAllDocs(root);
-      searchRef.current.build(docs);
+      searchRef.current.build(docs, (p) => metaRef.current.docs[p]?.tags ?? []);
       wikiRefIdx.current.build(docs); // 出链索引与搜索索引同源重建
       setIndexReady(true);
       void refreshTrashRefs();
@@ -598,7 +601,7 @@ export function useKb(settings: AppSettings) {
           },
         };
         persistMeta();
-        searchRef.current.add(rel, `# ${title}\n`);
+        searchRef.current.add(rel, `# ${title}\n`); // 新文档无标签,默认空
         wikiRefIdx.current.update(rel, `# ${title}\n`); // 新文档无出链,占位保持索引与树一致
         await refreshTree();
         await openDoc(rel);
@@ -818,6 +821,58 @@ export function useKb(settings: AppSettings) {
     [persistMeta],
   );
 
+  /* ---------------- 置顶与标签(6.3-2/3) ---------------- */
+
+  /** 文档置顶/取消置顶:meta 偏好 + 树序即时重排(置顶组内仍按原 sortIndex 序) */
+  const togglePinned = useCallback(
+    (rel: string, pinned: boolean) => {
+      metaRef.current = setDocPinned(metaRef.current, rel, pinned);
+      persistMeta();
+      const sorted = sortTree(treeRef.current, metaRef.current);
+      treeRef.current = sorted;
+      setTree(sorted);
+    },
+    [persistMeta],
+  );
+
+  /** 文档标签整体替换:meta 持久化 + 搜索索引即时更新(标签参与搜索);
+   *  树序不变但引用刷新,驱动 allTags/currentTags 派生值 */
+  const setTags = useCallback(
+    (rel: string, tags: string[]) => {
+      metaRef.current = setDocTags(metaRef.current, rel, tags);
+      persistMeta();
+      const sorted = sortTree(treeRef.current, metaRef.current);
+      treeRef.current = sorted;
+      setTree(sorted);
+      if (rel === pathRef.current && searchRef.current.size > 0) {
+        searchRef.current.add(rel, savedMdRef.current ?? "", tags);
+      }
+    },
+    [persistMeta],
+  );
+
+  /** 全库标签清单(树/meta 更新点位刷新) */
+  const allTags = useMemo(() => allTagsOf(metaRef.current), [tree, kbRoot]);
+  /** 当前文档标签 */
+  const currentTags = useMemo(
+    () => metaRef.current.docs[currentPath ?? ""]?.tags ?? [],
+    [tree, currentPath],
+  );
+  /** 置顶文档路径集合(树序已在 sortTree 提前;此集合供图标与拖拽豁免) */
+  const pinnedDocs = useMemo(() => {
+    const s = new Set<string>();
+    for (const [rel, v] of Object.entries(metaRef.current.docs)) if (v.pinned) s.add(rel);
+    return s;
+  }, [tree, kbRoot]);
+  /** 带某标签的文档集合(左栏筛选过滤用) */
+  const docsByTag = useCallback((tag: string): Set<string> => {
+    const s = new Set<string>();
+    for (const [rel, v] of Object.entries(metaRef.current.docs)) {
+      if (v.tags?.includes(tag)) s.add(rel);
+    }
+    return s;
+  }, []);
+
   /* ---------------- 回收站(5.1.1) ---------------- */
 
   const listTrash = useCallback(async (): Promise<TrashEntry[]> => {
@@ -1027,6 +1082,12 @@ export function useKb(settings: AppSettings) {
     resolveExternal,
     toggleCollapse,
     persistSiblingOrder,
+    togglePinned,
+    setTags,
+    allTags,
+    currentTags,
+    pinnedDocs,
+    docsByTag,
     listTrash,
     restoreTrash,
     purgeTrash,

@@ -4,7 +4,7 @@
 
 ## 现状一句话
 
-**MVP(第 5 章)与 M4 大部已提交;V2 批次一(Callout + 公式)与批次二全部四项(Mermaid + 历史快照 + 折叠摘要块 + 附件卡片)已提交并真机验证(2026-10-31)**。当前工作重点 = V2 剩余 6.3/6.4 + 真机菜单/设置窗肉眼验证 + M4 尾项(IME 回归、Windows 包)。测试 149/149,`pnpm build` 过。
+**MVP(第 5 章)与 M4 大部已提交;V2 批次一(Callout + 公式)与批次二全部四项(Mermaid + 历史快照 + 折叠摘要块 + 附件卡片)已提交并真机验证(2026-10-31)**。当前工作重点 = V2 6.3 双链增强已代码完成(待真机)→ 6.4(窗口记忆/PDF 导出/主题打磨)。测试 157/157,`pnpm build` 过。
 
 ## 里程碑(PRD §11.4 工期表)
 
@@ -88,6 +88,16 @@
 | TOC 大纲面板 | 5.4-1 | ✅ 核对为已有实现(`src/editor/panel/TocPanel.tsx`),此前审计 grep 截断误报缺失 |
 | bug:「仍要在此创建」再撞 NOT_EMPTY | — | ✅ `onForceCreate={kb.createKbAt}` 漏传 force,真 bug(E2E 未覆盖非空路径),已改 `(root) => kb.createKbAt(root, true)` |
 
+## V2 双链增强(6.3 批次,2026-10-31)🔨 代码完成,待真机验证
+
+| 子项 | PRD | 状态 | 说明 |
+| --- | --- | --- | --- |
+| 反链引用片段 | 6.3-1 | ✅ 代码完成 | parseWikiOut 逐行扫描 + heading 栈(层级截断)产出章节路径(「安装 / macOS」,文首 null);code fence 门控 heading(fence 内 [[链接]] 仍计数,保持基础版语义)。OutLink 增 `label`(别名优先)/`heading`/`snippet`(引用前后各 24 字带省略号,含 [[…]] 原文)。面板每引用一行(替代原 count 聚合,同源多引用展开):来源名 + heading 右侧小字 + 两行片段,[[…]] 段 primary 高亮;已删除灰态保留 |
+| 文档置顶 | 6.3-3 | ✅ 代码完成 | `meta.docs.pinned`(DocMeta 字段早预留)+ sortTree 第一关键字(仅文档,置顶组内仍按 sortIndex/名称;**不越级** = 只作用于所在层级,子层置顶不影响根层);右键「置顶/取消置顶」,置顶行名称旁 Pin 图标;置顶行禁拖、不作 before/after 落点(永远最上,落位无意义);setDocPinned 幂等,false 不留脏键 |
+| 文档标签 | 6.3-2 | ✅ 代码完成 | 纯 meta(`tags: string[]` 不进正文,§10 无标签方言);搜索索引把 tags 以 `#tag` 拼进正文尾部参与 content 匹配(raws 片段仍取原文,命中位置不漂移);右栏 TagsPanel(折叠头 + chips:点击 = 左栏按标签过滤树(带标签文档保留,空文件夹隐藏,过滤态全树禁拖)、× = 移除;底部输入框回车批量添加,逗号/分号拆分——**onAdd 批量单调用**,避免连续多次展开同一渲染的 currentTags 互相覆盖的闭包竞态);树搜索框下标签筛选下拉(全库标签);setTags 原位更新搜索索引 |
+
+验证:vitest 157/157(backlinks 重写:heading 栈/fence 门控/片段截断;meta +8 用例:置顶序含组内 sortIndex/不越级/setDocPinned 幂等/setDocTags 去重保序/allTagsOf/filterTreeByTag 空文件夹隐藏)、`pnpm build` 过、E2E `v23.js` 12/12(反链两行展开+章节位置+高亮、置顶右键→最上+重载持久+取消恢复、标签批量添加→chip 过滤树只剩目标→清除恢复→搜索「#tag 词」命中→meta localStorage 持久化)。真机待验:树右键置顶/右栏标签面板添加与筛选/反链面板片段观感。截图分析服务故障未跑成,观感以 E2E DOM 断言为准,截图在 `/tmp/yanzhi-drive/v23-final.png`
+
 ## V2 特殊卡片(批次二,2026-10-31)✅ 全部完成并真机验证
 
 | 子项 | PRD | 状态 | 说明 |
@@ -125,12 +135,13 @@
 
 ## 决策记录
 
+- **标签只存 meta 不进正文(6.3 定)**:§10 方言表无 #tag 行内语法,标签写入正文会污染往返与外部编辑;搜索把 tags 以 `#tag` 拼进正文索引只是命中技巧(raws 片段仍取原文)。置顶沿用同思路(meta.docs.pinned),与 sortIndex/折叠同一存储层。
 - **图片 width/align 不入方言(M3 定)**:§10 方言表无宽度语法,不擅自扩;两者是会话级视图属性,重启即回原始尺寸(≤正文宽),持久化与 HTML 导出均不带。PRD §10 未加条目 = 明确不加。
 - **左栏入口归置(语雀式,2026-10-30)**:新建收敛为头部单个「+」下拉(文档/文件夹);回收站为低频入口,挪到左栏底部文字项;头部仅「+」「⋯」两个 icon。**lucide 1.x 里 `Trash` 与 `Trash2` 是同一图形**(带桶内两竖线,14px 细线下轮廓碎),无更干净的桶形候选,回收站图标改为 `DocTree.tsx` 自绘 `TrashGlyph`(盖沿+提手+锥形桶身)。**2026-10-31 用户反馈再收敛:树头部「⋯」整个移除**——导入 Markdown/导出当前文档/导出离线 HTML 三项移入原生菜单「文件」(最近打开与设置之间);重建索引只留设置(搜索分区)与搜索空态;设置入口 = 左栏底部齿轮 + 文件菜单。三个导入导出回调从 App.tsx 后段挪到菜单 useEffect 之前(依赖数组引用受 TDZ 限制);无文档时菜单导出 toast「未打开文档」。冒烟 `menu-smoke.js` 4/4(⋯ 移除/+ 下拉两项/左栏无导入导出/齿轮仍在);**菜单条目本身需真机肉眼**
 
 ## 下一步开工
 
-1. **V2 剩余(6.3/6.4)**:反链片段/标签/置顶/PDF 导出/窗口大小记忆
+1. **V2 收尾(6.4)**:窗口大小位置记忆 → PDF 导出(打印版 HTML + 系统打印对话框入口 + 文案)→ 双主题打磨;6.3 已代码完成待真机(树右键置顶/标签面板/反链片段)
 2. **真机肉眼验证(a905c86 批)**:菜单栏条目、⌘W/⌘Q、设置独立窗口打开/聚焦/关于直落、设置窗改主色主窗即时变、显示菜单勾选翻勾(文件菜单导入导出三项 + 树头部 ⋯ 移除已验,2026-10-31);**V2 批次一真机**:演示文档「V2 卡片演示.md」的 callout 类型切换/公式双击编辑(库 = Desktop/zhishi)
 3. **真实链路手测**(dev 常驻且 Rust 命令全量已注册;未验子项):
    - 双链:插入/跳转/前进后退/改名联动(裸名+路径+别名+文件夹段级);反向链接面板(聚合/×N/已删除灰态/点击定位)
@@ -168,7 +179,7 @@
 - **mock 库首开文档是树序第一篇**(随笔/第一篇,不是开始使用):树序 = 文件夹递归在前。E2E 脚本要先点树切到目标文档再断言,同文档点击会被 openDoc 的 `rel===cur` 守卫拦下(行为正确,脚本易误判)
 - **macOS Option 组合快捷键的 `e.key` 是特殊字符**(⌥F → `ƒ`):判断组合键用 `e.code === "KeyF"`,别用 e.key;浮层类组件的 Esc 关闭挂 window 级,不能只挂在 input(焦点在按钮/正文时也要能关);**同修饰键家族的快捷键必须互斥检查**(⌘F 查找没排除 shift → ⌘⇧F 专注模式把查找条也一起打开;两个 handler 都挂 window,preventDefault 不拦其它 listener)
 - **WKWebView 的 navigator.clipboard.write 对 text/html 不稳**(手测实录:复制带表格文档贴出只剩拍平文本):富文本/纯文本复制统一走 tauri-plugin-clipboard-manager(`writeHtml(html, 纯文本回退)`,capabilities 加 allow-write-text/allow-write-html);且 getHTML 输出无样式,贴到微信/邮件必须先 `inlineStyles` 注入内联样式(无边框表格观感即"结构丢了")
-- 修改任何解析/序列化行为:**必须跑全量 fixtures**(`pnpm test`,当前 149/149)
+- 修改任何解析/序列化行为:**必须跑全量 fixtures**(`pnpm test`,当前 157/157)
 - **flexsearch 0.7.31 的 d.ts 是错的**(描述 async/worker 形态:`FlexSearch.create`、Promise search、number id),实际 ESM 默认导出 = Index 构造函数、同步 search 返回数组、string id 可用;vitest 走 CJS main 是 `{ Index }` 对象——`search.ts` 头部有运行时探测双兼容。**自定义切词必须挂 `encode`(返回 token 数组)**:挂 `tokenize` 函数静默不生效,CJK 会被默认拉丁编码器整段剥掉(搜索返回空)。多 token 默认 AND,`suggest:true` 兜底 OR
 - **内容哈希跨端必须逐字符对齐**:Rust `format!("{hash:016x}")` 是完整 16 hex(`:012x` 是最小宽度不是截断,u64 会打出 16 位,JS 手写截断曾错位);JS BigInt 侧 `toString(16).padStart(16,"0")`。mock 与 Rust 两份实现靠测试向量锁定([0x61] → `af63dc4c8601ec8c`)
 - **Tauri assetProtocol**:渲染本地图片需三处齐全——cargo feature `protocol-asset`、tauri.conf.json `security.assetProtocol.enable+scope`、前端 `convertFileSrc`;少 cargo feature 编译直接报 feature not enabled,少 conf 运行时 asset: 请求 403

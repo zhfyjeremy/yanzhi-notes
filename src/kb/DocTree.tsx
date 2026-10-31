@@ -7,11 +7,14 @@ import {
   FolderClosed,
   FolderOpen,
   FolderPlus,
+  Hash,
   PenLine,
+  Pin,
   Plus,
   Settings,
   SquarePen,
   Trash2,
+  X,
 } from "lucide-react";
 import type { TreeNode } from "./types";
 import type { SearchHit } from "./search";
@@ -66,6 +69,15 @@ interface DocTreeProps {
   /** 失联 meta 条数(5.2.1);>0 才渲染底部入口 */
   orphanCount: number;
   onOpenOrphans: () => void;
+  /* ---- 置顶与标签(6.3-2/3) ---- */
+  /** 置顶文档路径集合(树序在 meta 排序处已提前;此处用于图标与拖拽豁免) */
+  pinnedSet: Set<string>;
+  onTogglePin: (rel: string, pinned: boolean) => void;
+  /** 全库标签(筛选下拉) */
+  allTags: string[];
+  /** 激活中的标签筛选;null = 未筛选(树已由上层过滤,过滤态禁拖) */
+  tagFilter: string | null;
+  onTagFilter: (tag: string | null) => void;
 }
 
 type DropZone = "before" | "after" | "into";
@@ -114,12 +126,16 @@ function TreeRow({
   depth,
   currentPath,
   collapsed,
+  pinnedSet,
+  pinned,
+  dragLocked,
   onToggle,
   onOpenDoc,
   onCreateDoc,
   onCreateFolder,
   onRenameEntry,
   onRemoveEntry,
+  onTogglePin,
   dragPath,
   dropHint,
   onDragOverRow,
@@ -129,12 +145,17 @@ function TreeRow({
   depth: number;
   currentPath: string | null;
   collapsed: Set<string>;
+  pinnedSet: Set<string>;
+  pinned: boolean;
+  /** 标签筛选态:树是过滤视图,拖拽排序/移动会错位隐藏兄弟 → 全禁 */
+  dragLocked: boolean;
   onToggle: (path: string) => void;
   onOpenDoc: (rel: string) => void;
   onCreateDoc: (folderRel: string, title: string) => void;
   onCreateFolder: (folderRel: string, name: string) => void;
   onRenameEntry: (rel: string, name: string) => void;
   onRemoveEntry: (rel: string) => void;
+  onTogglePin: (rel: string, pinned: boolean) => void;
   dragPath: React.MutableRefObject<string | null>;
   dropHint: { path: string; zone: DropZone } | null;
   onDragOverRow: (path: string, zone: DropZone | null) => void;
@@ -145,6 +166,8 @@ function TreeRow({
   const isCollapsed = collapsed.has(node.path);
   const pad = { paddingLeft: 8 + depth * 14 };
   const hint = dropHint?.path === node.path ? dropHint.zone : null;
+  // 置顶行不参与拖拽(永远在组内最上,落位无意义);筛选态全禁
+  const noDrag = dragLocked || (pinned && !node.isDir);
 
   if (renaming) {
     const commit = (value: string) => {
@@ -197,6 +220,10 @@ function TreeRow({
             }}
             draggable
             onDragStart={(e) => {
+              if (noDrag) {
+                e.preventDefault();
+                return;
+              }
               dragPath.current = node.path;
               e.dataTransfer.effectAllowed = "move";
               // WebKit/WKWebView 必须在 dragstart 里 setData 才会发起拖拽(Chrome 不要求)
@@ -209,7 +236,7 @@ function TreeRow({
             }}
             onDragOver={(e) => {
               const dragged = dragPath.current;
-              if (!dragged || dragged === node.path || node.path.startsWith(dragged + "/")) return;
+              if (dragLocked || !dragged || dragged === node.path || node.path.startsWith(dragged + "/")) return;
               e.preventDefault();
               e.dataTransfer.dropEffect = "move";
               const rect = e.currentTarget.getBoundingClientRect();
@@ -260,6 +287,9 @@ function TreeRow({
               <FileText className="text-muted-foreground ml-[18px] size-4 shrink-0" />
             )}
             <span className="truncate">{node.name}</span>
+            {pinned && !node.isDir && (
+              <Pin className="text-primary/70 ml-auto size-3 shrink-0" aria-label="已置顶" />
+            )}
             {node.isDir && (
               /* 不能用 hidden group-hover:flex:菜单弹出覆盖鼠标会打断 :hover,
                  trigger 塌缩成零尺寸 → popper 定位到屏幕原点(左上角实录) */
@@ -302,6 +332,11 @@ function TreeRow({
               <ContextMenuSeparator />
             </>
           )}
+          {!node.isDir && (
+            <ContextMenuItem onClick={() => onTogglePin(node.path, !pinned)}>
+              <Pin /> {pinned ? "取消置顶" : "置顶"}
+            </ContextMenuItem>
+          )}
           <ContextMenuItem onClick={() => setRenaming(true)}>
             <PenLine /> 重命名
           </ContextMenuItem>
@@ -328,7 +363,11 @@ function TreeRow({
               depth={depth + 1}
               currentPath={currentPath}
               collapsed={collapsed}
+              pinnedSet={pinnedSet}
+              pinned={pinnedSet.has(child.path)}
+              dragLocked={dragLocked}
               onToggle={onToggle}
+              onTogglePin={onTogglePin}
               onOpenDoc={onOpenDoc}
               onCreateDoc={onCreateDoc}
               onCreateFolder={onCreateFolder}
@@ -368,6 +407,11 @@ export function DocTree({
   onOpenTrash,
   orphanCount,
   onOpenOrphans,
+  pinnedSet,
+  onTogglePin,
+  allTags,
+  tagFilter,
+  onTagFilter,
 }: DocTreeProps) {
   const dragPath = useRef<string | null>(null);
   const [dropHint, setDropHint] = useState<{ path: string; zone: DropZone } | null>(null);
@@ -390,6 +434,8 @@ export function DocTree({
     setDropHint(null);
     if (!dragged || dragged === target) return;
     if (target.startsWith(dragged + "/")) return; // 不能拖进自己的子树
+    // 置顶行永远在组内最上,before/after 落位无意义(拖拽发起端已禁,此处兜底)
+    if (zone !== "into" && pinnedSet.has(target)) return;
     if (zone === "into") {
       // 层级调整 = 文件系统移动(名字不变),排序由 moveEntry 落尾
       onMoveEntry(dragged, target);
@@ -443,6 +489,44 @@ export function DocTree({
         onRebuild={onRebuildIndex}
         preset={searchPreset}
       />
+      {(allTags.length > 0 || tagFilter) && (
+        /* 标签筛选条(6.3-2):下拉选全库标签;激活时显示当前标签 + 清除 */
+        <div className="flex h-7 shrink-0 items-center gap-1.5 px-2 text-xs">
+          <DropdownMenu>
+            <Hint label="按标签筛选文档">
+              <DropdownMenuTrigger asChild>
+                <button className="text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-0.5 rounded px-1 py-0.5">
+                  <Hash className="size-3" />
+                  标签
+                </button>
+              </DropdownMenuTrigger>
+            </Hint>
+            <DropdownMenuContent align="start" alignOffset={-4}>
+              {allTags.length === 0 ? (
+                <div className="text-muted-foreground px-2 py-1 text-xs">暂无标签</div>
+              ) : (
+                allTags.map((t) => (
+                  <DropdownMenuItem key={t} onClick={() => onTagFilter(t === tagFilter ? null : t)}>
+                    <Hash /> {t}
+                  </DropdownMenuItem>
+                ))
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {tagFilter && (
+            <span className="border-primary/45 bg-primary/10 text-primary inline-flex max-w-32 items-center gap-0.5 truncate rounded-full border px-1.5 py-0.5 text-[11px] leading-4">
+              <span className="truncate">#{tagFilter}</span>
+              <button
+                className="hover:text-foreground shrink-0 cursor-pointer"
+                title="清除筛选"
+                onClick={() => onTagFilter(null)}
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          )}
+        </div>
+      )}
       <nav
         ref={navRef}
         className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1"
@@ -450,7 +534,7 @@ export function DocTree({
       >
         {tree.length === 0 ? (
           <p className="text-muted-foreground px-3 py-6 text-center text-xs">
-            空知识库:点击上方按钮新建第一篇文档
+            {tagFilter ? `没有带「#${tagFilter}」标签的文档` : "空知识库:点击上方按钮新建第一篇文档"}
           </p>
         ) : (
           tree.map((node) => (
@@ -460,7 +544,11 @@ export function DocTree({
               depth={0}
               currentPath={currentPath}
               collapsed={collapsed}
+              pinnedSet={pinnedSet}
+              pinned={pinnedSet.has(node.path)}
+              dragLocked={tagFilter !== null}
               onToggle={onToggleCollapse}
+              onTogglePin={onTogglePin}
               onOpenDoc={onOpenDoc}
               onCreateDoc={onCreateDoc}
               onCreateFolder={onCreateFolder}

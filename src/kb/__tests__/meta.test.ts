@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { TreeNode } from "../types";
 import {
+  allTagsOf,
   applySiblingOrder,
   claimMetaKey,
   collapsedFolders,
   discardMetaKey,
+  filterTreeByTag,
   findOrphanMeta,
   EMPTY_META,
   moveMetaToTail,
@@ -14,6 +16,8 @@ import {
   renameMetaKeys,
   serializeMeta,
   setCollapsed,
+  setDocPinned,
+  setDocTags,
   sortTree,
 } from "../meta";
 
@@ -59,6 +63,46 @@ describe("sortTree", () => {
     const tree = [dir("f", [doc("f/z.md"), doc("f/y.md")])];
     const meta = parseMeta('{"version":1,"docs":{"f/z.md":{"sortIndex":0}},"folders":{}}');
     expect(sortTree(tree, meta)[0].children.map((n) => n.path)).toEqual(["f/z.md", "f/y.md"]);
+  });
+  it("置顶文档组内最上(6.3-3;文件夹不参与,置顶组内仍按 sortIndex/名称)", () => {
+    const tree = [dir("f", []), doc("b.md"), doc("a.md"), doc("p2.md"), doc("p1.md")];
+    const meta = parseMeta(
+      '{"version":1,"docs":{"a.md":{"sortIndex":0},"b.md":{"sortIndex":1},"p1.md":{"pinned":true},"p2.md":{"pinned":true,"sortIndex":5}},"folders":{"f":{"sortIndex":0}}}',
+    );
+    // 置顶组:p2(有 sortIndex 5)在前 p1(无)在后;非置顶组 a/f/b 按 sortIndex+名称
+    expect(sortTree(tree, meta).map((n) => n.path)).toEqual(["p2.md", "p1.md", "a.md", "f", "b.md"]);
+  });
+  it("置顶作用于各文件夹内部,不越级", () => {
+    const tree = [dir("f", [doc("f/x.md"), doc("f/p.md")]), doc("root.md")];
+    const meta = parseMeta('{"version":1,"docs":{"f/p.md":{"pinned":true}},"folders":{}}');
+    const sorted = sortTree(tree, meta);
+    expect(sorted.map((n) => n.path)).toEqual(["f", "root.md"]); // 根层不受子层置顶影响
+    expect(sorted[0].children.map((n) => n.path)).toEqual(["f/p.md", "f/x.md"]);
+  });
+});
+
+describe("置顶与标签纯函数(6.3-2/3)", () => {
+  it("setDocPinned 幂等翻转,不动其它偏好", () => {
+    const base = parseMeta('{"version":1,"docs":{"a.md":{"sortIndex":2,"tags":["x"]}},"folders":{}}');
+    const on = setDocPinned(base, "a.md", true);
+    expect(on.docs["a.md"]).toEqual({ sortIndex: 2, tags: ["x"], pinned: true });
+    expect(setDocPinned(on, "a.md", true)).toBe(on); // 已同值 → 原引用
+    expect(setDocPinned(on, "a.md", false).docs["a.md"]?.pinned).toBeUndefined();
+  });
+  it("setDocTags 去重去空白保序;空数组也落键", () => {
+    const next = setDocTags(EMPTY_META, "a.md", [" 工作 ", "life", "工作", "", " "]);
+    expect(next.docs["a.md"]?.tags).toEqual(["工作", "life"]);
+    expect(setDocTags(next, "a.md", []).docs["a.md"]?.tags).toEqual([]);
+  });
+  it("allTagsOf 全库收集去重排序;filterTreeByTag 空文件夹隐藏", () => {
+    const meta = parseMeta(
+      '{"version":1,"docs":{"a.md":{"tags":["b标签","a标签"]},"f/c.md":{"tags":["a标签"]}},"folders":{}}',
+    );
+    expect(allTagsOf(meta)).toEqual(["a标签", "b标签"]);
+    const tree = [doc("a.md"), dir("f", [doc("f/c.md"), doc("f/d.md")]), dir("空", [])];
+    const tagged = new Set(["f/c.md"]);
+    expect(filterTreeByTag(tree, tagged).map((n) => n.path)).toEqual(["f"]);
+    expect(filterTreeByTag(tree, new Set(["a.md"])).map((n) => n.path)).toEqual(["a.md"]);
   });
 });
 

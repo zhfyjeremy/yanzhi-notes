@@ -9,6 +9,8 @@ import type { TreeNode } from "./types";
 export interface DocMeta {
   sortIndex?: number;
   pinned?: boolean;
+  /** 文档标签(6.3-2;不进正文,只存 meta) */
+  tags?: string[];
 }
 export interface FolderMeta {
   sortIndex?: number;
@@ -48,12 +50,17 @@ const sortIndexOf = (node: TreeNode, meta: KbMeta): number | undefined =>
   node.isDir ? meta.folders[node.path]?.sortIndex : meta.docs[node.path]?.sortIndex;
 
 /**
- * 递归排序(纯函数):有 sortIndex 的在前按 index 升序,无 meta 的排后按名称;
+ * 递归排序(纯函数):置顶文档(meta.docs.pinned)组内最上(6.3-3),
+ * 其余有 sortIndex 的在前按 index 升序,无 meta 的排后按名称;
  * 目录树显示顺序唯一出处(Rust scan_tree 只给名称序兜底)。
  */
 export function sortTree(nodes: TreeNode[], meta: KbMeta): TreeNode[] {
   const withChildren = nodes.map((n) => (n.isDir ? { ...n, children: sortTree(n.children, meta) } : n));
+  const pinned = (n: TreeNode) => !n.isDir && !!meta.docs[n.path]?.pinned;
   return withChildren.sort((a, b) => {
+    const pa = pinned(a) ? 0 : 1;
+    const pb = pinned(b) ? 0 : 1;
+    if (pa !== pb) return pa - pb;
     const ai = sortIndexOf(a, meta);
     const bi = sortIndexOf(b, meta);
     if (ai != null && bi != null) return ai - bi || a.name.localeCompare(b.name);
@@ -141,6 +148,44 @@ export function setCollapsed(meta: KbMeta, folderRel: string, collapsed: boolean
     ...meta,
     folders: { ...meta.folders, [folderRel]: { ...meta.folders[folderRel], collapsed } },
   };
+}
+
+/** 文档置顶/取消置顶(6.3-3;置顶组内仍按原 sortIndex 序,false 不留脏键) */
+export function setDocPinned(meta: KbMeta, rel: string, pinned: boolean): KbMeta {
+  if (!!meta.docs[rel]?.pinned === pinned) return meta;
+  const prev = { ...meta.docs[rel] };
+  if (pinned) prev.pinned = true;
+  else delete prev.pinned;
+  return { ...meta, docs: { ...meta.docs, [rel]: prev } };
+}
+
+/** 文档标签整体替换(6.3-2;去重 + 去空白,输入序保持) */
+export function setDocTags(meta: KbMeta, rel: string, tags: string[]): KbMeta {
+  const next: string[] = [];
+  for (const t of tags) {
+    const v = t.trim();
+    if (v && !next.includes(v)) next.push(v);
+  }
+  return { ...meta, docs: { ...meta.docs, [rel]: { ...meta.docs[rel], tags: next } } };
+}
+
+/** 全库标签清单(按字典序;标签筛选下拉与面板补全用) */
+export function allTagsOf(meta: KbMeta): string[] {
+  const set = new Set<string>();
+  for (const v of Object.values(meta.docs)) for (const t of v.tags ?? []) set.add(t);
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+/** 按标签过滤树(6.3-2):文档带标签保留,文件夹递归过滤后空则隐藏(纯函数) */
+export function filterTreeByTag(nodes: TreeNode[], tagged: Set<string>): TreeNode[] {
+  const out: TreeNode[] = [];
+  for (const n of nodes) {
+    if (n.isDir) {
+      const kids = filterTreeByTag(n.children, tagged);
+      if (kids.length) out.push({ ...n, children: kids });
+    } else if (tagged.has(n.path)) out.push(n);
+  }
+  return out;
 }
 
 /** 初始折叠集合(开库恢复 5.1「折叠状态存 meta」) */

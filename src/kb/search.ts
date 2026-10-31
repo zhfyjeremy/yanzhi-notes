@@ -118,15 +118,16 @@ export class KbSearchIndex {
   private path: SyncIndex = createSyncIndex();
   private raws = new Map<string, string>();
 
-  build(docs: { path: string; content: string }[]): void {
+  build(docs: { path: string; content: string }[], tagsOf?: (path: string) => string[]): void {
     this.clear();
-    for (const d of docs) this.add(d.path, d.content);
+    for (const d of docs) this.add(d.path, d.content, tagsOf?.(d.path) ?? []);
   }
 
-  add(path: string, content: string): void {
+  /** tags(6.3-2)拼进正文索引尾部:搜标签名即可命中(片段仍取正文原文) */
+  add(path: string, content: string, tags: string[] = []): void {
     this.remove(path);
     this.title.add(path, docName(path));
-    this.content.add(path, content);
+    this.content.add(path, tags.length ? `${content}\n${tags.map((t) => `#${t}`).join(" ")}` : content);
     this.path.add(path, path);
     this.raws.set(path, content);
   }

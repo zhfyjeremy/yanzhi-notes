@@ -11,6 +11,8 @@ import { BacklinksPanel } from "./kb/BacklinksPanel";
 import { HistoryPanel, formatSnapshotTime } from "./kb/HistoryPanel";
 import { HistoryDialog } from "./kb/HistoryDialog";
 import { DocTree } from "./kb/DocTree";
+import { TagsPanel } from "./kb/TagsPanel";
+import { filterTreeByTag } from "./kb/meta";
 import { StatusBar } from "./kb/StatusBar";
 import { TrashDialog } from "./kb/TrashDialog";
 import { OrphanMetaDialog } from "./kb/OrphanMetaDialog";
@@ -64,6 +66,8 @@ function App() {
   // 失效双链弹窗目标 + 「搜索同名文档」预置信号(5.2.1-5)
   const [wikiDead, setWikiDead] = useState<string | null>(null);
   const [searchPreset, setSearchPreset] = useState<{ term: string; seq: number } | null>(null);
+  /* 标签筛选(6.3-2):左栏树只显示带该标签的文档;null = 未筛选 */
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
   const searchPresetSeq = useRef(0);
   // 全局搜索定位信号(seq 单调递增:同文档重复点击也能触发定位)
   const [locateSignal, setLocateSignal] = useState<{ term: string; seq: number } | null>(null);
@@ -284,6 +288,12 @@ function App() {
     [kb.currentPath, kb.refsVersion, kb.tree, kb.getBacklinks],
   );
 
+  /* 标签筛选视图(6.3-2):树过滤为带该标签的文档(空文件夹隐藏);过滤态禁拖 */
+  const shownTree = useMemo(
+    () => (tagFilter ? filterTreeByTag(kb.tree, kb.docsByTag(tagFilter)) : kb.tree),
+    [tagFilter, kb.tree, kb.docsByTag],
+  );
+
   // 改名统一入口:标题框(文档)与目录树(文件夹)共用,引用联动时提示更新数
   const renameWithToast = useCallback(
     async (rel: string, name: string) => {
@@ -444,7 +454,7 @@ function App() {
         {!focusMode && (
           <DocTree
             root={kb.kbRoot}
-            tree={kb.tree}
+            tree={shownTree}
             currentPath={kb.currentPath}
             collapsed={kb.collapsed}
             indexReady={kb.indexReady}
@@ -464,6 +474,11 @@ function App() {
             onOpenTrash={() => setTrashOpen(true)}
             orphanCount={kb.orphanMeta.length}
             onOpenOrphans={() => setOrphansOpen(true)}
+            pinnedSet={kb.pinnedDocs}
+            onTogglePin={(rel, pinned) => kb.togglePinned(rel, pinned)}
+            allTags={kb.allTags}
+            tagFilter={tagFilter}
+            onTagFilter={setTagFilter}
           />
         )}
         <div className="flex min-h-0 flex-1 flex-col">
@@ -536,6 +551,15 @@ function App() {
         </div>
         {!focusMode && settings.showRightPanel && editor && (
           <aside className="bg-muted/40 flex w-60 shrink-0 flex-col">
+            {kb.currentPath && (
+              <TagsPanel
+                tags={kb.currentTags}
+                activeFilter={tagFilter}
+                onFilter={setTagFilter}
+                onAdd={(ts) => kb.currentPath && kb.setTags(kb.currentPath, [...kb.currentTags, ...ts])}
+                onRemove={(t) => kb.currentPath && kb.setTags(kb.currentPath, kb.currentTags.filter((x) => x !== t))}
+              />
+            )}
             <TocPanel editor={editor} scrollContainer={scrollEl} />
             <BacklinksPanel
               rows={backlinks}
