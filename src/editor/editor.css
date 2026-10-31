@@ -219,6 +219,60 @@
   color: inherit;
 }
 
+/* Mermaid 图表卡(codeBlock language=mermaid 的 NodeView,PRD §6.1.4):
+   预览/源码双视图,渲染运行时在 extensions/mermaid.ts */
+.yz-editor-doc .yz-mmd-hidden {
+  display: none;
+}
+
+.yz-editor-doc .yz-mmd-stage {
+  min-height: 3em;
+  padding: 0.5em 0;
+}
+
+.yz-editor-doc .yz-mmd-svg {
+  overflow-x: auto;
+}
+
+.yz-editor-doc .yz-mmd-svg svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.yz-editor-doc .yz-mmd-empty,
+.yz-editor-doc .yz-mmd-loading {
+  color: var(--muted-foreground);
+  font-size: 0.9em;
+  padding: 0.6em 0;
+}
+
+.yz-editor-doc .yz-mmd-error {
+  color: var(--callout-caution);
+  font-size: 0.9em;
+  padding: 0.6em 0;
+  overflow-wrap: anywhere;
+}
+
+.yz-editor-doc .yz-mmd-error-detail {
+  display: block;
+  margin-top: 0.3em;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  opacity: 0.8;
+  max-height: 6em;
+  overflow-y: auto;
+}
+
+/* 源码态下方实时预览:限高滚动,不与编辑区抢空间 */
+.yz-editor-doc .yz-mmd-live {
+  margin-top: 0.75em;
+  padding-top: 0.75em;
+  border-top: 1px dashed var(--border);
+  max-height: 280px;
+  overflow: auto;
+}
+
 /* 语法高亮 token(code-highlight.ts 的 PM decoration);色值是 --code-* design token */
 .yz-editor-doc .yz-tok-kw { color: var(--code-kw); }
 .yz-editor-doc .yz-tok-fn { color: var(--code-fn); }

@@ -27,6 +27,7 @@ import {
   Text,
   TextQuote,
   TriangleAlert,
+  Workflow,
 } from "lucide-react";
 import type { CalloutType } from "../extensions/callout";
 import { SlashMenu, flattenSlashItems, type SlashCommandDef } from "./SlashMenu";
@@ -47,6 +48,13 @@ let imagePicker: SlashImagePicker | null = null;
 export function setSlashImagePicker(fn: SlashImagePicker | null): void {
   imagePicker = fn;
 }
+
+/** 斜杠插入的默认流程图模板:小而全(节点/菱形判断/带标签边),中文节点直接可见 */
+const MERMAID_TEMPLATE = `flowchart TD
+    A[开始] --> B{条件满足?}
+    B -- 是 --> C[执行处理]
+    C --> D[结束]
+    B -- 否 --> D`;
 
 const heading = (
   level: 1 | 2 | 3 | 4 | 5 | 6,
@@ -146,6 +154,24 @@ const COMMANDS: SlashCommandDef[] = [
     keywords: ["math", "inline", "katex", "hangnei", "gongshi"],
     action: (editor, range) =>
       editor.chain().focus().deleteRange(range).setMathInline().run(),
+  },
+  {
+    group: "卡片",
+    label: "Mermaid 图表",
+    icon: Workflow,
+    keywords: ["mermaid", "diagram", "flowchart", "tubiao", "liuchengtu", "tu"],
+    // ```mermaid 围栏即 codeBlock(PRD §6.1.4/§10),插入带默认流程图模板
+    action: (editor, range) =>
+      editor
+        .chain()
+        .focus()
+        .deleteRange(range)
+        .insertContent({
+          type: "codeBlock",
+          attrs: { language: "mermaid" },
+          content: [{ type: "text", text: MERMAID_TEMPLATE }],
+        })
+        .run(),
   },
   {
     group: "卡片",
