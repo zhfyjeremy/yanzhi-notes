@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KbConflictError, KbIsYanzhiError, KbNotEmptyError, kbBackend } from "./backend";
-import { parseSettings } from "../settings";
-import type { RecentState, TreeNode, TrashEntry } from "./types";
+import { parseSettings, type AppSettings } from "../settings";
+import type { HistoryEntry, RecentState, TreeNode, TrashEntry } from "./types";
 import { WikiRefIndex, type BacklinkRow } from "./backlinks";
 import { flattenDocs, resolveWikiTarget } from "./wiki-refs";
 import {
@@ -58,7 +58,7 @@ function firstDoc(nodes: TreeNode[]): string | null {
   return null;
 }
 
-export function useKb() {
+export function useKb(settings: AppSettings) {
   const [booted, setBooted] = useState(false);
   const [kbRoot, setKbRoot] = useState<string | null>(null);
   const [tree, setTree] = useState<TreeNode[]>([]);
@@ -90,6 +90,10 @@ export function useKb() {
   const [externalChange, setExternalChange] = useState<string | null>(null);
 
   const dirtyRef = useRef<string | null>(null); // 未落盘的最新内容
+  // 最近一次落盘(openDoc 载入/自动保存成功)的内容:getMarkdownNow 的兜底源。
+  // 不能用 markdown state 兜底——flushSave 不 setMarkdown(prop 变化会整体重载
+  // 编辑器),编辑后闲置 2s dirty 清空,state 仍停在 openDoc 版本(导出/快照会拿旧文)
+  const savedMdRef = useRef<string>(markdown);
   const saveTimer = useRef<number | undefined>(undefined);
   const rootRef = useRef<string | null>(null);
   const pathRef = useRef<string | null>(null);
@@ -99,6 +103,9 @@ export function useKb() {
   const fsUnRef = useRef<(() => void) | null>(null);
   const metaWriteTimer = useRef<number | undefined>(undefined);
   const indexRebuildTimer = useRef<number | undefined>(undefined);
+  // 快照设置随渲染同步(设置窗改立即生效,不重启)
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   const markSelfWrite = () => {
     selfWriteUntil.current = Date.now() + SELF_WRITE_QUIET_MS;
@@ -131,9 +138,11 @@ export function useKb() {
       markSelfWrite();
       await kbBackend.writeDoc(root, rel, content);
       setSaveState("saved");
+      savedMdRef.current = content;
       searchRef.current.add(rel, content); // 保存时增量更新索引(5.5.3)
       wikiRefIdx.current.update(rel, content); // 出链随内容变(反向链接即时反映)
       bumpRefs();
+      void maybeAutoSnapshot(rel, content); // 落盘后顺带检查自动快照(6.2-1)
       const now = new Date();
       setSavedAt(
         `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`,
@@ -157,8 +166,106 @@ export function useKb() {
     [flushSave],
   );
 
-  /** 当前最新正文(dirty 优先;导出/复制等即时消费用,不等落盘) */
-  const getMarkdownNow = useCallback((): string => dirtyRef.current ?? markdown, [markdown]);
+  /** 当前最新正文(dirty 优先,落盘版兜底;导出/复制/快照等即时消费用,不等落盘) */
+  const getMarkdownNow = useCallback((): string => dirtyRef.current ?? savedMdRef.current, []);
+
+  /* ---------------- 历史快照(6.2) ---------------- */
+
+  // 每篇文档最近一次快照(时间 + 内容),自动节流与「实质差异」判断都在前端;
+  // 后端只管存储与数量上限。懒加载:首次保存该文档时从后端补最新一条。
+  const snapRef = useRef(new Map<string, { time: number; content: string }>());
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const bumpHistory = () => setHistoryVersion((v) => (v + 1) % 1_000_000);
+
+  /** 落盘后自动快照检查(6.2-1):距上次 ≥ 设置间隔 且 内容有实质差异 */
+  async function maybeAutoSnapshot(rel: string, content: string): Promise<void> {
+    const root = rootRef.current;
+    if (!root) return;
+    const { snapshotIntervalMin, snapshotKeep } = settingsRef.current;
+    try {
+      let last = snapRef.current.get(rel);
+      if (!last) {
+        const list = await kbBackend.listHistory(root, rel);
+        const latest = list[0];
+        last = latest
+          ? { time: latest.time, content: await kbBackend.readHistory(root, rel, latest.id) }
+          : { time: 0, content: "" };
+        snapRef.current.set(rel, last);
+      }
+      if (Date.now() - last.time < snapshotIntervalMin * 60_000) return;
+      if (content === last.content) return; // 无实质差异(空文档首拍同样跳过)
+      const entry = await kbBackend.saveSnapshot(root, rel, content, true, snapshotKeep);
+      snapRef.current.set(rel, { time: entry.time, content });
+      bumpHistory();
+    } catch (e) {
+      console.error("[kb] 自动快照失败:", e);
+    }
+  }
+
+  /** 手动「打快照」(6.2-1:不受间隔与差异限制);先冲刷再存,确保存的是最新内容 */
+  const snapshotNow = useCallback(async (): Promise<HistoryEntry | null> => {
+    const root = rootRef.current;
+    const rel = pathRef.current;
+    if (!root || !rel) return null;
+    const content = getMarkdownNow(); // flushSave 会清 dirty,先取
+    await flushSave();
+    try {
+      markSelfWrite();
+      const entry = await kbBackend.saveSnapshot(root, rel, content, false, settingsRef.current.snapshotKeep);
+      snapRef.current.set(rel, { time: entry.time, content });
+      bumpHistory();
+      return entry;
+    } catch (e) {
+      console.error("[kb] 打快照失败:", e);
+      return null;
+    }
+  }, [flushSave, getMarkdownNow]);
+
+  /** 恢复快照(6.2-4):恢复前先把当前内容存一份快照(防手滑丢稿),再整体替换正文 */
+  const restoreSnapshot = useCallback(
+    async (content: string): Promise<boolean> => {
+      const root = rootRef.current;
+      const rel = pathRef.current;
+      if (!root || !rel) return false;
+      const current = getMarkdownNow();
+      if (current !== content) {
+        try {
+          markSelfWrite();
+          const entry = await kbBackend.saveSnapshot(root, rel, current, true, settingsRef.current.snapshotKeep);
+          snapRef.current.set(rel, { time: entry.time, content: current });
+          bumpHistory();
+        } catch {
+          /* 恢复前快照失败不阻断恢复(当前内容仍有 2s 自动保存兜底) */
+        }
+      }
+      setMarkdown(content); // markdown prop 变化 → 编辑器整体重载(openDoc 同路径)
+      savedMdRef.current = content; // 落盘前 getMarkdownNow 即可取到恢复版
+      onMarkdownChange(content); // 挂起 2s 自动保存,恢复内容落盘
+      return true;
+    },
+    [getMarkdownNow, onMarkdownChange],
+  );
+
+  const listHistory = useCallback(async (rel: string): Promise<HistoryEntry[]> => {
+    const root = rootRef.current;
+    if (!root) return [];
+    return kbBackend.listHistory(root, rel);
+  }, []);
+
+  const readHistory = useCallback(async (rel: string, id: string): Promise<string> => {
+    const root = rootRef.current;
+    if (!root) throw new Error("未打开知识库");
+    return kbBackend.readHistory(root, rel, id);
+  }, []);
+
+  /** 快照节流状态 key 跟随改名/移动(前缀改写,文档与文件夹通用) */
+  const rewriteSnapKeys = useCallback((oldRel: string, newRel: string) => {
+    const next = new Map<string, { time: number; content: string }>();
+    for (const [k, v] of snapRef.current) {
+      next.set(k === oldRel ? newRel : k.startsWith(oldRel + "/") ? newRel + k.slice(oldRel.length) : k, v);
+    }
+    snapRef.current = next;
+  }, []);
 
   /** 读取并呈现文档(不动历史栈);openDoc/navBack/navForward 共用。
    *  读取失败(被外部删除/权限)置 docError 供上层 toast,返回 false */
@@ -171,6 +278,7 @@ export function useKb() {
       dirtyRef.current = null;
       setCurrentPath(rel);
       setMarkdown(content);
+      savedMdRef.current = content;
       setSaveState("saved");
       setDocError(null);
       if (searchRef.current.size > 0) searchRef.current.add(rel, content);
@@ -368,6 +476,7 @@ export function useKb() {
       backRef.current = [];
       frontRef.current = [];
       syncNav();
+      snapRef.current.clear(); // 换库:快照节流状态不跨库复用
       await kbBackend.setRecent(root);
       setRecent(await kbBackend.getRecent());
       setKbRoot(root);
@@ -399,6 +508,7 @@ export function useKb() {
       } else {
         setCurrentPath(null);
         setMarkdown("# 未命名文档\n");
+        savedMdRef.current = "# 未命名文档\n";
       }
     },
     [openDoc, rebuildIndex],
@@ -549,6 +659,7 @@ export function useKb() {
           else {
             setCurrentPath(null);
             setMarkdown("# 未命名文档\n");
+            savedMdRef.current = "# 未命名文档\n";
           }
         }
       } catch (e) {
@@ -571,6 +682,7 @@ export function useKb() {
         const result = await kbBackend.renameEntry(root, rel, newTitle);
         metaRef.current = renameMetaKeys(metaRef.current, rel, result.newPath, !rel.endsWith(".md"));
         persistMeta();
+        rewriteSnapKeys(rel, result.newPath); // 快照节流状态跟随新路径
         // 索引 key 迁移:旧路径条目挪到新路径(内容从索引外重读太贵,直接重建该条)
         const affected = flattenDocs(treeRef.current)
           .map((d) => d.path)
@@ -595,6 +707,7 @@ export function useKb() {
           if (content != null) {
             dirtyRef.current = null;
             setMarkdown(content);
+            savedMdRef.current = content;
             setSaveState("saved");
           }
         }
@@ -604,7 +717,7 @@ export function useKb() {
         return null;
       }
     },
-    [flushSave, persistMeta, refreshTree, scheduleIndexRebuild],
+    [flushSave, persistMeta, refreshTree, rewriteSnapKeys, scheduleIndexRebuild],
   );
 
   /* ---------------- 移动(拖拽调整层级,5.1) ---------------- */
@@ -620,6 +733,7 @@ export function useKb() {
         if (result.newPath === srcRel) return result; // 已在目标位置,幂等
         const isDir = !srcRel.endsWith(".md");
         metaRef.current = renameMetaKeys(metaRef.current, srcRel, result.newPath, isDir);
+        rewriteSnapKeys(srcRel, result.newPath); // 快照节流状态跟随新路径
         // 跨组 before/after 带 orderedPaths → 按落位;into → 目标组落尾
         metaRef.current =
           orderedPaths && orderedPaths.length
@@ -664,6 +778,7 @@ export function useKb() {
           if (content != null) {
             dirtyRef.current = null;
             setMarkdown(content);
+            savedMdRef.current = content;
             setSaveState("saved");
           }
         }
@@ -673,7 +788,7 @@ export function useKb() {
         return null;
       }
     },
-    [flushSave, persistMeta, refreshTree, scheduleIndexRebuild],
+    [flushSave, persistMeta, refreshTree, rewriteSnapKeys, scheduleIndexRebuild],
   );
 
   /* ---------------- 排序/折叠(meta) ---------------- */
@@ -904,6 +1019,12 @@ export function useKb() {
     exportText,
     readAssetBase64,
     assetSrcResolver,
+    /* ---- 历史快照(6.2) ---- */
+    historyVersion,
+    listHistory,
+    readHistory,
+    snapshotNow,
+    restoreSnapshot,
   };
 }
 

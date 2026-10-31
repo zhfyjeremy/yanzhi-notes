@@ -18,6 +18,8 @@ describe("settings 解析(PRD §8)", () => {
       launch: "last",
       showRightPanel: true,
       showToolbar: true,
+      snapshotKeep: 30,
+      snapshotIntervalMin: 5,
     });
     expect(parseSettings("{}")).toEqual(DEFAULT_SETTINGS);
     expect(parseSettings("not json")).toEqual(DEFAULT_SETTINGS);
@@ -42,9 +44,22 @@ describe("settings 解析(PRD §8)", () => {
       launch: "last",
       showRightPanel: true,
       showToolbar: true,
+      snapshotKeep: 30,
+      snapshotIntervalMin: 5,
     });
     expect(parseSettings('{"cardBorder":"off"}').cardBorder).toBe(true);
     expect(parseSettings('{"imageCompress":0}').imageCompress).toBe(true);
+  });
+  it("快照设置(§8 存储,V2):整数直读并钳制,缺失/异型回默认(30 份 / 5 分钟)", () => {
+    expect(parseSettings('{"snapshotKeep":10,"snapshotIntervalMin":1}')).toMatchObject({
+      snapshotKeep: 10,
+      snapshotIntervalMin: 1,
+    });
+    expect(parseSettings('{"snapshotKeep":0}').snapshotKeep).toBe(1); // 上限至少 1
+    expect(parseSettings('{"snapshotKeep":9999}').snapshotKeep).toBe(200);
+    expect(parseSettings('{"snapshotIntervalMin":-5}').snapshotIntervalMin).toBe(0); // 0 = 每次保存都尝试
+    expect(parseSettings('{"snapshotIntervalMin":9999}').snapshotIntervalMin).toBe(120);
+    expect(parseSettings('{"snapshotKeep":"30"}').snapshotKeep).toBe(30); // 字符串异型回默认
   });
   it("启动偏好:welcome 直读,缺失/异型/未知回 last(5.0.4 默认直开上次库)", () => {
     expect(parseSettings('{"launch":"welcome"}').launch).toBe("welcome");

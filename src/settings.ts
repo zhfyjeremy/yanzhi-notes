@@ -98,6 +98,10 @@ export interface AppSettings {
   showRightPanel: boolean;
   /** 显示菜单勾选项:编辑器顶部格式工具栏 */
   showToolbar: boolean;
+  /** §8 存储&快照(V2,6.2-5):每篇文档快照上限(自动+手动共用),超出清最旧 */
+  snapshotKeep: number;
+  /** §8 存储&快照(6.2-1):自动快照最小间隔(分钟;0 = 每次保存都尝试,仍要求内容有差异) */
+  snapshotIntervalMin: number;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -108,6 +112,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   launch: "last",
   showRightPanel: true,
   showToolbar: true,
+  snapshotKeep: 30,
+  snapshotIntervalMin: 5,
+};
+
+const clampInt = (v: unknown, dflt: number, min: number, max: number): number => {
+  const n = typeof v === "number" && Number.isFinite(v) ? Math.round(v) : dflt;
+  return Math.min(max, Math.max(min, n));
 };
 
 const THEME_MODES: readonly ThemeMode[] = ["system", "light", "dark"];
@@ -124,6 +135,8 @@ export function parseSettings(raw: string): AppSettings {
       launch: v?.launch === "welcome" ? "welcome" : "last",
       showRightPanel: typeof v?.showRightPanel === "boolean" ? v.showRightPanel : true,
       showToolbar: typeof v?.showToolbar === "boolean" ? v.showToolbar : true,
+      snapshotKeep: clampInt(v?.snapshotKeep, 30, 1, 200),
+      snapshotIntervalMin: clampInt(v?.snapshotIntervalMin, 5, 0, 120),
     };
   } catch {
     return DEFAULT_SETTINGS;

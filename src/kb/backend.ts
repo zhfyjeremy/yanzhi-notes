@@ -8,7 +8,15 @@
  */
 
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { DocContent, KbBackend, RecentState, RenameResult, TreeNode, TrashEntry } from "./types";
+import type {
+  DocContent,
+  HistoryEntry,
+  KbBackend,
+  RecentState,
+  RenameResult,
+  TreeNode,
+  TrashEntry,
+} from "./types";
 import { movePatternsFor, refPatternsFor, updateWikiRefs } from "./wiki-refs";
 import { assetRelPosix, isExternalSrc } from "./asset-src";
 
@@ -166,6 +174,15 @@ const tauriBackend: KbBackend = {
   async readAssetBase64(root, rel) {
     return invoke<{ data: string; mime: string } | null>("read_asset_base64", { root, rel });
   },
+  async listHistory(root, rel) {
+    return invoke<HistoryEntry[]>("list_history", { root, rel });
+  },
+  async readHistory(root, rel, id) {
+    return invoke<string>("read_history", { root, rel, id });
+  },
+  async saveSnapshot(root, rel, content, auto, keep) {
+    return invoke<HistoryEntry>("save_snapshot", { root, rel, content, auto, keep });
+  },
   async listenFsEvent(cb) {
     const { listen } = await import("@tauri-apps/api/event");
     const un = await listen<string[]>("kb-fs-event", (e) => cb(e.payload));
@@ -187,6 +204,7 @@ interface MockFs {
   trashFiles: Record<string, string>; // 原相对路径 -> md 内容
   trashFolders: string[]; // 被删文件夹原相对路径
   assets: Record<string, string>; // rel -> dataURL(浏览器 mock 的"图片盘")
+  history: Record<string, Record<string, string>>; // rel -> 快照文件名 -> 内容(6.2)
 }
 
 const SEED_DOCS: Record<string, string> = {
@@ -204,6 +222,7 @@ function freshMock(): MockFs {
     trashFiles: {},
     trashFolders: [],
     assets: {},
+    history: {},
   };
 }
 
@@ -244,6 +263,35 @@ function bytesToBase64(bytes: Uint8Array): string {
     bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
   }
   return btoa(bin);
+}
+
+/* ---------------- mock 历史快照(与 Rust kb.rs 的文件名索引同构) ---------------- */
+
+/** 快照文件名 →(时间, 自动?);`<unix_ms>-<a|m>-<fnv16>.md`,杂物键返回 null */
+function parseHistId(id: string): { time: number; auto: boolean } | null {
+  const m = /^(\d{13})-([am])-([0-9a-f]{16})\.md$/.exec(id);
+  return m ? { time: Number(m[1]), auto: m[2] === "a" } : null;
+}
+
+const histSortDesc = (a: string, b: string): number => {
+  const pa = parseHistId(a);
+  const pb = parseHistId(b);
+  return (pb?.time ?? 0) - (pa?.time ?? 0) || (a < b ? 1 : a > b ? -1 : 0);
+};
+
+/** 快照 key 跟随改名/移动迁移(与 Rust move_history_dir 同构;目标已存在则合并) */
+function moveHistKeys(fs: MockFs, oldRel: string, newRel: string): void {
+  const src = fs.history[oldRel];
+  if (!src) return;
+  fs.history[newRel] = { ...(fs.history[newRel] ?? {}), ...src };
+  delete fs.history[oldRel];
+}
+
+/** 彻底删除时清掉对应快照(文件夹 = 连子孙 key) */
+function dropHistKeys(fs: MockFs, rel: string): void {
+  for (const k of Object.keys(fs.history)) {
+    if (k === rel || k.startsWith(rel + "/")) delete fs.history[k];
+  }
 }
 
 /** mock 树:文件夹在前字母序,与 Rust scan_dir 行为一致 */
@@ -410,6 +458,12 @@ const browserBackend: KbBackend = {
         }
       }
     }
+    // 快照 key 跟随迁移(与 Rust move_history_dir 同构:文档/文件夹都走前缀改写)
+    for (const key of Object.keys(fs.history)) {
+      if (key === rel || key.startsWith(rel + "/")) {
+        moveHistKeys(fs, key, newRel + key.slice(rel.length));
+      }
+    }
     // 引用联动(与 Rust rename_entry 同构)
     const refs = refPatternsFor(rel, newRel, isDir);
     const updatedFiles: string[] = [];
@@ -448,6 +502,12 @@ const browserBackend: KbBackend = {
     } else {
       fs.files[newRel] = fs.files[src];
       delete fs.files[src];
+    }
+    // 快照 key 跟随移动(与 Rust move_history_dir 同构)
+    for (const key of Object.keys(fs.history)) {
+      if (key === src || key.startsWith(src + "/")) {
+        moveHistKeys(fs, key, newRel + key.slice(src.length));
+      }
     }
     // 引用联动(与 Rust move_entry 同构:路径前缀改写,名字不变裸名不动)
     const refs = movePatternsFor(src, newRel, isDir);
@@ -584,6 +644,14 @@ const browserBackend: KbBackend = {
       fs.files[finalRel] = fs.trashFiles[rel];
       delete fs.trashFiles[rel];
     }
+    if (finalRel !== rel) {
+      // 冲突改新名恢复:快照 key 跟随(与 Rust restore_trash 同构)
+      for (const key of Object.keys(fs.history)) {
+        if (key === rel || key.startsWith(rel + "/")) {
+          moveHistKeys(fs, key, finalRel + key.slice(rel.length));
+        }
+      }
+    }
     saveMock(fs);
     return finalRel;
   },
@@ -600,10 +668,12 @@ const browserBackend: KbBackend = {
     } else {
       throw new Error("回收站中不存在该条目");
     }
+    dropHistKeys(fs, rel); // 彻底删除连快照一起清(与 Rust remove_history_dir 对齐)
     saveMock(fs);
   },
   async emptyTrash() {
     const fs = loadMock();
+    for (const rel of [...fs.trashFolders, ...Object.keys(fs.trashFiles)]) dropHistKeys(fs, rel);
     fs.trashFiles = {};
     fs.trashFolders = [];
     saveMock(fs);
@@ -646,6 +716,34 @@ const browserBackend: KbBackend = {
     const m = /^data:([^;,]*);base64,(.*)$/s.exec(dataUrl);
     if (!m) return null;
     return { mime: m[1], data: m[2] };
+  },
+  async listHistory(_root, rel) {
+    const h = loadMock().history[rel] ?? {};
+    return Object.keys(h)
+      .filter((k) => parseHistId(k))
+      .sort(histSortDesc)
+      .map<HistoryEntry>((id) => {
+        const p = parseHistId(id)!;
+        return { id, time: p.time, auto: p.auto, chars: [...h[id]].length };
+      });
+  },
+  async readHistory(_root, rel, id) {
+    const content = loadMock().history[rel]?.[id];
+    if (content == null) throw new Error(`快照不存在: ${id}`);
+    return content;
+  },
+  async saveSnapshot(_root, rel, content, auto, keep) {
+    const fs = loadMock();
+    const h = (fs.history[rel] ??= {});
+    const time = Date.now();
+    const id = `${time}-${auto ? "a" : "m"}-${fnv1aHex(new TextEncoder().encode(content))}.md`;
+    h[id] = content;
+    // 超上限清最旧(与 Rust save_snapshot 同口径,至少保留本次)
+    for (const k of Object.keys(h).filter((k) => parseHistId(k)).sort(histSortDesc).slice(Math.max(1, keep))) {
+      delete h[k];
+    }
+    saveMock(fs);
+    return { id, time, auto, chars: [...content].length };
   },
   async listenFsEvent() {
     return () => {}; // mock 无外部改动

@@ -1,10 +1,10 @@
-# 项目状态(更新:2026-10-30)
+# 项目状态(更新:2026-10-31)
 
 > 开工前速览:看「下一步」直接干活;细节翻 PRD 对应章节。
 
 ## 现状一句话
 
-**MVP(第 5 章)与 M4 大部已提交;V2 批次一(Callout 提示块 + KaTeX 公式)代码完成、已验证,随本批提交**。当前工作重点 = V2 特殊卡片批次二(历史快照/Mermaid/折叠摘要/附件)+ 真机菜单/设置窗肉眼验证 + M4 尾项(IME 回归、Windows 包)。测试 134/134,`pnpm build` 过。
+**MVP(第 5 章)与 M4 大部已提交;V2 批次一(Callout + 公式)与批次二前两项(Mermaid + 历史快照)已提交并真机验证(2026-10-31)**。当前工作重点 = V2 批次二剩余(折叠摘要/附件)+ 真机菜单/设置窗肉眼验证 + M4 尾项(IME 回归、Windows 包)。测试 144/144,`pnpm build` 过。
 
 ## 里程碑(PRD §11.4 工期表)
 
@@ -88,6 +88,13 @@
 | TOC 大纲面板 | 5.4-1 | ✅ 核对为已有实现(`src/editor/panel/TocPanel.tsx`),此前审计 grep 截断误报缺失 |
 | bug:「仍要在此创建」再撞 NOT_EMPTY | — | ✅ `onForceCreate={kb.createKbAt}` 漏传 force,真 bug(E2E 未覆盖非空路径),已改 `(root) => kb.createKbAt(root, true)` |
 
+## V2 特殊卡片(批次二,2026-10-31)🔨 Mermaid+历史快照完成,折叠/附件未动
+
+| 子项 | PRD | 状态 | 说明 |
+| --- | --- | --- | --- |
+| Mermaid 图表卡 | 6.1.4/§10 | ✅ | **复用 codeBlock**(```mermaid 围栏即存储,解析/序列化零改动,PM 原生编辑 IME/撤销免费;比 mathBlock 式 atom 少一套 md-it 规则);NodeView 特判 language=mermaid:预览态(默认,SVG 渲染,contentDOM display:none 留在 DOM)/源码态(行号+可编辑)双视图,源码态下方 **live 实时预览**(200ms 防抖);单击选中整卡、双击进源码;空卡占位。渲染运行时 `extensions/mermaid.ts`:动态 import 懒加载(mermaid 12.2,主 bundle 未污染,cytoscape/elk/mermaid.core 独立 chunk)、**串行队列**(内部全局单例并发互踩)、主题跟随(浅 neutral/深 dark,initialize 可重复调,MutationObserver 监 html class 切深色即时重渲)、securityLevel strict;语法错误显示错误态不崩。斜杠菜单「Mermaid 图表」(Workflow icon)插默认流程图模板;语言下拉加 mermaid 项。fixture `mermaid.md` 往返+二稳;E2E `mermaid.js` 14/14(含全程无外部请求断言,离线 ✅)。导出 HTML 中与公式同口径 = 源码形态(均不渲染,PRD 5.6 未要求)。真机(2026-10-31)渲染/深色/错误态已验 |
+| 文档历史快照 | 6.2/§8 | ✅ | **索引即文件名**:`.yanzhi/history/<rel 去 .md>/<unix_ms>-[a\|m]-<fnv16>.md`(a=自动/m=手动,哈希与 save_asset 同式),无独立索引文件 → 列表与磁盘零漂移;同库同 name 的文档/文件夹并存走 merge-move(id 含时间+哈希无覆盖)。**节流在前端**(settings 有 snapshotIntervalMin/snapshotKeep,内存态最新快照):间隔不足或与最近一份内容相同则跳过,挂在 flushSave 成功后;手动「打快照」不受限。**存储在后端**:Rust `list_history/read_history/save_snapshot`(写后按 keep 清最旧,`read_history` 的 id 先过格式校验防路径逃逸)+ `move_history_dir/remove_history_dir` 挂进 rename/move/恢复/彻底删除/清空;mock 同构(Record<rel, Record<id, 内容>>)。面板 = 右栏第三分区(时间倒序,时间+N 字+自动/手动 badge),对话框 = 只读查看/对比当前(自写行级 LCS diff,`diff.ts` 前后缀裁剪+DP,100 万单元格兜底)+「恢复此版本」(恢复前先为当前内容自动存一份)。顺带修真 bug:**getMarkdownNow 在自动保存落盘后返回陈旧内容**(markdown state 停在 openDoc 版本,导出/复制同中招)——flushSave 不能 setMarkdown(markdown prop 变化会整体重载编辑器丢光标),新增 `savedMdRef` 全落点同步兜底。单测 cargo 4/4 + vitest 144/144;E2E `history.js` 11/11(interval=0 全链路:空态/手动/自动/keep 清理/对比高亮/恢复/改名跟随/重载)。真机(2026-10-31)打快照/恢复已验。**已知缺口:调小 keep 不回溯清理,要等下一次快照写入才裁剪** |
+
 ## V2 特殊卡片(批次一,2026-10-30)🔨 Callout+公式完成,待提交
 
 | 子项 | PRD | 状态 | 说明 |
@@ -112,7 +119,7 @@
 ## 提交记录(近期)
 
 - M3 全量(fs 命令层/树/双链/搜索/assets/监听/回收站/排序/导入导出/设置)随 kb 系列提交;设置窗口化+关于页+菜单全量中文化 = a905c86
-- V2 批次一(Callout + 公式)见上方 V2 表;演示文档「V2 卡片演示.md」在用户库 Desktop/zhishi 中,真实链路打开+自动保存闭环已验(半角括号会被规范化转义为 `\(`,既有 escapeText 行为)
+- V2 批次二前两项:Mermaid 图表卡(依赖 mermaid 运行时)、文档历史快照(Rust 命令 + 面板/对话框 + diff)各一提交;演示文档「V2 卡片演示.md」在用户库 Desktop/zhishi 中,真实链路打开+自动保存闭环已验(半角括号会被规范化转义为 `\(`,既有 escapeText 行为)
 
 ## 决策记录
 
@@ -121,7 +128,7 @@
 
 ## 下一步开工
 
-1. **V2 批次二**:文档历史快照(6.2)→ Mermaid 卡片(6.1.4)→ 折叠摘要块(6.1.2)→ 附件卡片(6.1.5);之后 6.3/6.4(反链片段/标签/置顶/PDF 导出/窗口大小记忆)。Mermaid 同为「块级原文 + 离线渲染」套路,可复用 mathBlock 模式
+1. **V2 批次二(剩)**:折叠摘要块(6.1.2,`<details><summary>` 存储走 RawHtml 或专用节点待定)→ 附件卡片(6.1.5);之后 6.3/6.4(反链片段/标签/置顶/PDF 导出/窗口大小记忆)
 2. **真机肉眼验证(a905c86 批)**:菜单栏条目、⌘W/⌘Q、设置独立窗口打开/聚焦/关于直落、设置窗改主色主窗即时变、显示菜单勾选翻勾;**V2 批次一真机**:演示文档「V2 卡片演示.md」的 callout 类型切换/公式双击编辑(库 = Desktop/zhishi)
 3. **真实链路手测**(dev 常驻且 Rust 命令全量已注册;未验子项):
    - 双链:插入/跳转/前进后退/改名联动(裸名+路径+别名+文件夹段级);反向链接面板(聚合/×N/已删除灰态/点击定位)
@@ -140,7 +147,7 @@
 
 - **React 18 + shadcn new-CLI 组件**:新 CLI 生成的组件无 forwardRef(React 19 风格),radix `asChild` 的 ref 传递会断,popover/dropdown 定位失效。`button.tsx`/`dropdown-menu.tsx`/`context-menu.tsx`/`popover.tsx`/`dialog.tsx`(DialogOverlay:DialogPortal 内部 Presence/asChild 会克隆直接子元素挂 ref)已手工包;**之后每次 `shadcn add` 都要检查**
 - **radix 弹层 trigger 不能依赖 CSS `:hover` 维持尺寸**(树「+」下拉实录:菜单弹出覆盖鼠标坐标 → `:hover` 转移到菜单 → `hidden group-hover:flex` 容器塌缩 → popper anchor rect 变 (0,0) → 菜单定位到屏幕左上角)。hover 显隐一律用 `opacity-0 group-hover:opacity-100`(+ `pointer-events-none group-hover:pointer-events-auto` 防透明误点),元素永远保有尺寸
-- **radix 统一包(radix-ui ^1.8)的 Tooltip 强制要求 Provider**(独立包时代 Root 可裸用,统一包裸用直接抛 "Tooltip must be used within TooltipProvider" 白屏);且 **Tooltip 必须包在 DropdownMenu/Popover Trigger 的外层**——放内层会挡掉 asChild 注入的 pointerdown 处理器,菜单打不开。`Hint` 组件(`src/components/hint.tsx`)已封装:Provider + forwardRef(合并外部 ref 到 children)+ aria-label 注入(可传 null 关闭),新 icon 提示一律用它。**shadcn 包装层 Trigger 全系已补 forwardRef**(button/dropdown-menu/context-menu/popover);另注意:Hint(TooltipTrigger)asChild 会把自己的 `data-slot` 合并进 child(如右键删除项的 data-slot 变 tooltip-trigger),E2E/样式选择器用 `role="menuitem"` 这类稳定属性
+- **radix 统一包(radix-ui ^1.8)的 Tooltip 强制要求 Provider**(独立包时代 Root 可裸用,统一包裸用直接抛 "Tooltip must be used within TooltipProvider" 白屏);且 **Tooltip 必须包在 DropdownMenu/Popover Trigger 的外层**——放内层会挡掉 asChild 注入的 pointerdown 处理器,菜单打不开。`Hint` 组件(`src/components/hint.tsx`)已封装:Provider + forwardRef(合并外部 ref 到 children)+ aria-label 注入(可传 null 关闭),新 icon 提示一律用它;注意注入会**覆盖手写 aria-label**(克隆 child 时 label 参数直接挂上),E2E 选择器用 `[aria-label*="…"]` 部分匹配。**shadcn 包装层 Trigger 全系已补 forwardRef**(button/dropdown-menu/context-menu/popover);另注意:Hint(TooltipTrigger)asChild 会把自己的 `data-slot` 合并进 child(如右键删除项的 data-slot 变 tooltip-trigger),E2E/样式选择器用 `role="menuitem"` 这类稳定属性
 - **shadcn new-CLI 组件的动画类错配 data 变体**(全系实录):`data-open:animate-in` 匹配的是布尔属性 `[data-open]`,radix 实际用 `data-state="open"/"closed"/"delayed-open"/"instant-open"`——**右键菜单/popover/dialog/tooltip 的进出场动画从来没生效过**;且 tooltip 模板漏了 `instant-open`(skipDelay 300ms 内二次触发,如菜单项间移动)状态。已全量改为 `data-[state=open]:` 形态 + 补 instant-open 三件套(tooltip/dropdown/context/popover/dialog 五个文件)
 - **flex 滚动**:任何 `flex-1` 滚动容器必须配 `min-h-0`,否则内容把 body 顶出滚动条;整页已设 `body overflow:hidden`,编辑列用 `min-h-0 flex-1`
 - **装新依赖后必须重启 dev**:Vite optimizeDeps 在启动时定型,不重启会 resolve 失败(报错像没装一样)
@@ -159,7 +166,7 @@
 - **mock 库首开文档是树序第一篇**(随笔/第一篇,不是开始使用):树序 = 文件夹递归在前。E2E 脚本要先点树切到目标文档再断言,同文档点击会被 openDoc 的 `rel===cur` 守卫拦下(行为正确,脚本易误判)
 - **macOS Option 组合快捷键的 `e.key` 是特殊字符**(⌥F → `ƒ`):判断组合键用 `e.code === "KeyF"`,别用 e.key;浮层类组件的 Esc 关闭挂 window 级,不能只挂在 input(焦点在按钮/正文时也要能关);**同修饰键家族的快捷键必须互斥检查**(⌘F 查找没排除 shift → ⌘⇧F 专注模式把查找条也一起打开;两个 handler 都挂 window,preventDefault 不拦其它 listener)
 - **WKWebView 的 navigator.clipboard.write 对 text/html 不稳**(手测实录:复制带表格文档贴出只剩拍平文本):富文本/纯文本复制统一走 tauri-plugin-clipboard-manager(`writeHtml(html, 纯文本回退)`,capabilities 加 allow-write-text/allow-write-html);且 getHTML 输出无样式,贴到微信/邮件必须先 `inlineStyles` 注入内联样式(无边框表格观感即"结构丢了")
-- 修改任何解析/序列化行为:**必须跑全量 fixtures**(`pnpm test`,当前 134/134)
+- 修改任何解析/序列化行为:**必须跑全量 fixtures**(`pnpm test`,当前 144/144)
 - **flexsearch 0.7.31 的 d.ts 是错的**(描述 async/worker 形态:`FlexSearch.create`、Promise search、number id),实际 ESM 默认导出 = Index 构造函数、同步 search 返回数组、string id 可用;vitest 走 CJS main 是 `{ Index }` 对象——`search.ts` 头部有运行时探测双兼容。**自定义切词必须挂 `encode`(返回 token 数组)**:挂 `tokenize` 函数静默不生效,CJK 会被默认拉丁编码器整段剥掉(搜索返回空)。多 token 默认 AND,`suggest:true` 兜底 OR
 - **内容哈希跨端必须逐字符对齐**:Rust `format!("{hash:016x}")` 是完整 16 hex(`:012x` 是最小宽度不是截断,u64 会打出 16 位,JS 手写截断曾错位);JS BigInt 侧 `toString(16).padStart(16,"0")`。mock 与 Rust 两份实现靠测试向量锁定([0x61] → `af63dc4c8601ec8c`)
 - **Tauri assetProtocol**:渲染本地图片需三处齐全——cargo feature `protocol-asset`、tauri.conf.json `security.assetProtocol.enable+scope`、前端 `convertFileSrc`;少 cargo feature 编译直接报 feature not enabled,少 conf 运行时 asset: 请求 403
@@ -172,6 +179,10 @@
 - **外部文件拖入 WebView,只在 handleDrop 里 preventDefault 不够**:dragover 没被取消的目标不是合法落点,松手时 WebKit 走默认动作「打开文件」= 整窗导航到那张图,把应用盖掉(真机实录;PM 只管内部节点拖动,不替你取消 dragover)。修法两层:编辑器 `handleDOMEvents.dragover` 对 `Files` 类型取消 + `dropEffect=copy`(App 级 window dragover/drop 兜底——拖到工具栏/侧栏等非落点也不导航)。树排序没踩坑是因为 TreeRow 自己在 onDragOver 里 preventDefault 了。**合成 DragEvent 测试必须带 clientX/clientY**:PM 的 drop 处理先 `posAtCoords`,(0,0) 在编辑区外直接早退,handleDrop 根本不会被调用(树拖拽测不出这个问题,树不用 posAtCoords)
 - **useEffect 里 setContent 会触发 React「lifecycle 里 flushSync」警告**:切换文档的 effect 同步派发 setContent → PM 挂载 React NodeView(代码块/图片卡片)→ Tiptap ReactRenderer 内部 flushSync,而此刻 React 还在 commit 阶段。修法(React 官方建议):派发挪进 `queueMicrotask`(加 `editor.isDestroyed` 守卫);事件处理器里的 dispatch 不受影响,只有 effect 里的会踩
 - **WKWebView 外部拖拽的两连坑(真机实录)**:① Finder 拖入的 File 常无 MIME type(粘贴板不带 UTI),`type.startsWith("image/")` 会静默滤掉——空 MIME 回退扩展名识别(`isImageFile`);② drop 事件的 **target 不可靠**(文件到了 window 兜底,但不在 `.yz-editor-doc` 上,PM 判「不属于编辑器」直接跳过)——图片落点用滚动区**坐标**判定插入(App 窗口级兜底),PM 自己接住的 drop `stopPropagation` 防双插。诊断手段:`import.meta.env.DEV` 时在 window drop 打日志(types/files/坐标/target),右键 → 检查看 Console
+
+- **mermaid SVG 会往 DOM 里塞 `<p>`**(htmlLabels 的节点标签):E2E 断言/点击编辑器段落别用 `.tiptap p`,会命中 SVG 内部 p(实录:点到预览区 → setNodeSelection → 打字把整张卡替换掉);一律用 `.tiptap > p`。且**整个编辑器是单一 contenteditable,`Meta+a` 是浏览器级全选全文档**(不是 codeBlock 内全选),NodeView content 的编辑测试用坐标定位光标(右下=末尾追加,左上+打字=破坏行首)
+- **mermaid 12 全局单例并发 render 互踩**,渲染必须串行队列(promise chain);`initialize` 可重复调用,主题切换(浅 neutral/深 dark)重设即可;懒加载 `import("mermaid")` 生效时 cytoscape/elk/mermaid.core 是独立 chunk,别不小心静态 import 进主 bundle
+- **「当前文档 md」的正确口径是 `dirtyRef.current ?? savedMdRef.current`,别读 markdown state**(历史快照批实录的既有 bug):自动保存落盘后 dirtyRef 清空,而 markdown state 停在 openDoc 时的版本——导出 md/HTML、复制、快照对比全在拿旧文。不能在 flushSave 里 setMarkdown 补同步:markdown prop 变化会触发 YanzhiEditor 整体重载(丢光标/丢撤销栈)。useKb 里 `savedMdRef` 在全部 8 处内容落点(loadDoc/restore/flushSave/空草稿/重命名/移动)同步;新加「取当前内容」的链路一律走 `getMarkdownNow`
 
 ## 遗留小事项
 

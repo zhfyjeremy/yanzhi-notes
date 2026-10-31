@@ -427,3 +427,14 @@
   height: 0;
   pointer-events: none;
 }
+
+/* 历史快照对比(6.2-4):增/删行高亮,色源用既有语义 token(绿=callout-success 系,红=destructive 系) */
+.yz-diff-add {
+  background: color-mix(in oklab, var(--callout-success) 12%, transparent);
+  color: var(--callout-success);
+}
+
+.yz-diff-del {
+  background: color-mix(in oklab, var(--destructive) 12%, transparent);
+  color: var(--destructive);
+}

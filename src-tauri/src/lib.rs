@@ -265,6 +265,9 @@ pub fn run() {
             kb::purge_trash,
             kb::empty_trash,
             kb::read_all_trash_docs,
+            kb::list_history,
+            kb::read_history,
+            kb::save_snapshot,
             kb::import_docs,
             kb::export_text,
         ])

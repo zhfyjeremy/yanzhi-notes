@@ -1,5 +1,6 @@
 import {
   Check,
+  Database,
   Image as ImageIcon,
   Info,
   Monitor,
@@ -24,12 +25,20 @@ import { cn } from "@/lib/utils";
  * (SettingsDialog 包壳)。只渲染已交付项,V2/V3 项解锁前不出现。
  */
 
-export type SettingsTab = "general" | "appearance" | "editor" | "image" | "search" | "about";
+export type SettingsTab =
+  | "general"
+  | "appearance"
+  | "editor"
+  | "storage"
+  | "image"
+  | "search"
+  | "about";
 
 const TABS: { id: SettingsTab; label: string; icon: typeof Palette }[] = [
   { id: "general", label: "通用", icon: SlidersHorizontal },
   { id: "appearance", label: "外观", icon: Palette },
   { id: "editor", label: "编辑器", icon: PenLine },
+  { id: "storage", label: "存储", icon: Database },
   { id: "image", label: "图片", icon: ImageIcon },
   { id: "search", label: "搜索", icon: Search },
   { id: "about", label: "关于", icon: Info },
@@ -122,6 +131,36 @@ function ValueRow({ label, value }: { label: string; value: string }) {
 const Hint = ({ children }: { children: React.ReactNode }) => (
   <p className="text-muted-foreground text-[11px]">{children}</p>
 );
+
+/** 数字输入(快照上限/间隔):失焦与输入都即时钳制,parseSettings 同口径兜底 */
+function NumberInput({
+  value,
+  min,
+  max,
+  onChange,
+  ariaLabel,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <input
+      type="number"
+      aria-label={ariaLabel}
+      className="border-border bg-background focus:ring-ring h-8 w-24 rounded-md border px-2 text-right text-sm tabular-nums outline-none focus:ring-2"
+      value={value}
+      min={min}
+      max={max}
+      onChange={(e) => {
+        const n = Number(e.target.value);
+        if (Number.isFinite(n)) onChange(Math.min(max, Math.max(min, Math.round(n))));
+      }}
+    />
+  );
+}
 
 const SectionTitle = ({ children }: { children: React.ReactNode }) => (
   <h3 className="text-muted-foreground text-xs font-medium">{children}</h3>
@@ -302,6 +341,35 @@ export function SettingsPage({ settings, onChange, onRebuildIndex, tab, onTabCha
                 />
               </Group>
               <Hint>代码块、表格、图片卡片的边框,关闭后仅保留底色</Hint>
+            </section>
+          )}
+
+          {tab === "storage" && (
+            <section className="space-y-2">
+              <SectionTitle>历史快照</SectionTitle>
+              <Group>
+                <Row label="每篇文档保留快照上限">
+                  <NumberInput
+                    ariaLabel="保留快照上限"
+                    value={settings.snapshotKeep}
+                    min={1}
+                    max={200}
+                    onChange={(v) => onChange({ snapshotKeep: v })}
+                  />
+                </Row>
+                <Row label="自动快照最小间隔(分钟)">
+                  <NumberInput
+                    ariaLabel="自动快照最小间隔分钟"
+                    value={settings.snapshotIntervalMin}
+                    min={0}
+                    max={120}
+                    onChange={(v) => onChange({ snapshotIntervalMin: v })}
+                  />
+                </Row>
+              </Group>
+              <Hint>
+                快照存在知识库的 .yanzhi/history 里;自动快照要求内容有变化,超出上限自动清理最旧的
+              </Hint>
             </section>
           )}
 

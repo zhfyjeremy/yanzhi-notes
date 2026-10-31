@@ -538,6 +538,8 @@ pub fn rename_entry(root: &str, rel: &str, new_title: &str) -> Result<RenameResu
         }
     }
     let (updated_files, ref_count) = update_wikilink_refs(root_path, &patterns, folder, None)?;
+    // 快照目录跟随新路径(6.2:改名后历史面板仍可追溯)
+    move_history_dir(root_path, rel, &new_rel);
 
     Ok(RenameResult {
         new_path: new_rel,
@@ -599,6 +601,8 @@ pub fn move_entry(root: &str, src: &str, dest_folder: &str) -> Result<RenameResu
     }
     let (updated_files, ref_count) =
         update_wikilink_refs(Path::new(root), &patterns, None, prefix)?;
+    // 快照目录随文件夹整体迁移(子孙文档的快照目录嵌套在内)
+    move_history_dir(Path::new(root), src, &new_rel);
 
     Ok(RenameResult {
         new_path: new_rel,
@@ -992,6 +996,8 @@ pub fn restore_trash(root: &str, rel: &str, strategy: Option<String>) -> Result<
                 let renamed = resolve_new(root, &final_rel)?;
                 fs::create_dir_all(renamed.parent().unwrap()).map_err(err)?;
                 fs::rename(&trash_abs, &renamed).map_err(err)?;
+                // 原路径被占用改新名恢复:快照目录跟随(同名恢复则路径未变,无需迁移)
+                move_history_dir(Path::new(root), rel, &final_rel);
                 return Ok(final_rel);
             }
             _ => return Err("CONFLICT".into()),
@@ -1019,28 +1025,185 @@ pub fn purge_trash(root: &str, rel: &str) -> Result<(), String> {
     } else {
         fs::remove_file(&abs).map_err(err)?;
     }
+    // 彻底删除 = 连历史快照一起清(6.2;文件夹的子孙快照嵌套其下)
+    remove_history_dir(Path::new(root), rel);
     Ok(())
 }
 
-/// 清空回收站(删 trash 根下全部条目,目录本身保留)
+/// 清空回收站(删 trash 根下全部条目,目录本身保留);对应快照目录一并清理
 #[tauri::command]
 pub fn empty_trash(root: &str) -> Result<(), String> {
     let trash = Path::new(root).join(".yanzhi/trash");
     let Ok(entries) = fs::read_dir(&trash) else {
         return Ok(());
     };
+    let root_path = Path::new(root);
     for entry in entries.flatten() {
         if entry.file_name().to_string_lossy().starts_with('.') {
             continue;
         }
         let p = entry.path();
+        let rel = rel_posix(root_path, &p).trim_start_matches(".yanzhi/trash/").to_string();
         if p.is_dir() {
             fs::remove_dir_all(&p).map_err(err)?;
         } else {
             fs::remove_file(&p).map_err(err)?;
         }
+        remove_history_dir(root_path, &rel);
     }
     Ok(())
+}
+
+/* ---------------- 历史快照(6.2,.yanzhi/history) ---------------- */
+
+/// 快照条目(前端直接渲染)。**索引即文件名**:`<unix_ms>-<a|m>-<fnv16>.md`,
+/// 不设独立索引文件 → 列表与磁盘永不漂移(a=自动受节流,m=手动)。
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntry {
+    /// 快照文件名(读内容的唯一 id)
+    pub id: String,
+    /// 快照时间(unix 毫秒)
+    pub time: u64,
+    /// true = 自动快照,false = 手动「打快照」
+    pub auto: bool,
+    /// 字符数(面板展示「N 字」)
+    pub chars: u32,
+}
+
+/// 文档相对路径 → 快照目录:去尾部 .md(`随笔/a.md` → `.yanzhi/history/随笔/a`);
+/// 文件夹 rel 原样(其下文档的快照目录嵌套在内,一次 rename 即整体迁移)。
+/// 段级校验挡 `..` 逃逸(purge_trash 同式)。
+fn history_dir(root: &Path, rel: &str) -> Result<PathBuf, String> {
+    let trimmed = rel.trim_start_matches('/');
+    let stem = trimmed
+        .strip_suffix(".md")
+        .or_else(|| trimmed.strip_suffix(".MD"))
+        .unwrap_or(trimmed);
+    if stem.split('/').any(|s| s.is_empty() || s == ".." || s == ".") {
+        return Err(format!("非法路径: {rel}"));
+    }
+    Ok(root.join(".yanzhi/history").join(stem))
+}
+
+/// 解析快照文件名 → (时间 ms, 是否自动);不合法(临时文件/外部杂物)返回 None
+fn parse_history_id(name: &str) -> Option<(u64, bool)> {
+    let rest = name.strip_suffix(".md")?;
+    let (time, rest) = rest.split_once('-')?;
+    let (kind, hash) = rest.split_once('-')?;
+    let auto = match kind {
+        "a" => true,
+        "m" => false,
+        _ => return None,
+    };
+    if hash.len() != 16 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some((time.parse().ok()?, auto))
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// 时间倒序列出某文档的全部快照(目录不存在 = 空列表)
+#[tauri::command]
+pub fn list_history(root: &str, rel: &str) -> Result<Vec<HistoryEntry>, String> {
+    let dir = history_dir(Path::new(root), rel)?;
+    let mut out = Vec::new();
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if let Some((time, auto)) = parse_history_id(&name) {
+                let chars = fs::read_to_string(entry.path())
+                    .map(|s| s.chars().count() as u32)
+                    .unwrap_or(0);
+                out.push(HistoryEntry { id: name, time, auto, chars });
+            }
+        }
+    }
+    out.sort_by(|a, b| b.time.cmp(&a.time).then(b.id.cmp(&a.id)));
+    Ok(out)
+}
+
+/// 读快照内容(id 即文件名,先过 parse 校验防路径逃逸)
+#[tauri::command]
+pub fn read_history(root: &str, rel: &str, id: &str) -> Result<String, String> {
+    if parse_history_id(id).is_none() {
+        return Err(format!("非法快照 id: {id}"));
+    }
+    let abs = history_dir(Path::new(root), rel)?.join(id);
+    let bytes = fs::read(&abs).map_err(|_| format!("快照不存在: {id}"))?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// 写入快照并自动清理(6.2-5):超出 keep 的最旧删除;keep 至少保留本次写入。
+/// 节流(≥间隔 + 有实质差异)与手动入口都在前端,后端只管存储与上限。
+#[tauri::command]
+pub fn save_snapshot(
+    root: &str,
+    rel: &str,
+    content: &str,
+    auto: bool,
+    keep: u32,
+) -> Result<HistoryEntry, String> {
+    let dir = history_dir(Path::new(root), rel)?;
+    fs::create_dir_all(&dir).map_err(err)?;
+    let time = now_ms();
+    let id = format!(
+        "{time}-{}-{}.md",
+        if auto { "a" } else { "m" },
+        fnv1a_hex(content.as_bytes())
+    );
+    write_atomic(&dir.join(&id), content)?;
+    // 超上限清最旧(含外部手工放进来的合法命名文件,同一口径)
+    let keep = keep.max(1) as usize;
+    let mut ids: Vec<(u64, String)> = Vec::new();
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if let Some((time, _)) = parse_history_id(&name) {
+                ids.push((time, name));
+            }
+        }
+    }
+    ids.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+    for (_, name) in ids.iter().skip(keep) {
+        let _ = fs::remove_file(dir.join(name));
+    }
+    Ok(HistoryEntry { id, time, auto, chars: content.chars().count() as u32 })
+}
+
+/// 改名/移动后迁移快照目录(文件夹的子孙快照嵌套其下,一次 rename 全带走);
+/// 目标已存在(同名文档+文件夹并存)→ 逐文件合并(id 含时间+内容哈希,无覆盖风险)。
+fn move_history_dir(root: &Path, old_rel: &str, new_rel: &str) {
+    let (Ok(old), Ok(new)) = (history_dir(root, old_rel), history_dir(root, new_rel)) else {
+        return;
+    };
+    if !old.is_dir() {
+        return;
+    }
+    if new.is_dir() {
+        if let Ok(entries) = fs::read_dir(&old) {
+            for e in entries.flatten() {
+                let _ = fs::rename(e.path(), new.join(e.file_name()));
+            }
+        }
+        let _ = fs::remove_dir(&old);
+    } else if let Some(parent) = new.parent() {
+        let _ = fs::create_dir_all(parent);
+        let _ = fs::rename(&old, &new);
+    }
+}
+
+/// 彻底删除(purge/清空回收站)时同步清掉对应快照目录;best-effort
+fn remove_history_dir(root: &Path, rel: &str) {
+    if let Ok(dir) = history_dir(root, rel) {
+        let _ = fs::remove_dir_all(dir);
+    }
 }
 
 /* ---------------- 导入导出(5.6) ---------------- */
@@ -1174,5 +1337,62 @@ mod tests {
         assert!(content.starts_with('a') && content.ends_with('b'));
         assert!(content.contains('\u{FFFD}'), "非法字节应以替换字符呈现: {content:?}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn hist_test_root(tag: &str) -> String {
+        let dir = std::env::temp_dir().join(format!("yz-hist-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.to_string_lossy().to_string()
+    }
+
+    /// 6.2:快照写入 → 列表时间倒序 → 超出 keep 自动清最旧
+    #[test]
+    fn snapshot_list_and_trim() {
+        let root = hist_test_root("trim");
+        for i in 0..4 {
+            save_snapshot(&root, "随笔/a.md", &format!("v{i}"), true, 3).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(2)); // id 时间段不撞
+        }
+        let list = list_history(&root, "随笔/a.md").unwrap();
+        assert_eq!(list.len(), 3, "keep=3 应只剩 3 份: {list:?}");
+        // 倒序 + 内容对上(最旧 v0 被清,最新是 v3)
+        let newest = read_history(&root, "随笔/a.md", &list[0].id).unwrap();
+        assert_eq!(newest, "v3");
+        let oldest = read_history(&root, "随笔/a.md", &list[2].id).unwrap();
+        assert_eq!(oldest, "v1");
+        assert!(list.iter().all(|e| e.auto));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// 非法 id / 越界路径拒绝(快照文件名同时是路径拼接入参)
+    #[test]
+    fn history_rejects_bad_id_and_traversal() {
+        let root = hist_test_root("guard");
+        assert!(read_history(&root, "a.md", "../x.md").is_err(), "id 必须过文件名校验");
+        assert!(read_history(&root, "a.md", "1730000000000-a-deadbeef.md").is_err(), "不存在的快照报错");
+        assert!(list_history(&root, "../escape.md").is_err(), "rel 越界拒绝");
+        assert!(save_snapshot(&root, "a/../b.md", "x", true, 5).is_err());
+        // 合法名但哈希段长度不对 → 不识别(列表忽略、读取拒绝)
+        std::fs::create_dir_all(std::path::Path::new(&root).join(".yanzhi/history/a")).unwrap();
+        std::fs::write(
+            std::path::Path::new(&root).join(".yanzhi/history/a/1-a-abc.md"),
+            "junk",
+        )
+        .unwrap();
+        assert!(list_history(&root, "a.md").unwrap().is_empty(), "杂物文件不入列表");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// 改名迁移:文档/文件夹改名后快照目录跟随(6.2 与 5.1 联动)
+    #[test]
+    fn history_moves_with_rename() {
+        let root = hist_test_root("move");
+        save_snapshot(&root, "随笔/a.md", "hello", false, 5).unwrap();
+        let root_path = std::path::Path::new(&root);
+        move_history_dir(root_path, "随笔/a.md", "随笔/b.md");
+        let list = list_history(&root, "随笔/b.md").unwrap();
+        assert_eq!(list.len(), 1, "快照应已迁到新名: {list:?}");
+        assert!(list_history(&root, "随笔/a.md").unwrap().is_empty());
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

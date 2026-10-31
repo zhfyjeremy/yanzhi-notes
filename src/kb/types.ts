@@ -33,6 +33,17 @@ export interface TrashEntry {
   docs: number;
 }
 
+/** 历史快照条目(6.2):索引即文件名 `<unix_ms>-<a|m>-<内容哈希>.md`,无独立索引文件 */
+export interface HistoryEntry {
+  id: string;
+  /** 快照时间(unix 毫秒) */
+  time: number;
+  /** true = 自动快照(受节流),false = 手动「打快照」 */
+  auto: boolean;
+  /** 字符数(面板展示) */
+  chars: number;
+}
+
 /** 知识库后端能力面:tauri(真文件系统)与 browser(localStorage mock)同构 */
 export interface KbBackend {
   readonly kind: "tauri" | "browser";
@@ -80,6 +91,13 @@ export interface KbBackend {
   exportText(defaultName: string, filterExt: string, content: string): Promise<string | null>;
   /** 导出 HTML 内联图片用 */
   readAssetBase64(root: string, rel: string): Promise<{ data: string; mime: string } | null>;
+  /* ---- 历史快照(6.2,.yanzhi/history,与 Rust kb.rs 同构) ---- */
+  /** 时间倒序;无快照 = 空数组 */
+  listHistory(root: string, rel: string): Promise<HistoryEntry[]>;
+  /** 读快照内容;id 非法/不存在抛错 */
+  readHistory(root: string, rel: string, id: string): Promise<string>;
+  /** 写入快照并按 keep 自动清理最旧(keep 至少保留本次);返回新条目 */
+  saveSnapshot(root: string, rel: string, content: string, auto: boolean, keep: number): Promise<HistoryEntry>;
   /** 订阅库内文件外部变动(notify 去抖后);返回退订函数 */
   listenFsEvent(cb: (paths: string[]) => void): Promise<() => void>;
 }

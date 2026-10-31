@@ -8,6 +8,8 @@ import { insertImage } from "./editor/extensions/image-card";
 import type { WikiDocRef } from "./editor/wiki-link-command";
 import { TocPanel } from "./editor/panel/TocPanel";
 import { BacklinksPanel } from "./kb/BacklinksPanel";
+import { HistoryPanel, formatSnapshotTime } from "./kb/HistoryPanel";
+import { HistoryDialog } from "./kb/HistoryDialog";
 import { DocTree } from "./kb/DocTree";
 import { StatusBar } from "./kb/StatusBar";
 import { TrashDialog } from "./kb/TrashDialog";
@@ -21,6 +23,7 @@ import { isTauriEnv } from "./kb/backend";
 import { setAssetResolver } from "./kb/asset-src";
 import { buildExportHtml } from "./kb/export-html";
 import { flattenDocs, wikiTargetFor } from "./kb/wiki-refs";
+import type { HistoryEntry } from "./kb/types";
 import {
   Dialog,
   DialogContent,
@@ -44,7 +47,8 @@ const docBasename = (rel: string): string =>
   rel.split("/").pop()?.replace(/\.md$/i, "") ?? "";
 
 function App() {
-  const kb = useKb();
+  const { settings, update: updateSettings } = useSettings();
+  const kb = useKb(settings);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
   const [title, setTitle] = useState("");
@@ -53,7 +57,10 @@ function App() {
   const [trashOpen, setTrashOpen] = useState(false);
   const [orphansOpen, setOrphansOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false); // 浏览器 dev 的 Dialog;Tauri 走独立窗口
-  const { settings, update: updateSettings } = useSettings();
+  // 历史快照(6.2):对话框目标条目 + 打开时的当前正文(对比基准)
+  const [historyEntry, setHistoryEntry] = useState<HistoryEntry | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyCurrent, setHistoryCurrent] = useState("");
   // 失效双链弹窗目标 + 「搜索同名文档」预置信号(5.2.1-5)
   const [wikiDead, setWikiDead] = useState<string | null>(null);
   const [searchPreset, setSearchPreset] = useState<{ term: string; seq: number } | null>(null);
@@ -517,6 +524,22 @@ function App() {
               }}
               onOpenTrash={() => setTrashOpen(true)}
             />
+            <HistoryPanel
+              docRel={kb.currentPath}
+              version={kb.historyVersion}
+              intervalMin={settings.snapshotIntervalMin}
+              listHistory={kb.listHistory}
+              onSnapshot={async () => {
+                const e = await kb.snapshotNow();
+                showToast(e ? `已打快照 ${formatSnapshotTime(e.time)}` : "打快照失败");
+                return e;
+              }}
+              onOpenEntry={(entry) => {
+                setHistoryCurrent(kb.getMarkdownNow()); // 对比基准 = 打开时的最新正文
+                setHistoryEntry(entry);
+                setHistoryOpen(true);
+              }}
+            />
           </aside>
         )}
       </div>
@@ -542,6 +565,21 @@ function App() {
         purgeTrash={kb.purgeTrash}
         emptyTrash={kb.emptyTrash}
         onToast={showToast}
+      />
+      {/* 历史快照查看/对比/恢复(6.2);恢复前 useKb 会先为当前内容自动存快照 */}
+      <HistoryDialog
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        entry={historyEntry}
+        currentMd={historyCurrent}
+        loadContent={() =>
+          historyEntry ? kb.readHistory(kb.currentPath ?? "", historyEntry.id) : Promise.resolve("")
+        }
+        onRestore={(content, entry) => {
+          void kb.restoreSnapshot(content).then((ok) => {
+            showToast(ok ? `已恢复到 ${formatSnapshotTime(entry.time)} 的快照` : "恢复失败");
+          });
+        }}
       />
       {/* 全局设置(8):浏览器 dev 的 Dialog 容器(Tauri 为独立窗口);改动即时生效,存应用目录 */}
       <SettingsDialog
