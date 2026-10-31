@@ -3,17 +3,12 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
-  Download,
-  FileCode2,
-  FileDown,
   FileText,
   FolderClosed,
   FolderOpen,
   FolderPlus,
-  MoreHorizontal,
   PenLine,
   Plus,
-  RotateCcw,
   Settings,
   SquarePen,
   Trash2,
@@ -71,9 +66,6 @@ interface DocTreeProps {
   /** 失联 meta 条数(5.2.1);>0 才渲染底部入口 */
   orphanCount: number;
   onOpenOrphans: () => void;
-  onImportDocs: () => void;
-  onExportMd: () => void;
-  onExportHtml: () => void;
 }
 
 type DropZone = "before" | "after" | "into";
@@ -376,9 +368,6 @@ export function DocTree({
   onOpenTrash,
   orphanCount,
   onOpenOrphans,
-  onImportDocs,
-  onExportMd,
-  onExportHtml,
 }: DocTreeProps) {
   const dragPath = useRef<string | null>(null);
   const [dropHint, setDropHint] = useState<{ path: string; zone: DropZone } | null>(null);
@@ -426,7 +415,8 @@ export function DocTree({
           {rootName}
         </span>
         <span className="ml-auto flex gap-0.5">
-          {/* 语雀式:新建收敛为单个「+」下拉(文档/文件夹),头部只留 + / ⋯;回收站在左栏底部 */}
+          {/* 语雀式:新建收敛为单个「+」下拉(文档/文件夹),头部只留 +;
+              导入导出在原生菜单「文件」里,重建索引在设置/搜索空态,设置 = 左栏底部齿轮 */}
           <DropdownMenu>
             <Hint label="新建">
               <DropdownMenuTrigger asChild>
@@ -441,32 +431,6 @@ export function DocTree({
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onCreateFolder("", "新文件夹")}>
                 <FolderPlus /> 新建文件夹
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <DropdownMenu>
-            <Hint label="更多操作">
-              <DropdownMenuTrigger asChild>
-                <span className="text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer rounded p-1">
-                  <MoreHorizontal className="size-3.5" />
-                </span>
-              </DropdownMenuTrigger>
-            </Hint>
-            <DropdownMenuContent align="end" alignOffset={-4}>
-              <DropdownMenuItem onClick={onImportDocs}>
-                <Download /> 导入 Markdown…
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onExportMd}>
-                <FileDown /> 导出当前文档
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onExportHtml}>
-                <FileCode2 /> 导出离线 HTML…
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onRebuildIndex}>
-                <RotateCcw /> 重建搜索索引
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onOpenSettings}>
-                <Settings /> 设置…
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

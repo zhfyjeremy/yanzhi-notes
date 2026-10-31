@@ -92,6 +92,40 @@ function App() {
     }
   }, []);
 
+  /* ---- 导入导出(5.6;入口 = 原生菜单「文件」) ---- */
+  const onImportDocs = useCallback(() => {
+    const folder = kb.currentPath?.includes("/")
+      ? kb.currentPath.slice(0, kb.currentPath.lastIndexOf("/"))
+      : "";
+    void kb.importDocs(folder).then((rels) => {
+      if (rels?.length) {
+        showToast(`已导入 ${rels.length} 篇文档`);
+        void kb.openDoc(rels[rels.length - 1]);
+      }
+    });
+  }, [kb, showToast]);
+
+  const onExportMd = useCallback(() => {
+    if (!kb.currentPath) return;
+    void kb.exportText(`${title || "未命名文档"}.md`, "md", kb.getMarkdownNow()).then((p) => {
+      if (p) showToast(`已导出:${p}`);
+    });
+  }, [kb, showToast, title]);
+
+  const onExportHtml = useCallback(() => {
+    if (!kb.currentPath) return;
+    void buildExportHtml({
+      md: kb.getMarkdownNow(),
+      title: title || "未命名文档",
+      docRel: kb.currentPath,
+      readAssetBase64: kb.readAssetBase64,
+    }).then((html) =>
+      kb.exportText(`${title || "未命名文档"}.html`, "html", html).then((p) => {
+        if (p) showToast(`已导出:${p}`);
+      }),
+    );
+  }, [kb, showToast, title]);
+
   // 原生菜单(5.0.4-2):Rust 侧建菜单并发 kb-menu 事件。
   // 非空/已是砚知库的确认走 App 级弹窗(欢迎页按钮触发时仍用页内确认卡,两条路只走一条)
   const [menuPending, setMenuPending] = useState<{ root: string; yanzhi: boolean } | null>(null);
@@ -114,6 +148,13 @@ function App() {
           } else if (action === "open-recent" && root) {
             const err = await kb.openKbAt(root);
             if (err) showToast(err);
+          } else if (action === "import-md") {
+            onImportDocs();
+          } else if (action === "export-md" || action === "export-html") {
+            // 无文档打开时导出静默无意义,给明确提示
+            if (!kb.currentPath) showToast("未打开文档");
+            else if (action === "export-md") onExportMd();
+            else onExportHtml();
           } else if (action === "settings") {
             openSettings();
           } else if (action === "about") {
@@ -134,7 +175,7 @@ function App() {
       });
     })();
     return () => un?.();
-  }, [kb.pickAndCreate, kb.pickAndOpen, kb.openKbAt, openSettings, updateSettings, showToast]);
+  }, [kb.pickAndCreate, kb.pickAndOpen, kb.openKbAt, onImportDocs, onExportMd, onExportHtml, openSettings, updateSettings, showToast]);
 
   // 显示菜单勾选态回写(状态源在前端:面板/工具栏持久化在 settings,专注模式会话级)
   useEffect(() => {
@@ -369,40 +410,6 @@ function App() {
     };
   }, [scrollEl, onImageFiles]);
 
-  /* ---- 导入导出(5.6) ---- */
-  const onImportDocs = useCallback(() => {
-    const folder = kb.currentPath?.includes("/")
-      ? kb.currentPath.slice(0, kb.currentPath.lastIndexOf("/"))
-      : "";
-    void kb.importDocs(folder).then((rels) => {
-      if (rels?.length) {
-        showToast(`已导入 ${rels.length} 篇文档`);
-        void kb.openDoc(rels[rels.length - 1]);
-      }
-    });
-  }, [kb, showToast]);
-
-  const onExportMd = useCallback(() => {
-    if (!kb.currentPath) return;
-    void kb.exportText(`${title || "未命名文档"}.md`, "md", kb.getMarkdownNow()).then((p) => {
-      if (p) showToast(`已导出:${p}`);
-    });
-  }, [kb, showToast, title]);
-
-  const onExportHtml = useCallback(() => {
-    if (!kb.currentPath) return;
-    void buildExportHtml({
-      md: kb.getMarkdownNow(),
-      title: title || "未命名文档",
-      docRel: kb.currentPath,
-      readAssetBase64: kb.readAssetBase64,
-    }).then((html) =>
-      kb.exportText(`${title || "未命名文档"}.html`, "html", html).then((p) => {
-        if (p) showToast(`已导出:${p}`);
-      }),
-    );
-  }, [kb, showToast, title]);
-
   if (!kb.booted) {
     return <main className="bg-background flex h-screen items-center justify-center" />;
   }
@@ -457,9 +464,6 @@ function App() {
             onOpenTrash={() => setTrashOpen(true)}
             orphanCount={kb.orphanMeta.length}
             onOpenOrphans={() => setOrphansOpen(true)}
-            onImportDocs={onImportDocs}
-            onExportMd={onExportMd}
-            onExportHtml={onExportHtml}
           />
         )}
         <div className="flex min-h-0 flex-1 flex-col">

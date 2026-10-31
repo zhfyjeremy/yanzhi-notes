@@ -46,6 +46,10 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     }
     let file = file
         .separator()
+        .item(&MenuItem::with_id(app, "yz_import_md", "导入 Markdown…", true, None::<&str>)?)
+        .item(&MenuItem::with_id(app, "yz_export_md", "导出当前文档…", true, None::<&str>)?)
+        .item(&MenuItem::with_id(app, "yz_export_html", "导出离线 HTML…", true, None::<&str>)?)
+        .separator()
         .item(&MenuItem::with_id(app, "yz_settings", "设置…", true, None::<&str>)?)
         .build()?;
 
@@ -210,6 +214,12 @@ pub fn run() {
                 serde_json::json!({ "action": "open" })
             } else if id == "yz_settings" {
                 serde_json::json!({ "action": "settings" })
+            } else if id == "yz_import_md" {
+                serde_json::json!({ "action": "import-md" })
+            } else if id == "yz_export_md" {
+                serde_json::json!({ "action": "export-md" })
+            } else if id == "yz_export_html" {
+                serde_json::json!({ "action": "export-html" })
             } else if id == "yz_about" || id == "yz_about_help" {
                 serde_json::json!({ "action": "about" })
             } else if id == "yz_help_keys" {
