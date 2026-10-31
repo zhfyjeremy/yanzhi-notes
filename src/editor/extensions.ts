@@ -13,6 +13,8 @@ import { WikiLink } from "./extensions/wiki-link";
 import { RawHtml } from "./extensions/raw-html";
 import { CodeBlockCard } from "./extensions/code-block-card";
 import { ImageCard } from "./extensions/image-card";
+import { Callout } from "./extensions/callout";
+import { MathInline, MathBlock } from "./extensions/math";
 import { FontColor } from "./extensions/font-color";
 
 /** GFM 表格对齐属性(:--- / :---: / ---:) */
@@ -47,6 +49,9 @@ export const baseExtensions = [
   // 内置 codeBlock 由 CodeBlockCard 取代(语言选择/复制/行号);Image 由 ImageCard 取代(宽度/对齐 UI)
   StarterKit.configure({ codeBlock: false }),
   CodeBlockCard,
+  Callout,
+  MathInline,
+  MathBlock,
   Highlight,
   FontColor,
   TaskList,

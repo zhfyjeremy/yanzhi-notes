@@ -16,12 +16,22 @@ export interface SlashCommandDef {
   action: (editor: import("@tiptap/core").Editor, range: import("@tiptap/core").Range) => void;
 }
 
+const GROUPS = ["文本", "卡片"] as const;
+
+/** 菜单展示顺序(分组渲染):键盘导航与点击必须共用同一顺序 */
+export function flattenSlashItems(items: SlashCommandDef[]): SlashCommandDef[] {
+  return GROUPS.flatMap((group) => items.filter((item) => item.group === group));
+}
+
 export function SlashMenu({
   items,
   selectedIndex,
+  onPick,
 }: {
   items: SlashCommandDef[];
   selectedIndex: number;
+  /** 鼠标点击直接执行该项(键盘 Enter 走 onKeyDown) */
+  onPick: (item: SlashCommandDef) => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -35,7 +45,6 @@ export function SlashMenu({
   // 过滤无结果时整体隐藏(避免 URL/日期等场景弹出空框)
   if (!items.length) return null;
 
-  const groups = ["文本", "卡片"] as const;
   let indexCursor = -1;
 
   return (
@@ -43,7 +52,7 @@ export function SlashMenu({
       ref={menuRef}
       className="bg-popover text-popover-foreground max-h-80 w-60 overflow-y-auto rounded-lg p-1 shadow-md ring-1 ring-foreground/10"
     >
-      {groups.map((group) => {
+      {GROUPS.map((group) => {
         const groupItems = items.filter((item) => item.group === group);
         if (!groupItems.length) return null;
         return (
@@ -58,10 +67,11 @@ export function SlashMenu({
                 <div
                   key={item.label}
                   data-index={index}
+                  onClick={() => onPick(item)}
                   className={
                     index === selectedIndex
-                      ? "bg-accent text-accent-foreground flex items-center gap-2 rounded-md px-2 py-1.5 text-sm"
-                      : "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm"
+                      ? "bg-accent text-accent-foreground flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm"
+                      : "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm"
                   }
                   data-selected={index === selectedIndex}
                 >

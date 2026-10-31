@@ -5,6 +5,8 @@ import lists from "./fixtures/lists.md?raw";
 import tables from "./fixtures/tables.md?raw";
 import code from "./fixtures/code.md?raw";
 import dialect from "./fixtures/dialect.md?raw";
+import callout from "./fixtures/callout.md?raw";
+import math from "./fixtures/math.md?raw";
 import unknownHtml from "./fixtures/unknown-html.md?raw";
 import { markdownToDoc } from "../parse";
 import { docToMarkdown } from "../serialize";
@@ -33,6 +35,8 @@ const cases: Record<string, string> = {
   tables,
   code,
   dialect,
+  callout,
+  math,
   unknownHtml,
 };
 

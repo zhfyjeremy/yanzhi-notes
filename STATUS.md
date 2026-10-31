@@ -4,7 +4,7 @@
 
 ## 现状一句话
 
-**M2 已提交(11134d1);M3 全部子项代码完成(工作区未提交)**:知识库基座、双链、查找替换、全局搜索、assets 落盘、外部监听、回收站、拖拽排序(含拖入文件夹移动)、导入导出、反向链接面板、未识别条目认领、**设置页(主题三选一)**。**PRD 第 5 章 MVP 功能项已全部覆盖,剩 M4 打磨稳定化**。mock 链路 E2E 全通(`m3.js`/`m3b.js`/`orphan.js`/`drag.js`/`dragimg.js`/`settings.js`/`settings2.js` 等),测试 124/124,tsc/vite/cargo check 过。**剩真实 Tauri 链路手测**(dev 常驻,Rust 命令已注册,含 `move_entry`/`get_settings`/`set_settings`)。
+**MVP(第 5 章)与 M4 大部已提交;V2 批次一(Callout 提示块 + KaTeX 公式)代码完成、已验证,随本批提交**。当前工作重点 = V2 特殊卡片批次二(历史快照/Mermaid/折叠摘要/附件)+ 真机菜单/设置窗肉眼验证 + M4 尾项(IME 回归、Windows 包)。测试 134/134,`pnpm build` 过。
 
 ## 里程碑(PRD §11.4 工期表)
 
@@ -88,6 +88,18 @@
 | TOC 大纲面板 | 5.4-1 | ✅ 核对为已有实现(`src/editor/panel/TocPanel.tsx`),此前审计 grep 截断误报缺失 |
 | bug:「仍要在此创建」再撞 NOT_EMPTY | — | ✅ `onForceCreate={kb.createKbAt}` 漏传 force,真 bug(E2E 未覆盖非空路径),已改 `(root) => kb.createKbAt(root, true)` |
 
+## V2 特殊卡片(批次一,2026-10-30)🔨 Callout+公式完成,待提交
+
+| 子项 | PRD | 状态 | 说明 |
+| --- | --- | --- | --- |
+| Callout 提示块 | 6.1.1/§10 | ✅ | `> [!INFO] 标题` 方言(md-it core 规则 retag,仅 INFO/SUCCESS/WARNING/CAUTION 四类,未知类型保持普通引用)+ `extensions/callout.tsx`(NodeView:标题 input(IME 安全 uncontrolled)+ hover 类型切换下拉);序列化标记行**必须写在 `> ` 前缀内**(push prefixStack 再 write);token `--callout-{type}(-bg)` 浅深两套;斜杠菜单 4 项;fixture `callout.md` 10 形态;E2E `callout.js` 7/7 |
+| 行内公式 `$…$` | 6.1.3/§10 | ✅ | md-it inline 规则(before escape,`$$` 让块级):`$` 紧贴非空白才触发、不跨行;latex 走 `encodeURIComponent` 进 `data-latex` 属性(避免 HTML 转义歧义);`mathInline` atom inline 节点 + KaTeX renderToString NodeView,双击进源码编辑;input rule `$E=mc^2$ ` 打完即转 |
+| 独立公式块 `$$…$$` | 6.1.3/§10 | ✅ | md-it core 规则:整段 `$$…$$` retag 为 div;**latex 从 inline token 原始 content 提取而非 children**(`\frac` 等反斜杠命令会被 CommonMark 转义规则吃掉);序列化统一 `$$/latex/$$` 三行(单行 `$$E$$` 归一化);`mathBlock` atom block 节点 + hover 编辑按钮;空行打 `$$` input rule 即转卡片;斜杠菜单「公式/行内公式」;fixture `math.md`(多行/引用内/紧贴边界/金额不触发);E2E `math.js` 9/9 + `math-font.js`(KaTeX 字体全同源加载,无外部请求) |
+| 插入即编辑的焦点 race | — | ✅ 已绕开 | 空 latex 自动进编辑态的设计与插入命令的 `chain().focus()` 抢焦点(时序不稳,E2E/probe 两行为);改为占位「空公式」+ 双击/hover 按钮进入,交互少一步 magic 但稳定 |
+| 斜杠菜单可点击 | — | ✅ 顺带修 | 菜单项原本只支持键盘 Enter(鼠标点击无响应);且 COMMANDS 数组序与分组渲染序不一致时 Enter 会执行错误命令(callout 插入到数组头后暴露)。修法:`flattenSlashItems()` 统一键盘/点击/渲染三方口径,点击直接传 item 对象 |
+
+验证:134/134 单测(新增 callout/math fixtures)、`pnpm build` 过、`callout.js` 7/7、`math.js` 9/9、`callout-style.js`(4 类型浅/深色各自区分)、`math-font.js`(离线字体)。E2E 脚本均在 `/tmp/yanzhi-drive/`。
+
 ## M4 打磨稳定化 🔨 进行中
 
 | 子项 | 状态 | 说明 |
@@ -97,12 +109,10 @@
 | IME 回归 | ⬜ | Windows/macOS 中文长文输入无异常 + 跨段连续划选(验收 2,真机为主) |
 | 安装包 | ✅ macOS(dmg);Windows 缺环境 | `pnpm tauri build` 55s 出包:`砚知.app`(5.34MB)/ `砚知_0.1.0_aarch64.dmg`(2.78MB),dmg 安装、右键菜单中文(拷贝/粘贴/全选)、开库/编辑/自动保存/搜索/拖图冒烟全过(2026-10-30 真机);未签名/公证(本机可用,分发需后续补)。Windows 包需 Windows 环境 |
 
-## 工作区未提交变更(M3 全量)
+## 提交记录(近期)
 
-
-- 新增:`src-tauri/src/kb.rs`(fs 命令层 + 双链联动 + watch + assets + trash + 导入导出 + settings)、`src/kb/`(types/backend/useKb/WelcomePage/DocTree/SearchBox/TrashDialog/SettingsDialog/StatusBar/wiki-refs/search/meta/asset-src/export-html)、`src/settings.ts`、`src/editor/word-count.ts`、`src/editor/find-replace.ts`、`src/editor/clipboard.ts`、`src/editor/wiki-link-command.tsx`、`src/editor/toolbar/FindReplaceBar.tsx`、`src/components/hint.tsx` + 测试(search/meta/settings/asset-src/word-count/find-replace/clipboard)
-- 修改:`src-tauri/src/lib.rs`、`src-tauri/Cargo.toml`(+tauri-plugin-dialog/+notify/+`protocol-asset` feature)、`src-tauri/tauri.conf.json`(assetProtocol scope)、`src-tauri/capabilities/default.json`、`src/App.tsx`(三栏/专注模式/导航/toast/双链/搜索定位/assets 解析/外部变更弹窗/回收站/导入导出)、`src/editor/YanzhiEditor.tsx`、`src/editor/extensions/`(wiki-link/image-card)、`src/editor/toolbar/`、`src/editor/slash-command/index.tsx`、`src/components/ui/`(dialog forwardRef 等)、`src/index.css`、`src/editor/editor.css`、PRD、`STATUS.md`
-- 验证:mock 链路 E2E 全通(`m3.js`/`m3b.js`/`three.js`/`wiki.js`/`find.js`/`folder.js`/`drag.js`/`settings.js`/`settings2.js`);测试 124/124;`pnpm build`(tsc+vite)过;cargo check 过。真实 Tauri 链路手测待做(见下)
+- M3 全量(fs 命令层/树/双链/搜索/assets/监听/回收站/排序/导入导出/设置)随 kb 系列提交;设置窗口化+关于页+菜单全量中文化 = a905c86
+- V2 批次一(Callout + 公式)见上方 V2 表;演示文档「V2 卡片演示.md」在用户库 Desktop/zhishi 中,真实链路打开+自动保存闭环已验(半角括号会被规范化转义为 `\(`,既有 escapeText 行为)
 
 ## 决策记录
 
@@ -111,20 +121,20 @@
 
 ## 下一步开工
 
-1. **真实链路手测**(dev 常驻且 Rust 命令全量已注册,可直接开测;批内新增命令:purge_trash/empty_trash/read_all_trash_docs):
+1. **V2 批次二**:文档历史快照(6.2)→ Mermaid 卡片(6.1.4)→ 折叠摘要块(6.1.2)→ 附件卡片(6.1.5);之后 6.3/6.4(反链片段/标签/置顶/PDF 导出/窗口大小记忆)。Mermaid 同为「块级原文 + 离线渲染」套路,可复用 mathBlock 模式
+2. **真机肉眼验证(a905c86 批)**:菜单栏条目、⌘W/⌘Q、设置独立窗口打开/聚焦/关于直落、设置窗改主色主窗即时变、显示菜单勾选翻勾;**V2 批次一真机**:演示文档「V2 卡片演示.md」的 callout 类型切换/公式双击编辑(库 = Desktop/zhishi)
+3. **真实链路手测**(dev 常驻且 Rust 命令全量已注册;未验子项):
    - 双链:插入/跳转/前进后退/改名联动(裸名+路径+别名+文件夹段级);反向链接面板(聚合/×N/已删除灰态/点击定位)
    - 查找替换:⌘F/⌥⌘F/步进/全部替换/Esc;搜索定位(下拉点击 → 打开文档 + 查找条带词)
    - 文件树:文件夹改名(当前路径重写)/右键菜单/+ 下拉定位/移入回收站 → 回收站恢复(含冲突三选一)/单条彻底删除/清空
    - 未识别条目:Finder 里改名一个排过序的文档/文件夹 → 砚知底部出现「未识别条目」+ 状态栏提示 → 认领合并(树序恢复)/丢弃;点失效的路径写法双链 → 「搜索同名文档」
-   - **assets 真实写盘**:粘贴/拖拽/文件选择图片 → `assets/<hash>.webp` 落盘 + assetProtocol 渲染(非 dataURL 即真链路);同图不重拷(**拖拽插入已真机验证 ✅ 2026-10-30**,含 Finder 无 MIME + drop target 不可靠两坑修复)
+   - **assets 真实写盘**:粘贴/文件选择图片 → `assets/<hash>.webp` 落盘 + assetProtocol 渲染(**拖拽插入已真机验证 ✅ 2026-10-30**,含 Finder 无 MIME + drop target 不可靠两坑修复)
    - **外部监听**:外部编辑器改当前文档(无 dirty 静默重载 / 有 dirty 弹窗二选一);`.yanzhi/` 内部改动不触发
    - **导入导出**:导入含外链图片的 md(迁移进 assets);导出 md/离线 HTML(图片内嵌)另存对话框
    - 拖拽排序 + 折叠持久化(重开库保持);复制为 HTML 贴微信/邮件
-   - **设置与主题**:左栏底部齿轮或 ⋯ → 设置…;切深色即时生效,重启保持;「跟随系统」随系统外观实时切换;卡片边框开关联动(关 → 编辑器卡片边框消失);粘贴图片压缩(真机粘贴截图 → assets 下应出现 .webp;设置真实落盘在 app_config_dir,与 mock 的 localStorage 不同链路)
-   - icon tooltip 400ms / ⌘⇧F 专注模式不再弹查找条
-2. 手测通过后拆分提交 M3(建议按:基座+树 / 双链 / 查找替换+三小件 / 搜索+assets / 监听+trash+排序 / 导入导出 / 设置+主题)
-3. 批次 3 = M4:IME 组合键回归、异常恢复(损坏 md/meta 的兜底)、千文档性能(搜索 <100ms / 启动索引 <5s)、`pnpm tauri build` 双平台安装包 + bundle 右键菜单中文验证
-4. V3 前置:BYOK AI(PRD §5.8/§11.4)
+   - **设置与主题**:切深色即时生效重启保持;「跟随系统」实时切换;卡片边框开关;粘贴图片压缩(真机粘贴截图 → assets 出现 .webp;设置真实落盘在 app_config_dir,与 mock 的 localStorage 不同链路)
+4. **M4 尾项**:IME 组合键回归(真机)、Windows 安装包(缺环境)
+5. V3 前置:BYOK AI(PRD §5.8/§11.4)
 
 ## 踩过的坑(新代码前必读)
 
@@ -149,7 +159,7 @@
 - **mock 库首开文档是树序第一篇**(随笔/第一篇,不是开始使用):树序 = 文件夹递归在前。E2E 脚本要先点树切到目标文档再断言,同文档点击会被 openDoc 的 `rel===cur` 守卫拦下(行为正确,脚本易误判)
 - **macOS Option 组合快捷键的 `e.key` 是特殊字符**(⌥F → `ƒ`):判断组合键用 `e.code === "KeyF"`,别用 e.key;浮层类组件的 Esc 关闭挂 window 级,不能只挂在 input(焦点在按钮/正文时也要能关);**同修饰键家族的快捷键必须互斥检查**(⌘F 查找没排除 shift → ⌘⇧F 专注模式把查找条也一起打开;两个 handler 都挂 window,preventDefault 不拦其它 listener)
 - **WKWebView 的 navigator.clipboard.write 对 text/html 不稳**(手测实录:复制带表格文档贴出只剩拍平文本):富文本/纯文本复制统一走 tauri-plugin-clipboard-manager(`writeHtml(html, 纯文本回退)`,capabilities 加 allow-write-text/allow-write-html);且 getHTML 输出无样式,贴到微信/邮件必须先 `inlineStyles` 注入内联样式(无边框表格观感即"结构丢了")
-- 修改任何解析/序列化行为:**必须跑全量 fixtures**(`pnpm test`,当前 124/124)
+- 修改任何解析/序列化行为:**必须跑全量 fixtures**(`pnpm test`,当前 134/134)
 - **flexsearch 0.7.31 的 d.ts 是错的**(描述 async/worker 形态:`FlexSearch.create`、Promise search、number id),实际 ESM 默认导出 = Index 构造函数、同步 search 返回数组、string id 可用;vitest 走 CJS main 是 `{ Index }` 对象——`search.ts` 头部有运行时探测双兼容。**自定义切词必须挂 `encode`(返回 token 数组)**:挂 `tokenize` 函数静默不生效,CJK 会被默认拉丁编码器整段剥掉(搜索返回空)。多 token 默认 AND,`suggest:true` 兜底 OR
 - **内容哈希跨端必须逐字符对齐**:Rust `format!("{hash:016x}")` 是完整 16 hex(`:012x` 是最小宽度不是截断,u64 会打出 16 位,JS 手写截断曾错位);JS BigInt 侧 `toString(16).padStart(16,"0")`。mock 与 Rust 两份实现靠测试向量锁定([0x61] → `af63dc4c8601ec8c`)
 - **Tauri assetProtocol**:渲染本地图片需三处齐全——cargo feature `protocol-asset`、tauri.conf.json `security.assetProtocol.enable+scope`、前端 `convertFileSrc`;少 cargo feature 编译直接报 feature not enabled,少 conf 运行时 asset: 请求 403
@@ -169,4 +179,3 @@
 - 打包版右键菜单中文:dev 模式是裸二进制只有英文(正常);用 `pnpm tauri build` 后开 bundle 里的 砚知.app 验证
 - 主 bundle 1MB+:语言分包已做,后续可再做入口级 code-split(不阻塞)
 - V2 候选(开工前 PRD 需先补规范):打字机模式(专注模式子项)、只读源码视图(md 原文对照)
-- M3 工作区未提交(全部子项,一个大批次):建议真实链路手测通过后拆分提交

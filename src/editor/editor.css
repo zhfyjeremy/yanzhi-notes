@@ -55,6 +55,125 @@
   color: var(--muted-foreground);
 }
 
+/* 提示块 Callout(§6.1.1):类型浅底 + 左色条;色值是 --callout-* design token */
+.yz-editor-doc .yz-callout {
+  border-left: 3px solid var(--callout-c);
+  background: var(--callout-bg);
+  border-radius: var(--radius-md, 6px);
+  padding: 0.6em 0.9em;
+}
+
+.yz-editor-doc .yz-callout[data-callout="info"] {
+  --callout-c: var(--callout-info);
+  --callout-bg: var(--callout-info-bg);
+}
+
+.yz-editor-doc .yz-callout[data-callout="success"] {
+  --callout-c: var(--callout-success);
+  --callout-bg: var(--callout-success-bg);
+}
+
+.yz-editor-doc .yz-callout[data-callout="warning"] {
+  --callout-c: var(--callout-warning);
+  --callout-bg: var(--callout-warning-bg);
+}
+
+.yz-editor-doc .yz-callout[data-callout="caution"] {
+  --callout-c: var(--callout-caution);
+  --callout-bg: var(--callout-caution-bg);
+}
+
+.yz-editor-doc .yz-callout[data-selected] {
+  outline: 2px solid color-mix(in oklab, var(--callout-c) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.yz-editor-doc .yz-callout-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  color: var(--callout-c);
+  font-weight: 600;
+  font-size: 0.95em;
+  line-height: 1.6;
+  margin-bottom: 0.2em;
+}
+
+.yz-editor-doc .yz-callout-title {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+
+.yz-editor-doc .yz-callout-title::placeholder {
+  color: var(--muted-foreground);
+  opacity: 0.6;
+  font-weight: 400;
+}
+
+/* 公式卡片(MathInline/MathBlock NodeView,PRD §6.1.3):KaTeX 离线渲染 */
+.yz-editor-doc .yz-math-inline {
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.yz-editor-doc .yz-math-inline[data-selected] {
+  background: color-mix(in oklab, var(--primary) 14%, transparent);
+}
+
+.yz-editor-doc .yz-math-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 6px);
+  padding: 0.75em 1em;
+}
+
+.yz-editor-doc .yz-math-block[data-selected] {
+  outline: 2px solid color-mix(in oklab, var(--primary) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.yz-editor-doc .yz-math-block .katex-display {
+  margin: 0;
+}
+
+.yz-editor-doc .yz-math-empty {
+  color: var(--muted-foreground);
+  font-size: 0.9em;
+}
+
+/* 源码编辑框:行内 input / 块级 textarea,均阻断编辑器快捷键(JS 侧) */
+.yz-editor-doc .yz-math-input {
+  border: 1px solid color-mix(in oklab, var(--primary) 45%, transparent);
+  border-radius: 4px;
+  padding: 0 4px;
+  min-width: 8ch;
+  width: 14ch;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--foreground);
+  background: var(--background, transparent);
+}
+
+.yz-editor-doc .yz-math-edit {
+  width: 100%;
+  border: 1px solid color-mix(in oklab, var(--primary) 45%, transparent);
+  border-radius: 4px;
+  padding: 0.4em 0.6em;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  line-height: 1.6;
+  color: var(--foreground);
+  background: var(--background, transparent);
+  resize: vertical;
+  outline: none;
+}
+
 .yz-editor-doc pre {
   background: var(--muted);
   border: 1px solid var(--border);

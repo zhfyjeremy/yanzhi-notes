@@ -6,6 +6,7 @@ import Suggestion, {
 } from "@tiptap/suggestion";
 import { createRoot, type Root } from "react-dom/client";
 import {
+  CircleCheck,
   Code2,
   Heading1,
   Heading2,
@@ -14,20 +15,26 @@ import {
   Heading5,
   Heading6,
   Image as ImageIcon,
+  Info,
   List,
   ListOrdered,
   ListTodo,
   Minus,
+  OctagonAlert,
+  Radical,
+  Sigma,
   Table,
   Text,
   TextQuote,
+  TriangleAlert,
 } from "lucide-react";
-import { SlashMenu, type SlashCommandDef } from "./SlashMenu";
+import type { CalloutType } from "../extensions/callout";
+import { SlashMenu, flattenSlashItems, type SlashCommandDef } from "./SlashMenu";
 
 /**
  * 斜杠 `/` 插入面板(PRD §4.2):输入 `/` 唤起模糊搜索菜单。
- * MVP 菜单 = 文本类 + 卡片类(代码块/表格/图片/分割线);
- * callout/公式/mermaid 等 V2 解锁后才出现在菜单(PRD:不暴露未解锁项)。
+ * 菜单 = 文本类 + 卡片类(提示块/公式/代码块/表格/图片/分割线);
+ * mermaid 等 V2 后续批次解锁后才出现在菜单(PRD:不暴露未解锁项)。
  * UI 交互插件,不进 baseExtensions(不贡献 Schema);定位自算坐标,不引 tippy。
  * 「图片」走文件选择 → assets 落盘(M3):COMMANDS 是模块级静态表拿不到
  * React props,由 YanzhiEditor 经 setSlashImagePicker 注入应用层回调。
@@ -58,7 +65,25 @@ const heading = (
       .run(),
 });
 
+const callout = (
+  type: CalloutType,
+  label: string,
+  icon: SlashCommandDef["icon"],
+  pinyin: string,
+): SlashCommandDef => ({
+  group: "卡片",
+  label,
+  icon,
+  keywords: ["callout", "tishi", type, pinyin],
+  action: (editor, range) =>
+    editor.chain().focus().deleteRange(range).setCallout({ type }).run(),
+});
+
 const COMMANDS: SlashCommandDef[] = [
+  callout("info", "信息提示", Info, "xinxi"),
+  callout("success", "成功提示", CircleCheck, "chenggong"),
+  callout("warning", "警告提示", TriangleAlert, "jinggao"),
+  callout("caution", "注意提示", OctagonAlert, "zhuyi"),
   {
     group: "文本",
     label: "正文",
@@ -104,6 +129,23 @@ const COMMANDS: SlashCommandDef[] = [
     keywords: ["quote", "block", "yinyong"],
     action: (editor, range) =>
       editor.chain().focus().deleteRange(range).toggleBlockquote().run(),
+  },
+  {
+    group: "卡片",
+    label: "公式",
+    icon: Sigma,
+    keywords: ["math", "formula", "katex", "gongshi", "fenshi"],
+    // 独立公式卡;插入后占位,双击或 hover 编辑按钮进入 LaTeX 源码
+    action: (editor, range) =>
+      editor.chain().focus().deleteRange(range).setMathBlock().run(),
+  },
+  {
+    group: "卡片",
+    label: "行内公式",
+    icon: Radical,
+    keywords: ["math", "inline", "katex", "hangnei", "gongshi"],
+    action: (editor, range) =>
+      editor.chain().focus().deleteRange(range).setMathInline().run(),
   },
   {
     group: "卡片",
@@ -170,6 +212,8 @@ interface MenuState {
   items: SlashCommandDef[];
   selectedIndex: number;
   props: SuggestionProps<SlashCommandDef>;
+  /** 鼠标点击项执行后收起菜单 */
+  pick: (item: SlashCommandDef) => void;
 }
 
 function positionMenu(container: HTMLDivElement, props: SuggestionProps<SlashCommandDef>) {
@@ -191,7 +235,11 @@ function positionMenu(container: HTMLDivElement, props: SuggestionProps<SlashCom
 function renderMenu(state: MenuState) {
   positionMenu(state.container, state.props);
   state.root.render(
-    <SlashMenu items={state.items} selectedIndex={state.selectedIndex} />,
+    <SlashMenu
+      items={state.items}
+      selectedIndex={state.selectedIndex}
+      onPick={state.pick}
+    />,
   );
 }
 
@@ -208,7 +256,8 @@ function handleMenuKeyDown(state: MenuState, event: KeyboardEvent): boolean {
     return true;
   }
   if (event.key === "Enter") {
-    const item = state.items[state.selectedIndex];
+    // Enter 的序号口径与菜单渲染一致(分组扁平化)
+    const item = flattenSlashItems(state.items)[state.selectedIndex];
     if (item) item.action(state.props.editor, state.props.range);
     return true;
   }
@@ -265,6 +314,11 @@ export const SlashMenuExtension = Extension.create<{
             state?.container.remove();
             state = null;
           };
+          // 点击项:执行命令后立即收起(不等文档变更触发 onExit)
+          const pick = (item: SlashCommandDef) => {
+            if (state) item.action(state.props.editor, state.props.range);
+            destroy();
+          };
 
           return {
             onStart: (props) => {
@@ -279,6 +333,7 @@ export const SlashMenuExtension = Extension.create<{
                 items: filterCommands(props.query),
                 selectedIndex: 0,
                 props,
+                pick,
               };
               renderMenu(state);
             },

@@ -47,6 +47,16 @@
   /* 文档内查找高亮:黄系与 ==高亮==(primary 系)区分;current 为实底醒目项 */
   --find-match: hsl(45 96% 60% / 0.45);
   --find-match-current: hsl(45 96% 50%);
+
+  /* 提示块 Callout(§6.1.1):每类型一对话语色(图标/标题)+ 浅底 */
+  --callout-info: hsl(204 89% 42%);
+  --callout-info-bg: hsl(204 60% 96%);
+  --callout-success: hsl(152 62% 34%);
+  --callout-success-bg: hsl(152 40% 95%);
+  --callout-warning: hsl(32 92% 38%);
+  --callout-warning-bg: hsl(38 90% 95%);
+  --callout-caution: hsl(4 78% 46%);
+  --callout-caution-bg: hsl(4 70% 96%);
 }
 
 .dark {
@@ -86,6 +96,16 @@
 
   --find-match: hsl(45 80% 50% / 0.35);
   --find-match-current: hsl(45 90% 55%);
+
+  /* 提示块暗色:整体提亮降饱和,靠深底衬出 */
+  --callout-info: hsl(204 80% 70%);
+  --callout-info-bg: hsl(204 30% 16%);
+  --callout-success: hsl(152 48% 62%);
+  --callout-success-bg: hsl(152 22% 13%);
+  --callout-warning: hsl(36 80% 64%);
+  --callout-warning-bg: hsl(30 28% 15%);
+  --callout-caution: hsl(4 72% 68%);
+  --callout-caution-bg: hsl(4 26% 15%);
 }
 
 @theme inline {

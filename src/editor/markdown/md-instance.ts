@@ -15,6 +15,31 @@ function escapeAttr(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
 
+/* $…$ → <span data-math-inline data-latex>(PRD §10:$ 紧贴非空白内容才触发,
+ * `$$` 让给块级规则)。latex 经 encodeURIComponent 进属性,避免二次转义 */
+md.inline.ruler.before("escape", "yz_math_inline", (state, silent) => {
+  const src = state.src;
+  if (src[state.pos] !== "$" || src[state.pos + 1] === "$") return false;
+  const close = src.indexOf("$", state.pos + 2);
+  if (close === -1) return false;
+  const latex = src.slice(state.pos + 1, close);
+  // 开 $ 后/闭 $ 前须紧贴非空白(PRD §10);不跨行
+  if (
+    !latex.trim() ||
+    /\s/.test(latex[0]) ||
+    /\s/.test(latex[latex.length - 1]) ||
+    latex.includes("\n")
+  ) {
+    return false;
+  }
+  if (!silent) {
+    const tok = state.push("html_inline", "", 0);
+    tok.content = `<span data-math-inline data-latex="${encodeURIComponent(latex)}"></span>`;
+  }
+  state.pos = close + 1;
+  return true;
+});
+
 /* ==高亮== → <mark>…</mark>
  * 注:高亮内容按纯文本处理(内部不再解析强调),fixtures 锁定该行为 */
 md.inline.ruler.before("emphasis", "yz_highlight", (state, silent) => {
@@ -89,6 +114,85 @@ md.inline.ruler.before("link", "yz_wikilink", (state, silent) => {
         break;
       }
     }
+  }
+});
+
+/* > [!INFO] 标题 → div[data-callout] 提示块(PRD §10;仅 4 种类型,未知保持普通引用)。
+ * 标题 = 标记后同行的纯文本;标记行与正文间的 softbreak 一并摘除,
+ * 只剩标记的首段整段丢弃(标题即整行的情形) */
+md.core.ruler.after("inline", "yz_callout", (state) => {
+  const tokens = state.tokens;
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i].type !== "blockquote_open") continue;
+    const open = tokens[i + 1];
+    const inline = tokens[i + 2];
+    if (
+      !open ||
+      open.type !== "paragraph_open" ||
+      !inline ||
+      inline.type !== "inline" ||
+      !inline.children?.length
+    ) {
+      continue;
+    }
+    const match = inline.children[0].content.match(
+      /^\[!(INFO|SUCCESS|WARNING|CAUTION)\][ \t]*(.*)$/,
+    );
+    if (!match) continue;
+    inline.children.splice(
+      0,
+      inline.children[1]?.type === "softbreak" ? 2 : 1,
+    );
+    const openTok = tokens[i];
+    openTok.type = "callout_open";
+    openTok.tag = "div";
+    openTok.markup = "";
+    openTok.attrSet("data-callout", match[1].toLowerCase());
+    const title = match[2].trim();
+    if (title) openTok.attrSet("data-title", escapeAttr(title));
+    if (!inline.children.length) tokens.splice(i + 1, 3);
+    // 配对的 blockquote_close(计嵌套)一并改 div
+    let depth = 0;
+    for (let j = i + 1; j < tokens.length; j++) {
+      if (tokens[j].type === "blockquote_open") depth++;
+      else if (tokens[j].type === "blockquote_close") {
+        if (depth > 0) {
+          depth--;
+          continue;
+        }
+        tokens[j].type = "callout_close";
+        tokens[j].tag = "div";
+        tokens[j].markup = "";
+        break;
+      }
+    }
+  }
+});
+
+/* 独立段落整体为 $$…$$ → div[data-math-block](PRD §10)。
+ * latex 从 inline token 的原始 content 提取(不走 children,反斜杠命令
+ * 如 \frac 会被 CommonMark 转义规则吃掉);单行 $$E$$ 形式也接受,
+ * 序列化统一规范化为 $$/latex/$$ 三行(fixtures 锁定) */
+md.core.ruler.after("inline", "yz_math_block", (state) => {
+  const tokens = state.tokens;
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i].type !== "paragraph_open") continue;
+    const inline = tokens[i + 1];
+    if (!inline || inline.type !== "inline") continue;
+    const match = inline.content.match(/^\$\$([\s\S]*?)\$\$$/);
+    if (!match) continue;
+    const latex = match[1].trim();
+    inline.children = [];
+    const openTok = tokens[i];
+    openTok.type = "math_block_open";
+    openTok.tag = "div";
+    openTok.markup = "";
+    openTok.attrSet("data-math-block", "1");
+    openTok.attrSet("data-latex", encodeURIComponent(latex));
+    const closeTok = tokens[i + 2];
+    closeTok.type = "math_block_close";
+    closeTok.tag = "div";
+    closeTok.markup = "";
   }
 });
 

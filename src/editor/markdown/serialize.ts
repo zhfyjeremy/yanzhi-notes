@@ -238,6 +238,17 @@ class MarkdownSerializer {
         this.renderChildren(node, true);
         this.prefixStack.pop();
         break;
+      case "callout": {
+        // > [!INFO] 标题(PRD §10);标记行也在引用前缀内,否则二次解析不回提示块
+        this.prefixStack.push("> ");
+        this.write(`[!${String(node.attrs.type ?? "info").toUpperCase()}]`);
+        const title = String(node.attrs.title ?? "");
+        if (title) this.write(` ${title}`);
+        this.newline();
+        this.renderChildren(node, true);
+        this.prefixStack.pop();
+        break;
+      }
       case "bulletList":
         this.renderList(node, () => "- ");
         break;
@@ -255,6 +266,21 @@ class MarkdownSerializer {
           this.write(line);
           this.newline();
         }
+        break;
+      }
+      case "mathBlock": {
+        // $$ / latex / $$ 三行(解析端对拍锁定;latex 首尾空白已在解析时 trim)
+        this.write("$$");
+        this.newline();
+        const latex = String(node.attrs.latex ?? "").trim();
+        if (latex) {
+          for (const line of latex.split("\n")) {
+            this.write(line);
+            this.newline();
+          }
+        }
+        this.write("$$");
+        this.newline();
         break;
       }
       case "codeBlock": {
@@ -317,6 +343,10 @@ class MarkdownSerializer {
       } else if (child.type.name === "image") {
         flushGroup();
         this.write(imageToMd(child));
+        atLineStart = false;
+      } else if (child.type.name === "mathInline") {
+        flushGroup();
+        this.write(`$${String(child.attrs.latex ?? "")}$`);
         atLineStart = false;
       } else {
         flushGroup();
