@@ -11,6 +11,10 @@ export const md = new MarkdownIt({
   linkify: false,
 });
 
+/* 默认 normalizeLink 会把非 ASCII 链接目标百分号编码(中文文档路径重灾),
+ * 往返落盘即被改写——关闭编码,href 保持用户原文(§4.4 用户感知无损) */
+md.normalizeLink = (url: string) => url;
+
 function escapeAttr(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
@@ -278,6 +282,46 @@ md.core.ruler.after("yz_math_block", "yz_details", (state) => {
       if (closeIdx === i + 1) tokens.splice(i + 1, 0, ...emptyParagraph());
       i = closeIdx;
     }
+  }
+});
+
+/* 独立段落整段恰为一个 assets 链接 → div[data-attachment] 附件卡片(PRD 6.1.5)。
+ * §10 无附件专用方言:存储就是标准链接 `[名称](./assets/xx.ext)`,卡片是砚知的
+ * 渲染增强;行内混排/非 assets 相对路径/外链/带 title/空名称一律保持普通链接。
+ * name/href 存 md 源文本形态(text token 未解码、destination 原样),序列化
+ * 原样写回,逐字往返。 */
+const ATTACHMENT_HREF = /^(\.{1,2}\/)?assets\/[^/]+$/;
+
+md.core.ruler.after("yz_details", "yz_attachment", (state) => {
+  const tokens = state.tokens;
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i].type !== "paragraph_open") continue;
+    const inline = tokens[i + 1];
+    const close = tokens[i + 2];
+    if (inline?.type !== "inline" || close?.type !== "paragraph_close") continue;
+    const kids = inline.children ?? [];
+    if (kids.length !== 3) continue;
+    const [lo, text, lc] = kids;
+    if (lo.type !== "link_open" || text.type !== "text" || lc.type !== "link_close") {
+      continue;
+    }
+    if (!text.content.trim()) continue;
+    // 带 title 的链接不转(避免静默丢 title;§4.6)
+    const attrs = lo.attrs ?? [];
+    if (attrs.length !== 1 || attrs[0][0] !== "href") continue;
+    const href = String(attrs[0][1] ?? "");
+    if (!ATTACHMENT_HREF.test(href)) continue;
+    const openTok = tokens[i];
+    openTok.type = "attachment_open";
+    openTok.tag = "div";
+    openTok.markup = "";
+    openTok.attrSet("data-attachment", "1");
+    openTok.attrSet("data-href", href);
+    openTok.attrSet("data-name", text.content);
+    // paragraph_close 自身已是 nesting=-1,直接改形态
+    close.type = "attachment_close";
+    close.tag = "div";
+    close.markup = "";
   }
 });
 

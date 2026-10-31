@@ -4,7 +4,12 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { baseExtensions } from "./extensions";
 import { mdToHtml } from "./markdown/md-instance";
 import { docToMarkdown } from "./markdown/serialize";
-import { SlashMenuExtension, setSlashImagePicker } from "./slash-command";
+import {
+  SlashMenuExtension,
+  setSlashAttachmentPicker,
+  setSlashImagePicker,
+} from "./slash-command";
+import { setAttachmentOpener } from "./extensions/attachment";
 import { cleanPastedHtml } from "./paste-clean";
 import { insertImage } from "./extensions/image-card";
 import { isImageFile } from "../kb/image-compress";
@@ -44,6 +49,10 @@ interface YanzhiEditorProps {
   onImageFiles?: (files: File[]) => Promise<string[]>;
   /** 斜杠菜单「图片」的文件选择入口(返回 src 列表,取消 null) */
   onPickImage?: () => Promise<string[] | null>;
+  /** 斜杠菜单「附件」的文件选择入口(返回名称+相对路径列表,取消 null;6.1.5) */
+  onPickAttachment?: () => Promise<{ name: string; href: string }[] | null>;
+  /** 点击附件卡唤起系统打开(应用层解析库内路径并提示失败;6.1.5) */
+  onOpenAttachment?: (href: string) => void;
   /** 全局搜索定位信号(打开文档后跳首个命中并高亮,seq 保证同文档也能触发) */
   locateSignal?: { term: string; seq: number } | null;
   /** §8 编辑器设置:特殊卡片边框;false → 容器挂 yz-flat-cards(边框透明) */
@@ -61,6 +70,8 @@ export function YanzhiEditor({
   onOpenWikiLink,
   onImageFiles,
   onPickImage,
+  onPickAttachment,
+  onOpenAttachment,
   locateSignal,
   cardBorder = true,
   showToolbar = true,
@@ -76,6 +87,10 @@ export function YanzhiEditor({
   imageFilesRef.current = onImageFiles;
   const pickImageRef = useRef(onPickImage);
   pickImageRef.current = onPickImage;
+  const pickAttachmentRef = useRef(onPickAttachment);
+  pickAttachmentRef.current = onPickAttachment;
+  const openAttachmentRef = useRef(onOpenAttachment);
+  openAttachmentRef.current = onOpenAttachment;
   const timerRef = useRef<number | undefined>(undefined);
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
   const [findBar, setFindBar] = useState(false);
@@ -181,6 +196,26 @@ export function YanzhiEditor({
       });
     });
     return () => setSlashImagePicker(null);
+  }, []);
+
+  // 斜杠菜单「附件」+ 附件卡点击打开(同上,模块级注入)
+  useEffect(() => {
+    setSlashAttachmentPicker((ed) => {
+      void pickAttachmentRef.current?.().then((items) => {
+        if (!items) return;
+        for (const it of items) {
+          ed.chain()
+            .focus()
+            .insertContent({ type: "attachment", attrs: { name: it.name, href: it.href } })
+            .run();
+        }
+      });
+    });
+    setAttachmentOpener((href) => openAttachmentRef.current?.(href));
+    return () => {
+      setSlashAttachmentPicker(null);
+      setAttachmentOpener(null);
+    };
   }, []);
 
   // 全局搜索定位:文档载入完成后跳首个命中 + 高亮 + 打开查找条

@@ -44,6 +44,12 @@ export interface HistoryEntry {
   chars: number;
 }
 
+/** 附件导入结果(6.1.5):name=原文件名(卡片显示名),src=`./assets/<hash>.<ext>` */
+export interface AttachmentInfo {
+  name: string;
+  src: string;
+}
+
 /** 知识库后端能力面:tauri(真文件系统)与 browser(localStorage mock)同构 */
 export interface KbBackend {
   readonly kind: "tauri" | "browser";
@@ -77,6 +83,10 @@ export interface KbBackend {
   saveAsset(root: string, docRel: string, ext: string, bytes: Uint8Array): Promise<string>;
   /** 斜杠菜单「图片」文件选择 → 落盘;取消返回 null */
   importImagesFromPicker(root: string, docRel: string): Promise<string[] | null>;
+  /** 斜杠菜单「附件」文件选择(任意类型,6.1.5)→ 落盘;name=原文件名(显示名);取消返回 null */
+  importAttachmentsFromPicker(root: string, docRel: string): Promise<AttachmentInfo[] | null>;
+  /** 附件卡片点击:解析库内路径 → 系统打开;missing=文件不存在/路径越界,unsupported=浏览器 mock */
+  openPath(root: string, docRel: string, src: string): Promise<"ok" | "missing" | "unsupported">;
   /** 图片 src 渲染解析(同步;img src 不能等 Promise) */
   resolveAssetSrc(root: string, docRel: string, src: string): string;
   /** 回收站列表/恢复;冲突且未给 strategy 抛 KbConflictError */

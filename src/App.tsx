@@ -318,6 +318,21 @@ function App() {
   );
   const onPickImage = useCallback(() => kb.importImagesFromPicker(), [kb.importImagesFromPicker]);
 
+  /* ---- 附件卡片(6.1.5):文件选择 → assets;点击卡片 → 系统打开 ---- */
+  const onPickAttachment = useCallback(
+    () => kb.importAttachmentsFromPicker(),
+    [kb.importAttachmentsFromPicker],
+  );
+  const onOpenAttachment = useCallback(
+    (href: string) => {
+      void kb.openAttachment(href).then((r) => {
+        if (r === "missing") showToast("附件文件不存在或已被移动");
+        else if (r === "unsupported") showToast("当前环境不支持打开附件");
+      });
+    },
+    [kb.openAttachment, showToast],
+  );
+
   /* ---- 窗口级拖拽兜底(WebKit 行为对齐) ----
    * 1) 外部文件拖进窗口,WebKit 默认动作是「打开文件」= 整窗导航把应用盖掉,必须拦;
    * 2) WKWebView 的 drop 事件 target 不可靠(真机实录:文件到了 window,PM 的编辑器
@@ -508,6 +523,8 @@ function App() {
             onOpenWikiLink={onOpenWikiLink}
             onImageFiles={onImageFiles}
             onPickImage={onPickImage}
+            onPickAttachment={onPickAttachment}
+            onOpenAttachment={onOpenAttachment}
             locateSignal={locateSignal}
             cardBorder={settings.cardBorder}
             showToolbar={settings.showToolbar && !focusMode}

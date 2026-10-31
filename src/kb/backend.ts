@@ -9,6 +9,7 @@
 
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type {
+  AttachmentInfo,
   DocContent,
   HistoryEntry,
   KbBackend,
@@ -135,6 +136,27 @@ const tauriBackend: KbBackend = {
       srcs.push(r.src);
     }
     return srcs;
+  },
+  async importAttachmentsFromPicker(root, docRel): Promise<AttachmentInfo[] | null> {
+    const paths = await invoke<string[] | null>("pick_files");
+    if (!paths?.length) return null;
+    const out: AttachmentInfo[] = [];
+    for (const p of paths) {
+      const r = await invoke<{ src: string }>("import_asset", { root, docRel, srcAbs: p });
+      // 显示名 = 原文件名(用户认得),存储按 9.3 哈希命名
+      out.push({ name: p.split(/[\\/]/).pop() || r.src, src: r.src });
+    }
+    return out;
+  },
+  async openPath(root, docRel, src) {
+    const rel = assetRelPosix(docRel, src);
+    if (!rel) return "missing" as const;
+    try {
+      await invoke("open_path", { root, rel });
+      return "ok" as const;
+    } catch {
+      return "missing" as const;
+    }
   },
   resolveAssetSrc(root, docRel, src) {
     if (isExternalSrc(src)) return src;
@@ -565,7 +587,14 @@ const browserBackend: KbBackend = {
     const fs = loadMock();
     const folder = parentOf(docRel);
     const e = ext || "png";
-    const mime = e === "svg" ? "image/svg+xml" : `image/${e}`;
+    // 附件(6.1.5)也走这里:非图片扩展名给通用二进制/文档 mime(mock 内仅存 dataURL,不消费)
+    const mime = /^png|jpe?g|gif|webp|bmp|avif$/.test(e)
+      ? `image/${e}`
+      : e === "svg"
+        ? "image/svg+xml"
+        : e === "pdf"
+          ? "application/pdf"
+          : "application/octet-stream";
     const name = `${fnv1aHex(bytes)}.${e}`;
     const rel = folder ? `${folder}/assets/${name}` : `assets/${name}`;
     fs.assets[rel] = `data:${mime};base64,${bytesToBase64(bytes)}`;
@@ -586,6 +615,28 @@ const browserBackend: KbBackend = {
       srcs.push(await browserBackend.saveAsset("", docRel, ext, bytes));
     }
     return srcs.length ? srcs : null;
+  },
+  async importAttachmentsFromPicker(_root, docRel): Promise<AttachmentInfo[] | null> {
+    let files: File[];
+    try {
+      files = await pickFilesViaInput("", true);
+    } catch {
+      return null;
+    }
+    const out: AttachmentInfo[] = [];
+    for (const f of files) {
+      const ext = (f.name.split(".").pop() ?? "").toLowerCase();
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      out.push({
+        name: f.name,
+        src: await browserBackend.saveAsset("", docRel, ext, bytes),
+      });
+    }
+    return out.length ? out : null;
+  },
+  async openPath() {
+    // 浏览器无系统打开通道;上层以 unsupported 文案区分「文件缺失」
+    return "unsupported" as const;
   },
   resolveAssetSrc(_root, docRel, src) {
     if (isExternalSrc(src)) return src;

@@ -116,7 +116,12 @@ function wrapMark(mark: Mark, content: string): string {
       const target = /[\s<>()]/.test(href)
         ? `<${href.replace(/>/g, "\\>")}>`
         : href;
-      return `[${content}](${target})`;
+      // title(`[x](url "题注")`)随 href 一并保留,不静默丢弃
+      const titleText = String(mark.attrs.title)
+        .replace(/\\/g, "\\\\")
+        .replace(/"/g, '\\"');
+      const title = mark.attrs.title ? ` "${titleText}"` : "";
+      return `[${content}](${target}${title})`;
     }
     case "wikiLink": {
       const target = String(mark.attrs.target ?? "");
@@ -263,6 +268,16 @@ class MarkdownSerializer {
         this.renderChildren(node, true);
         this.blankLine();
         this.write("</details>");
+        this.newline();
+        break;
+      }
+      case "attachment": {
+        // PRD 6.1.5:存储 = 标准链接(§10 无专用方言);目标含空白/括号时 <> 包裹(与 link 同策)
+        const href = String(node.attrs.href ?? "");
+        const target = /[\s<>()]/.test(href)
+          ? `<${href.replace(/>/g, "\\>")}>`
+          : href;
+        this.write(`[${escapeText(String(node.attrs.name ?? ""), false)}](${target})`);
         this.newline();
         break;
       }

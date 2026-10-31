@@ -893,6 +893,31 @@ export function useKb(settings: AppSettings) {
     return kbBackend.importImagesFromPicker(root, rel);
   }, []);
 
+  /** 斜杠菜单「附件」(6.1.5):任意类型文件选择 → assets;取消返回 null。
+   *  返回编辑器词汇(href = 后端 src,attachment 节点 attrs 同名) */
+  const importAttachmentsFromPicker = useCallback(
+    async (): Promise<{ name: string; href: string }[] | null> => {
+      const root = rootRef.current;
+      const rel = pathRef.current;
+      if (!root || !rel) return null;
+      markSelfWrite();
+      const items = await kbBackend.importAttachmentsFromPicker(root, rel);
+      return items?.map(({ name, src }) => ({ name, href: src })) ?? null;
+    },
+    [],
+  );
+
+  /** 附件卡片点击(6.1.5):解析库内路径 → 唤起系统打开;结果三态见 KbBackend.openPath */
+  const openAttachment = useCallback(
+    async (src: string): Promise<"ok" | "missing" | "unsupported"> => {
+      const root = rootRef.current;
+      const rel = pathRef.current;
+      if (!root || !rel) return "missing";
+      return kbBackend.openPath(root, rel, src);
+    },
+    [],
+  );
+
   /** 导入外部 Markdown 到指定文件夹(5.6);取消返回 null */
   const importDocs = useCallback(
     async (folderRel: string): Promise<string[] | null> => {
@@ -1015,6 +1040,8 @@ export function useKb(settings: AppSettings) {
     /** 最近一次打开失败的文档路径(供上层 toast;成功打开后清空) */
     docError,
     importImagesFromPicker,
+    importAttachmentsFromPicker,
+    openAttachment,
     importDocs,
     exportText,
     readAssetBase64,

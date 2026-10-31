@@ -4,7 +4,7 @@
 
 ## 现状一句话
 
-**MVP(第 5 章)与 M4 大部已提交;V2 批次一(Callout + 公式)与批次二前三项(Mermaid + 历史快照 + 折叠摘要块)已提交并真机验证(2026-10-31)**。当前工作重点 = V2 批次二收尾(附件卡片)+ 真机菜单/设置窗肉眼验证 + M4 尾项(IME 回归、Windows 包)。测试 147/147,`pnpm build` 过。
+**MVP(第 5 章)与 M4 大部已提交;V2 批次一(Callout + 公式)与批次二全部四项(Mermaid + 历史快照 + 折叠摘要块 + 附件卡片)已提交并真机验证(2026-10-31)**。当前工作重点 = V2 剩余 6.3/6.4 + 真机菜单/设置窗肉眼验证 + M4 尾项(IME 回归、Windows 包)。测试 149/149,`pnpm build` 过。
 
 ## 里程碑(PRD §11.4 工期表)
 
@@ -88,13 +88,14 @@
 | TOC 大纲面板 | 5.4-1 | ✅ 核对为已有实现(`src/editor/panel/TocPanel.tsx`),此前审计 grep 截断误报缺失 |
 | bug:「仍要在此创建」再撞 NOT_EMPTY | — | ✅ `onForceCreate={kb.createKbAt}` 漏传 force,真 bug(E2E 未覆盖非空路径),已改 `(root) => kb.createKbAt(root, true)` |
 
-## V2 特殊卡片(批次二,2026-10-31)🔨 Mermaid+历史快照+折叠摘要完成,附件未动
+## V2 特殊卡片(批次二,2026-10-31)✅ 全部完成并真机验证
 
 | 子项 | PRD | 状态 | 说明 |
 | --- | --- | --- | --- |
 | Mermaid 图表卡 | 6.1.4/§10 | ✅ | **复用 codeBlock**(```mermaid 围栏即存储,解析/序列化零改动,PM 原生编辑 IME/撤销免费;比 mathBlock 式 atom 少一套 md-it 规则);NodeView 特判 language=mermaid:预览态(默认,SVG 渲染,contentDOM display:none 留在 DOM)/源码态(行号+可编辑)双视图,源码态下方 **live 实时预览**(200ms 防抖);单击选中整卡、双击进源码;空卡占位。渲染运行时 `extensions/mermaid.ts`:动态 import 懒加载(mermaid 12.2,主 bundle 未污染,cytoscape/elk/mermaid.core 独立 chunk)、**串行队列**(内部全局单例并发互踩)、主题跟随(浅 neutral/深 dark,initialize 可重复调,MutationObserver 监 html class 切深色即时重渲)、securityLevel strict;语法错误显示错误态不崩。斜杠菜单「Mermaid 图表」(Workflow icon)插默认流程图模板;语言下拉加 mermaid 项。fixture `mermaid.md` 往返+二稳;E2E `mermaid.js` 14/14(含全程无外部请求断言,离线 ✅)。导出 HTML 中与公式同口径 = 源码形态(均不渲染,PRD 5.6 未要求)。真机(2026-10-31)渲染/深色/错误态已验 |
 | 文档历史快照 | 6.2/§8 | ✅ | **索引即文件名**:`.yanzhi/history/<rel 去 .md>/<unix_ms>-[a\|m]-<fnv16>.md`(a=自动/m=手动,哈希与 save_asset 同式),无独立索引文件 → 列表与磁盘零漂移;同库同 name 的文档/文件夹并存走 merge-move(id 含时间+哈希无覆盖)。**节流在前端**(settings 有 snapshotIntervalMin/snapshotKeep,内存态最新快照):间隔不足或与最近一份内容相同则跳过,挂在 flushSave 成功后;手动「打快照」不受限。**存储在后端**:Rust `list_history/read_history/save_snapshot`(写后按 keep 清最旧,`read_history` 的 id 先过格式校验防路径逃逸)+ `move_history_dir/remove_history_dir` 挂进 rename/move/恢复/彻底删除/清空;mock 同构(Record<rel, Record<id, 内容>>)。面板 = 右栏第三分区(时间倒序,时间+N 字+自动/手动 badge),对话框 = 只读查看/对比当前(自写行级 LCS diff,`diff.ts` 前后缀裁剪+DP,100 万单元格兜底)+「恢复此版本」(恢复前先为当前内容自动存一份)。顺带修真 bug:**getMarkdownNow 在自动保存落盘后返回陈旧内容**(markdown state 停在 openDoc 版本,导出/复制同中招)——flushSave 不能 setMarkdown(markdown prop 变化会整体重载编辑器丢光标),新增 `savedMdRef` 全落点同步兜底。单测 cargo 4/4 + vitest 144/144;E2E `history.js` 11/11(interval=0 全链路:空态/手动/自动/keep 清理/对比高亮/恢复/改名跟随/重载)。真机(2026-10-31)打快照/恢复已验。**已知缺口:调小 keep 不回溯清理,要等下一次快照写入才裁剪** |
 | 折叠摘要块 | 6.1.2/§10 | ✅ | 专用 `details` 节点(同 callout 模式):md-it core 规则 `yz_details` 把 `<details><summary>` 的 html_block retag 为 open/close 对(仅认空属性/open;其它属性/未闭合/引用内一律不转,保持 rawHtml 原文,§4.6)。**open = 持久化的默认展开/收起**(PRD「可设置默认展开/收起」),点 chevron 直接写 attr;summary 纯文本属性(实体解码后存 attr,渲染器自动转义)。NodeView:头部 contentEditable=false(chevron + 非受控 input,IME 安全,Enter=展开并退出);折叠时 contentDOM 仅 display:none 不卸载。renderHTML 输出原生 `<details><summary>`(内容洞包 div)→ 导出 HTML/复制即 GitHub 可折叠形态。粘贴归一化:`normalizeDetails` 原生 details → div[data-details](白名单豁免防 unwrap)。斜杠菜单「折叠块」。fixture `details.md` 7 形态(特殊字符/空内容/嵌套内层 rawHtml/未知属性/引用内/未闭合);E2E `details.js` 11/11(插入/摘要编辑/折叠展开落盘/重载还原/粘贴归一化)。真机(2026-10-31)折叠/展开持久化与粘贴已验 |
+| 附件卡片 | 6.1.5 | ✅ | **存储 = 标准链接**(§10 无附件专用方言,卡片是砚知渲染增强):md-it core 规则 `yz_attachment` 把「独立段落恰为 `[名](./assets/x.ext)` 单链接」retag 为 atom 节点,行内混排/非 assets 相对路径/外链/带 title/空名称一律保持普通链接不误伤。斜杠菜单「附件」→ Rust `pick_files` 多选 → `import_asset` 哈希落盘(与图片同式)→ 插卡;点击卡片 `open_path` 唤系统打开(macOS `open`/Windows `start`,复用 resolve canonicalize 防路径逃逸;不存在 → toast「文件不存在或已被移动」);mock 三态 ok/missing/unsupported。**顺手修两既有缺口**:①Link 的 title 静默丢弃——StarterKit 内置 Link 无 title attr,改 `link:false` + `Link.extend` 补 attr + 序列化 `"title"`(新依赖 `@tiptap/extension-link` 3.32.2,StarterKit 内置包 pnpm 严格解析不显式安装不能 import);②md-it 默认 `normalizeLink` 百分号编码非 ASCII 目标(中文路径落盘被改写)→ 覆写恒等。fixture `attachment.md` 9 形态;E2E `attachment.js` 8/8(mock 链路:手写开即卡/混排不转/toast/菜单插入 filechooser 注入/哈希落盘/重载还原/无百分号编码)。真机(2026-10-31)插入/落盘/系统打开已验 |
 
 ## V2 特殊卡片(批次一,2026-10-30)🔨 Callout+公式完成,待提交
 
@@ -120,7 +121,7 @@
 ## 提交记录(近期)
 
 - M3 全量(fs 命令层/树/双链/搜索/assets/监听/回收站/排序/导入导出/设置)随 kb 系列提交;设置窗口化+关于页+菜单全量中文化 = a905c86
-- V2 批次二前三项:Mermaid 图表卡(依赖 mermaid 运行时)、文档历史快照(Rust 命令 + 面板/对话框 + diff)、折叠摘要块(details 节点 + md-it retag + 粘贴归一化)各一提交;演示文档「V2 卡片演示.md」在用户库 Desktop/zhishi 中,真实链路打开+自动保存闭环已验(半角括号会被规范化转义为 `\(`,既有 escapeText 行为)
+- V2 批次二四项各一提交:Mermaid 图表卡(依赖 mermaid 运行时)、文档历史快照(Rust 命令 + 面板/对话框 + diff)、折叠摘要块(details 节点 + md-it retag + 粘贴归一化)、附件卡片(attachment 节点 + Rust pick_files/open_path + Link title/normalizeLink 两缺口修复,含新依赖 @tiptap/extension-link);演示文档「V2 卡片演示.md」在用户库 Desktop/zhishi 中,真实链路打开+自动保存闭环已验(半角括号会被规范化转义为 `\(`,既有 escapeText 行为)
 
 ## 决策记录
 
@@ -129,7 +130,7 @@
 
 ## 下一步开工
 
-1. **V2 批次二(剩)**:附件卡片(6.1.5);之后 6.3/6.4(反链片段/标签/置顶/PDF 导出/窗口大小记忆)
+1. **V2 剩余(6.3/6.4)**:反链片段/标签/置顶/PDF 导出/窗口大小记忆
 2. **真机肉眼验证(a905c86 批)**:菜单栏条目、⌘W/⌘Q、设置独立窗口打开/聚焦/关于直落、设置窗改主色主窗即时变、显示菜单勾选翻勾;**V2 批次一真机**:演示文档「V2 卡片演示.md」的 callout 类型切换/公式双击编辑(库 = Desktop/zhishi)
 3. **真实链路手测**(dev 常驻且 Rust 命令全量已注册;未验子项):
    - 双链:插入/跳转/前进后退/改名联动(裸名+路径+别名+文件夹段级);反向链接面板(聚合/×N/已删除灰态/点击定位)
@@ -167,7 +168,7 @@
 - **mock 库首开文档是树序第一篇**(随笔/第一篇,不是开始使用):树序 = 文件夹递归在前。E2E 脚本要先点树切到目标文档再断言,同文档点击会被 openDoc 的 `rel===cur` 守卫拦下(行为正确,脚本易误判)
 - **macOS Option 组合快捷键的 `e.key` 是特殊字符**(⌥F → `ƒ`):判断组合键用 `e.code === "KeyF"`,别用 e.key;浮层类组件的 Esc 关闭挂 window 级,不能只挂在 input(焦点在按钮/正文时也要能关);**同修饰键家族的快捷键必须互斥检查**(⌘F 查找没排除 shift → ⌘⇧F 专注模式把查找条也一起打开;两个 handler 都挂 window,preventDefault 不拦其它 listener)
 - **WKWebView 的 navigator.clipboard.write 对 text/html 不稳**(手测实录:复制带表格文档贴出只剩拍平文本):富文本/纯文本复制统一走 tauri-plugin-clipboard-manager(`writeHtml(html, 纯文本回退)`,capabilities 加 allow-write-text/allow-write-html);且 getHTML 输出无样式,贴到微信/邮件必须先 `inlineStyles` 注入内联样式(无边框表格观感即"结构丢了")
-- 修改任何解析/序列化行为:**必须跑全量 fixtures**(`pnpm test`,当前 147/147)
+- 修改任何解析/序列化行为:**必须跑全量 fixtures**(`pnpm test`,当前 149/149)
 - **flexsearch 0.7.31 的 d.ts 是错的**(描述 async/worker 形态:`FlexSearch.create`、Promise search、number id),实际 ESM 默认导出 = Index 构造函数、同步 search 返回数组、string id 可用;vitest 走 CJS main 是 `{ Index }` 对象——`search.ts` 头部有运行时探测双兼容。**自定义切词必须挂 `encode`(返回 token 数组)**:挂 `tokenize` 函数静默不生效,CJK 会被默认拉丁编码器整段剥掉(搜索返回空)。多 token 默认 AND,`suggest:true` 兜底 OR
 - **内容哈希跨端必须逐字符对齐**:Rust `format!("{hash:016x}")` 是完整 16 hex(`:012x` 是最小宽度不是截断,u64 会打出 16 位,JS 手写截断曾错位);JS BigInt 侧 `toString(16).padStart(16,"0")`。mock 与 Rust 两份实现靠测试向量锁定([0x61] → `af63dc4c8601ec8c`)
 - **Tauri assetProtocol**:渲染本地图片需三处齐全——cargo feature `protocol-asset`、tauri.conf.json `security.assetProtocol.enable+scope`、前端 `convertFileSrc`;少 cargo feature 编译直接报 feature not enabled,少 conf 运行时 asset: 请求 403
@@ -185,10 +186,12 @@
 - **mermaid 12 全局单例并发 render 互踩**,渲染必须串行队列(promise chain);`initialize` 可重复调用,主题切换(浅 neutral/深 dark)重设即可;懒加载 `import("mermaid")` 生效时 cytoscape/elk/mermaid.core 是独立 chunk,别不小心静态 import 进主 bundle
 - **「当前文档 md」的正确口径是 `dirtyRef.current ?? savedMdRef.current`,别读 markdown state**(历史快照批实录的既有 bug):自动保存落盘后 dirtyRef 清空,而 markdown state 停在 openDoc 时的版本——导出 md/HTML、复制、快照对比全在拿旧文。不能在 flushSave 里 setMarkdown 补同步:markdown prop 变化会触发 YanzhiEditor 整体重载(丢光标/丢撤销栈)。useKb 里 `savedMdRef` 在全部 8 处内容落点(loadDoc/restore/flushSave/空草稿/重命名/移动)同步;新加「取当前内容」的链路一律走 `getMarkdownNow`
 - **md-it token retag 三坑(折叠摘要块实录)**:① 渲染器对 token 属性值**自动 HTML 转义**,`attrSet` 存解码明文即可,先手动 escapeAttr 会双重转义(fixture 对拍抓到 `&amp;amp;`);② 复用 html_block token 当闭标签必须改 `nesting = -1`(原 nesting=0 会被渲染成开标签,整篇嵌套错乱);③ PM renderHTML 的内容洞 `0` **必须是父节点唯一子节点**,`["details", attrs, ["summary",…], 0]` 运行时直接 RangeError 白屏(pageerror 才看到),正文包一层 `["div", {}, 0]`
+- **md-it 默认 `normalizeLink` 会把非 ASCII 链接目标百分号编码**(附件批实录:`./随笔/第一篇.md` 落盘变 `%E9%9A%8F…`,静默改写用户原文,违反 §4.4)——覆写 `md.normalizeLink = (url) => url` 关闭;`validateLink` 是另一个函数不受影响。同批:**StarterKit 内置的扩展不是项目的直接依赖**,pnpm 严格解析下 import 直接 resolve 失败(`@tiptap/extension-link` 实录),要显式 `pnpm add` 并重启 dev(与 Shiki 依赖同款坑)
 
 ## 遗留小事项
 
 - `src/EditorSpike.tsx`:已不被引用,待确认后删除
+- 移动文档到其它文件夹后其 `assets/` 不跟随(§9.3-4,图片/附件同遗留):相对路径指向新位置的 assets,旧引用失效待处理
 - 打包版右键菜单中文:dev 模式是裸二进制只有英文(正常);用 `pnpm tauri build` 后开 bundle 里的 砚知.app 验证
 - 主 bundle 1MB+:语言分包已做,后续可再做入口级 code-split(不阻塞)
 - V2 候选(开工前 PRD 需先补规范):打字机模式(专注模式子项)、只读源码视图(md 原文对照)

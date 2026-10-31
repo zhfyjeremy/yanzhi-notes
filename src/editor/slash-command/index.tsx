@@ -22,6 +22,7 @@ import {
   ListTodo,
   Minus,
   OctagonAlert,
+  Paperclip,
   Radical,
   Sigma,
   Table,
@@ -48,6 +49,14 @@ let imagePicker: SlashImagePicker | null = null;
 /** YanzhiEditor 挂载时注入;卸载置 null(菜单回落为不执行) */
 export function setSlashImagePicker(fn: SlashImagePicker | null): void {
   imagePicker = fn;
+}
+
+type SlashAttachmentPicker = (editor: Editor) => void;
+let attachmentPicker: SlashAttachmentPicker | null = null;
+
+/** 同上:附件(6.1.5)的文件选择 → assets 落盘 → 插入附件卡 */
+export function setSlashAttachmentPicker(fn: SlashAttachmentPicker | null): void {
+  attachmentPicker = fn;
 }
 
 /** 斜杠插入的默认流程图模板:小而全(节点/菱形判断/带标签边),中文节点直接可见 */
@@ -200,6 +209,17 @@ const COMMANDS: SlashCommandDef[] = [
     action: (editor, range) => {
       editor.chain().focus().deleteRange(range).run();
       imagePicker?.(editor);
+    },
+  },
+  {
+    group: "卡片",
+    label: "附件",
+    icon: Paperclip,
+    keywords: ["attachment", "file", "fujian", "wenjian"],
+    // 任意类型文件选择 → assets 落盘 → 插入附件卡(应用层回调;点击卡片唤起系统打开)
+    action: (editor, range) => {
+      editor.chain().focus().deleteRange(range).run();
+      attachmentPicker?.(editor);
     },
   },
   {

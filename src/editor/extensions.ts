@@ -1,4 +1,5 @@
 import StarterKit from "@tiptap/starter-kit";
+import Link from "@tiptap/extension-link";
 import Highlight from "@tiptap/extension-highlight";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
@@ -15,6 +16,7 @@ import { CodeBlockCard } from "./extensions/code-block-card";
 import { ImageCard } from "./extensions/image-card";
 import { Callout } from "./extensions/callout";
 import { Details } from "./extensions/details";
+import { Attachment } from "./extensions/attachment";
 import { MathInline, MathBlock } from "./extensions/math";
 import { FontColor } from "./extensions/font-color";
 
@@ -47,11 +49,21 @@ const TableHeaderAligned = TableHeader.extend({
  * 图片为 inline 节点:GFM 中图片是行内语法,独立成段时视觉卡片化由 CSS 负责。
  */
 export const baseExtensions = [
-  // 内置 codeBlock 由 CodeBlockCard 取代(语言选择/复制/行号);Image 由 ImageCard 取代(宽度/对齐 UI)
-  StarterKit.configure({ codeBlock: false }),
+  // 内置 codeBlock 由 CodeBlockCard 取代(语言选择/复制/行号);Image 由 ImageCard 取代(宽度/对齐 UI);
+  // Link 换成带 title 属性的扩展(标准 md 链接 title 不再静默丢弃,§4.6)
+  StarterKit.configure({ codeBlock: false, link: false }),
+  Link.extend({
+    addAttributes() {
+      return {
+        ...this.parent?.(),
+        title: { default: null as string | null },
+      };
+    },
+  }),
   CodeBlockCard,
   Callout,
   Details,
+  Attachment,
   MathInline,
   MathBlock,
   Highlight,

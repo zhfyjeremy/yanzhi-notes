@@ -258,6 +258,8 @@ pub fn run() {
             kb::save_asset,
             kb::import_asset,
             kb::pick_images,
+            kb::pick_files,
+            kb::open_path,
             kb::pick_docs,
             kb::read_asset_base64,
             kb::list_trash,

@@ -818,15 +818,39 @@ pub fn save_asset(root: &str, doc_rel: &str, ext: &str, bytes: Vec<u8>) -> Resul
     save_asset_bytes(root, doc_rel, ext, &bytes)
 }
 
-/// 从本地路径导入图片(斜杠菜单「图片」的文件选择入口):读盘 → 哈希 → assets
+/// 从本地路径导入图片/附件(斜杠菜单「图片/附件」的文件选择入口):读盘 → 哈希 → assets
 #[tauri::command]
 pub fn import_asset(root: &str, doc_rel: &str, src_abs: &str) -> Result<AssetInfo, String> {
-    let bytes = fs::read(src_abs).map_err(|_| format!("无法读取图片: {src_abs}"))?;
+    let bytes = fs::read(src_abs).map_err(|_| format!("无法读取文件: {src_abs}"))?;
     let ext = Path::new(src_abs)
         .extension()
         .map(|e| e.to_string_lossy().to_string())
         .unwrap_or_default();
     save_asset_bytes(root, doc_rel, &ext, &bytes)
+}
+
+/// 系统打开库内文件(附件卡片点击,PRD 6.1.5):macOS `open` / Windows `start`;
+/// 路径经 resolve 防逃逸(canonicalize 后须仍在库内)
+#[tauri::command]
+pub fn open_path(root: &str, rel: &str) -> Result<(), String> {
+    let abs = resolve(root, rel)?;
+    if !abs.is_file() {
+        return Err(format!("文件不存在: {rel}"));
+    }
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("open");
+        c.arg(&abs);
+        c
+    };
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "start", "", &abs.to_string_lossy()]);
+        c
+    };
+    cmd.spawn().map_err(|e| format!("无法打开文件: {e}"))?;
+    Ok(())
 }
 
 /// Markdown 文件选择器(导入用,多选);取消返回 null
@@ -852,6 +876,20 @@ pub async fn pick_images(app: tauri::AppHandle) -> Result<Option<Vec<String>>, S
         app.dialog()
             .file()
             .add_filter("图片", &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"])
+            .blocking_pick_files()
+            .map(|fs| fs.iter().map(|f| f.to_string()).collect::<Vec<_>>())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// 任意类型文件选择器(附件卡片 6.1.5,多选,无过滤);取消返回 null
+#[tauri::command]
+pub async fn pick_files(app: tauri::AppHandle) -> Result<Option<Vec<String>>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
             .blocking_pick_files()
             .map(|fs| fs.iter().map(|f| f.to_string()).collect::<Vec<_>>())
     })
