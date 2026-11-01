@@ -184,6 +184,12 @@
 
 验证:浏览器回归通过——帮助窗 `?tab=quick-start` 直开、排版/源码切换、Markdown 示例表格/Callout/代码块渲染正常;能力示例专项验证行内公式 ×3、块级公式 ×2、Mermaid SVG ×2、折叠块交互、预设色、任务与四种 Callout。mock 首启「开始使用.md」展示存储说明、任务、表格与代码块。`pnpm test` **183/183**、`cargo test` **6/6**、`pnpm build` 与 `pnpm tauri build --no-bundle` 通过;知识库综合回归 `remaining-v3.js` **19/19**。原生帮助子菜单需真机肉眼最终确认。
 
+## CI 双端打包(2026-11-01)✅
+
+- 新增 `.github/workflows/desktop-release.yml`:支持 `workflow_dispatch` 手动打包与 `v*` tag 自动发布。
+- macOS `macos-14` 构建 `universal-apple-darwin`,产出未签名 Universal `.dmg`;Windows `windows-latest` 构建 `x86_64-pc-windows-msvc`,产出 `.msi` 与 NSIS `.exe`。
+- 双平台并行构建,产物分别上传 Actions artifacts;tag 触发时合并产物并自动创建 GitHub Release。当前未接入代码签名与公证,正式分发仍需补 Apple Developer ID、公证与 Windows 代码签名密钥。
+
 ## 单文件轻编辑模式(2026-11-01)✅ P0/P1 代码完成
 
 - 产品口径固化到 `docs/single-file-mode.md`,PRD §2.1/§2.2 已补充:单文件模式直接打开 `.md`/`.markdown`,手动保存回原路径,不创建 `.yanzhi/`、不建索引、不启用标签/反链/历史/回收站/图谱等知识库专属能力。
