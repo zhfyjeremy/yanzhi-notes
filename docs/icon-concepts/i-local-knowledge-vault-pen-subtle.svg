@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="145" y1="110" x2="875" y2="910" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7EB9FF"/>
+      <stop offset=".38" stop-color="#2074DE"/>
+      <stop offset="1" stop-color="#103775"/>
+    </linearGradient>
+    <linearGradient id="card" x1="250" y1="210" x2="770" y2="810" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFEFA"/>
+      <stop offset=".62" stop-color="#F0EADC"/>
+      <stop offset="1" stop-color="#D6CBB5"/>
+    </linearGradient>
+    <linearGradient id="penBody" x1="670" y1="455" x2="725" y2="715" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFEFA"/>
+      <stop offset=".58" stop-color="#DDEBFF"/>
+      <stop offset="1" stop-color="#9DC5F8"/>
+    </linearGradient>
+    <linearGradient id="penTip" x1="665" y1="665" x2="730" y2="735" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8FC1FF"/>
+      <stop offset=".45" stop-color="#2176E2"/>
+      <stop offset="1" stop-color="#123F83"/>
+    </linearGradient>
+    <filter id="shadow" x="-18%" y="-18%" width="136%" height="136%">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#072A5C" flood-opacity=".24"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <path d="M188 302h245l48 57h355c18 0 32 14 32 32v337c0 18-14 32-32 32H188c-18 0-32-14-32-32V334c0-18 14-32 32-32Z" fill="#0B2E62" opacity=".20"/>
+  <path d="M219 340h224l46 54h316c18 0 32 14 32 32v288c0 18-14 32-32 32H219c-18 0-32-14-32-32V372c0-18 14-32 32-32Z" fill="url(#card)" filter="url(#shadow)"/>
+  <path d="M260 448h395" stroke="#26221F" stroke-opacity=".24" stroke-width="27" stroke-linecap="round"/>
+  <path d="M292 528h279" stroke="#2074DE" stroke-opacity=".82" stroke-width="21" stroke-linecap="round"/>
+  <path d="M292 604h221" stroke="#26221F" stroke-opacity=".20" stroke-width="18" stroke-linecap="round"/>
+  <path d="M292 678h158" stroke="#26221F" stroke-opacity=".15" stroke-width="18" stroke-linecap="round"/>
+  <g transform="rotate(38 695 610)">
+    <rect x="663" y="459" width="58" height="205" rx="22" fill="url(#penBody)"/>
+    <rect x="663" y="459" width="58" height="205" rx="22" fill="none" stroke="#16457F" stroke-opacity=".22" stroke-width="7"/>
+    <rect x="675" y="489" width="34" height="24" rx="10" fill="#2176E2" opacity=".28"/>
+    <path d="M672 656h40l-8 34-12 23-12-23-8-34Z" fill="url(#penTip)"/>
+    <circle cx="692" cy="690" r="8" fill="#FFFEFA" opacity=".78"/>
+  </g>
+  <rect x="238" y="760" width="548" height="20" rx="10" fill="#2074DE" opacity=".18"/>
+</svg>

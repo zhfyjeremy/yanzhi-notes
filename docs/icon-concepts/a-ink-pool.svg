@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="ink" x1="180" y1="120" x2="840" y2="920" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3A3530"/>
+      <stop offset=".55" stop-color="#25211E"/>
+      <stop offset="1" stop-color="#171412"/>
+    </linearGradient>
+    <linearGradient id="pool" x1="300" y1="330" x2="740" y2="730" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6EA8FF"/>
+      <stop offset=".48" stop-color="#2470D8"/>
+      <stop offset="1" stop-color="#123F83"/>
+    </linearGradient>
+    <filter id="glow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="18" flood-opacity="0" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .35 0"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#ink)"/>
+  <path d="M180 674c78-165 171-248 279-248 101 0 158 54 171 162 8 66-25 113-99 141-150 57-279 42-386-45Z" fill="url(#pool)" filter="url(#glow)" transform="translate(18 26)"/>
+  <path d="M180 674c78-165 171-248 279-248 101 0 158 54 171 162 8 66-25 113-99 141-150 57-279 42-386-45Z" fill="url(#pool)"/>
+  <path d="M282 676c50-96 107-144 171-144 58 0 91 30 99 90 5 41-17 70-64 87-90 34-167 21-206-33Z" fill="#EFEAE1" opacity=".16"/>
+  <path d="M694 258c47 55 73 101 78 138 4 29-7 49-33 60-24 10-45 4-63-19-21-27-31-70-29-130l47-49Z" fill="#F4F0E8" opacity=".91"/>
+  <circle cx="663" cy="221" r="24" fill="#F4F0E8" opacity=".91"/>
+  <rect x="188" y="766" width="648" height="26" rx="13" fill="#F4F0E8" opacity=".16"/>
+  <rect x="294" y="832" width="436" height="18" rx="9" fill="#F4F0E8" opacity=".10"/>
+</svg>

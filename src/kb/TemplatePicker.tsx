@@ -2,7 +2,7 @@
  * 新建文档模板选择器(PRD 7.5,语雀式):知识库存在模板(.yanzhi/templates/*.md)
  * 时,「新建文档」先经此弹窗——输入文档名 + 选「空白文档」或某模板;
  * 无模板时上游直接建空文档,本组件不出现(零打扰)。
- * 模板管理不在砚知内:在模板文件夹里增删 .md 即可(设置 → 通用 → 打开模板文件夹)。
+ * 模板管理入口:设置 → 模板;此处保留「管理模板…」便于创建时顺手调整。
  */
 
 import { useEffect, useState } from "react";
@@ -50,7 +50,7 @@ export function TemplatePicker({ open, defaultName, templates, onCancel, onConfi
 
   return (
     <Dialog open={open} onOpenChange={(o) => (!o ? onCancel() : undefined)}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>新建文档</DialogTitle>
           <DialogDescription>从模板创建,或选择空白文档</DialogDescription>
@@ -72,14 +72,16 @@ export function TemplatePicker({ open, defaultName, templates, onCancel, onConfi
             }
           }}
         />
-        <div role="listbox" aria-label="模板" className="border-border max-h-56 overflow-y-auto rounded-lg border">
+        <div role="listbox" aria-label="模板" className="max-h-64 space-y-1.5 overflow-y-auto">
           <button
             type="button"
             role="option"
             aria-selected={selected === BLANK}
             className={cn(
-              "flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm",
-              selected === BLANK ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
+              "border-border-subtle bg-raised/55 flex w-full cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
+              selected === BLANK
+                ? "bg-selection border-primary/25 ring-primary/10 text-foreground ring-1"
+                : "hover:border-primary/20 text-foreground/90",
             )}
             onClick={() => setSelected(BLANK)}
             onDoubleClick={() => {
@@ -87,8 +89,13 @@ export function TemplatePicker({ open, defaultName, templates, onCancel, onConfi
               onConfirm(name.trim() || defaultName, null);
             }}
           >
-            <FileText className="text-muted-foreground size-4 shrink-0" />
-            空白文档
+            <span className="bg-hover text-muted-foreground flex size-7 shrink-0 items-center justify-center rounded-md">
+              <FileText className="size-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium">空白文档</span>
+              <span className="text-muted-foreground block text-[11px]">从空正文开始</span>
+            </span>
           </button>
           {templates.map((t) => (
             <button
@@ -97,8 +104,10 @@ export function TemplatePicker({ open, defaultName, templates, onCancel, onConfi
               role="option"
               aria-selected={selected === t}
               className={cn(
-                "flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm",
-                selected === t ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
+              "border-border-subtle bg-raised/55 flex w-full cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
+              selected === t
+                ? "bg-selection border-primary/25 ring-primary/10 text-foreground ring-1"
+                : "hover:border-primary/20 text-foreground/90",
               )}
               onClick={() => setSelected(t)}
               onDoubleClick={() => {
@@ -106,8 +115,13 @@ export function TemplatePicker({ open, defaultName, templates, onCancel, onConfi
                 onConfirm(name.trim() || defaultName, t);
               }}
             >
-              <LayoutTemplate className="text-muted-foreground size-4 shrink-0" />
-              {t}
+              <span className="bg-selection text-primary flex size-7 shrink-0 items-center justify-center rounded-md">
+                <LayoutTemplate className="size-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">{t}</span>
+                <span className="text-muted-foreground block text-[11px]">使用此模板创建</span>
+              </span>
             </button>
           ))}
         </div>

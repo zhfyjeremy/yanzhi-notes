@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager};
 
 /// 目录树节点(前端直接渲染;相对路径统一 POSIX 风格 `/` 分隔)。
@@ -141,7 +141,79 @@ fn ensure_yanzhi(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-const STARTER_MD: &str = "# 开始使用\n\n砚知把笔记存在你选的文件夹里,不上云、无账号。\n\n- 知识库 = 你指定的一个本地文件夹;里面的 `.md` 就是文档,可以用别的编辑器打开\n- `.yanzhi` 是软件偏好与回收站,删了不影响正文\n- 图片保存在文档所在文件夹的 `assets` 里\n- 复制整个文件夹 = 备份 / 换电脑带走\n- 双链写法:`[[目标文档]]` 或 `[[目标文档|显示名]]`\n\n输入 `/` 可插入代码块/表格/图片,代码块的语言选择与复制在其顶栏;选中文字按 `Ctrl/Cmd+E` 设为行内代码。\n";
+const STARTER_MD: &str = r#"# 开始使用
+
+> [!INFO] 这份文档本身就是示例
+> 你看到的标题、列表、表格、代码块都是标准 Markdown。可以直接编辑它,也可以随时删除它。
+
+## 1. 内容存在哪里
+
+砚知把笔记存在你选择的本地文件夹里,不上云、无账号。
+
+- 知识库 = 你指定的一个普通文件夹
+- `.md` 是标准 Markdown 文档,其它编辑器也能直接打开
+- 图片和附件保存在文档所在文件夹的 `assets` 里
+- `.yanzhi` 只保存软件偏好与回收站,删除它不会影响正文
+- 复制整个文件夹 = 备份,也能直接带到另一台电脑
+
+## 2. 先试几个常用排版
+
+**加粗**、*斜体*、~~删除线~~、`行内代码`,以及 ==重点高亮==。
+
+- 无序列表:按 Enter 自动延续
+    1. 有序列表
+    2. 任务与表格可以混在日常笔记里
+- [ ] 勾选一个任务
+- [x] 已完成任务
+
+> 引用适合放摘录或补充说明。
+
+| 能力 | 输入方式 | 常见用途 |
+| --- | --- | --- |
+| 标题 | 输入 `/` 或使用工具栏 | 整理论文、方案、日记结构 |
+| 任务列表 | 输入 `/` 或待办按钮 | 记录行动项 |
+| 表格 | 输入 `/` 插入表格 | 对比、清单、数据 |
+| 双链 | 输入 `[[` | 把资料连成网络 |
+
+## 3. 把资料连接起来
+
+输入 `[[` 可以引用知识库里的文档,例如 [[开始使用]]。标签在右侧面板维护,适合做项目、主题和状态筛选;大纲会随标题自动生成。
+
+## 4. 插入图片、附件和代码
+
+输入 `/` 打开插入菜单,可以插入图片、附件、表格、代码块、引用和分割线。图片会保存为相对路径,不会嵌进 Markdown 正文。
+
+```ts
+// 代码块支持语言高亮、行号和复制
+const note = "标准 Markdown,换电脑也能打开";
+console.log(note);
+```
+
+## 5. 看看底层 Markdown
+
+砚知是所见即所得编辑器,但文件本体始终是标准 Markdown。下面这段源码可以和上面的排版对照着看:
+
+```md
+# 一级标题
+
+**加粗** 和 ==高亮==
+
+- [ ] 任务项
+
+| 列一 | 列二 |
+| --- | --- |
+| 表格 | 内容 |
+
+[[目标文档]]
+```
+
+## 6. 继续探索
+
+- 左栏顶部可以切换知识库、返回欢迎页或打开 Markdown 文件
+- 右栏有标签、大纲、反向链接和历史版本
+- 删除文档会先进回收站,不怕误删
+- 帮助菜单里还有「使用文档」和快捷键说明
+"#;
 
 /// async 命令:跑在运行时线程,blocking_pick_folder 不会卡主线程事件循环。
 /// 默认定位「文档」目录(5.0.2 推荐不强制;定位失败静默用系统默认)。
@@ -285,6 +357,154 @@ pub fn write_doc(root: &str, rel: &str, content: &str) -> Result<(), String> {
     fs::write(&tmp, content).map_err(err)?;
     fs::rename(&tmp, &abs).map_err(err)?;
     Ok(())
+}
+
+/* ---------------- 单文件模式(docs/single-file-mode.md) ---------------- */
+
+fn is_markdown_path(path: &Path) -> bool {
+    path.extension()
+        .map(|e| {
+            let e = e.to_string_lossy().to_lowercase();
+            e == "md" || e == "markdown"
+        })
+        .unwrap_or(false)
+}
+
+/// 选择一个 Markdown 文件;单文件模式只读入,不创建 .yanzhi
+#[tauri::command]
+pub async fn pick_single_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter("Markdown", &["md", "markdown"])
+            .blocking_pick_file()
+            .map(|f| f.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn read_single_file(path: &str) -> Result<String, String> {
+    let abs = Path::new(path);
+    if !is_markdown_path(abs) {
+        return Err("仅支持 Markdown 文件".into());
+    }
+    if !abs.is_file() {
+        return Err("文件不存在或已被移动".into());
+    }
+    let bytes = fs::read(abs).map_err(err)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// 用户显式保存:先确认原文件仍在,再同目录临时文件原子替换
+#[tauri::command]
+pub fn write_single_file(path: &str, content: &str) -> Result<(), String> {
+    let abs = PathBuf::from(path).canonicalize().map_err(|_| "文件不存在或已被移动".to_string())?;
+    if !is_markdown_path(&abs) {
+        return Err("仅支持 Markdown 文件".into());
+    }
+    if !abs.is_file() {
+        return Err("文件不存在或已被移动".into());
+    }
+    let tmp = PathBuf::from(format!("{}.tmp", abs.display()));
+    fs::write(&tmp, content).map_err(err)?;
+    fs::rename(&tmp, &abs).map_err(err)?;
+    Ok(())
+}
+
+/// 另存为:系统保存框;目标已存在时自动追加 ` (2)`,不覆盖
+#[tauri::command]
+pub async fn save_single_file_as(
+    app: tauri::AppHandle,
+    default_name: String,
+    content: String,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_file_name(default_name)
+            .add_filter("Markdown", &["md", "markdown"])
+            .blocking_save_file()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let Some(picked) = picked else { return Ok(None) };
+    let mut abs = PathBuf::from(picked.to_string());
+    if abs.extension().is_none() {
+        abs.set_extension("md");
+    }
+    if !is_markdown_path(&abs) {
+        return Err("仅支持 Markdown 文件".into());
+    }
+    if let Some(parent) = abs.parent() {
+        let title = abs.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let ext = abs.extension().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "md".into());
+        let mut candidate = abs.clone();
+        let mut n = 2;
+        while candidate.exists() {
+            candidate = parent.join(format!("{title} ({n}).{ext}"));
+            n += 1;
+        }
+        abs = candidate;
+    }
+    let tmp = PathBuf::from(format!("{}.tmp", abs.display()));
+    fs::write(&tmp, content).map_err(err)?;
+    fs::rename(&tmp, &abs).map_err(err)?;
+    Ok(Some(abs.to_string_lossy().to_string()))
+}
+
+/// 监听文件所在目录(非递归):原子替换/删除/移动都能收到事件,只发射目标文件
+#[tauri::command]
+pub fn watch_single_file(app: tauri::AppHandle, path: &str) -> Result<(), String> {
+    use notify::Watcher;
+    let target = PathBuf::from(path).canonicalize().map_err(|_| "文件不存在或已被移动".to_string())?;
+    if !is_markdown_path(&target) {
+        return Err("仅支持 Markdown 文件".into());
+    }
+    let parent = target.parent().ok_or("无父目录")?.to_path_buf();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut watcher = notify::recommended_watcher(tx).map_err(err)?;
+    watcher
+        .watch(&parent, notify::RecursiveMode::NonRecursive)
+        .map_err(err)?;
+
+    let thread_app = app.clone();
+    std::thread::spawn(move || {
+        let mut pending = false;
+        loop {
+            match rx.recv_timeout(Duration::from_millis(FS_QUIET_MS)) {
+                Ok(Ok(ev)) => {
+                    if ev.paths.iter().any(|p| p == &target) {
+                        pending = true;
+                    }
+                }
+                Ok(Err(_)) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if pending {
+                        let _ = thread_app.emit("yz-single-file-event", target.to_string_lossy().to_string());
+                        pending = false;
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+    });
+
+    if let Some(state) = app.try_state::<WatchState>() {
+        *state.0.lock().unwrap() = Some(watcher);
+    }
+    Ok(())
+}
+
+/// 关闭单文件时停止监听
+#[tauri::command]
+pub fn close_single_file(app: tauri::AppHandle, _path: &str) {
+    if let Some(state) = app.try_state::<WatchState>() {
+        *state.0.lock().unwrap() = None;
+    }
 }
 
 #[tauri::command]
@@ -778,6 +998,131 @@ pub fn set_recent(app: tauri::AppHandle, root: String) -> Result<(), String> {
     fs::write(p, json).map_err(err)?;
     // 菜单「最近打开」跟 recent.json 同步(失败只丢菜单项,不影响打开链路)
     let _ = crate::build_app_menu(&app);
+    Ok(())
+}
+
+/// 单文件模式最近记录:独立于知识库 recent,不参与启动自动恢复
+#[derive(Serialize, Deserialize, Default)]
+pub struct RecentFilesState {
+    pub recent: Vec<String>,
+}
+
+fn recent_files_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_config_dir().map_err(err)?;
+    fs::create_dir_all(&dir).map_err(err)?;
+    Ok(dir.join("recent-files.json"))
+}
+
+pub fn read_recent_files(app: &tauri::AppHandle) -> RecentFilesState {
+    recent_files_path(app)
+        .ok()
+        .and_then(|p| fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn get_recent_files(_app: tauri::AppHandle) -> Result<RecentFilesState, String> {
+    Ok(read_recent_files(&_app))
+}
+
+#[tauri::command]
+pub fn set_recent_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let mut state = read_recent_files(&app);
+    state.recent.retain(|p| p != &path);
+    state.recent.insert(0, path);
+    state.recent.truncate(10);
+    let p = recent_files_path(&app)?;
+    let json = serde_json::to_string_pretty(&state).map_err(err)?;
+    fs::write(p, json).map_err(err)?;
+    let _ = crate::build_app_menu(&app);
+    Ok(())
+}
+
+/// 单文件转存知识库:文档复制到库根,引用的本地资源复制到根 assets;不移动/修改原文件
+#[tauri::command]
+pub fn save_single_to_kb(
+    root: String,
+    path: String,
+    content: String,
+    asset_srcs: Vec<String>,
+) -> Result<String, String> {
+    let root_path = Path::new(&root);
+    if !root_path.is_dir() {
+        return Err("不是有效知识库目录".into());
+    }
+    ensure_yanzhi(root_path)?;
+    let src = PathBuf::from(path).canonicalize().map_err(|_| "源文件不存在".to_string())?;
+    if !is_markdown_path(&src) {
+        return Err("仅支持 Markdown 文件".into());
+    }
+    let stem = src.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let rel = dedupe(root_path, &sanitize_title(&stem), ".md", None);
+    let assets_dir = root_path.join("assets");
+    fs::create_dir_all(&assets_dir).map_err(err)?;
+    for asset in asset_srcs {
+        let Ok(from) = PathBuf::from(asset).canonicalize() else {
+            continue;
+        };
+        if !from.is_file() {
+            continue;
+        }
+        let Some(name) = from.file_name() else {
+            continue;
+        };
+        let to = assets_dir.join(name);
+        if !to.exists() {
+            fs::copy(&from, &to).map_err(err)?;
+        }
+    }
+    let target = root_path.join(&rel);
+    let tmp = target.with_extension("md.tmp");
+    fs::write(&tmp, content).map_err(err)?;
+    fs::rename(&tmp, &target).map_err(err)?;
+    Ok(rel)
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SingleDraft {
+    pub path: String,
+    pub content: String,
+    pub saved_at: u64,
+}
+
+fn single_draft_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_cache_dir().map_err(err)?;
+    fs::create_dir_all(&dir).map_err(err)?;
+    Ok(dir.join("single-file-draft.json"))
+}
+
+#[tauri::command]
+pub fn save_single_draft(app: tauri::AppHandle, path: String, content: String) -> Result<(), String> {
+    let draft = SingleDraft {
+        path,
+        content,
+        saved_at: SystemTime::now().duration_since(UNIX_EPOCH).map_err(err)?.as_millis() as u64,
+    };
+    let json = serde_json::to_string_pretty(&draft).map_err(err)?;
+    fs::write(single_draft_path(&app)?, json).map_err(err)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_single_draft(app: tauri::AppHandle, path: &str) -> Result<Option<SingleDraft>, String> {
+    let Some(raw) = fs::read_to_string(single_draft_path(&app)?).ok() else {
+        return Ok(None);
+    };
+    let draft: SingleDraft = serde_json::from_str(&raw).map_err(err)?;
+    Ok((draft.path == path).then_some(draft))
+}
+
+#[tauri::command]
+pub fn clear_single_draft(app: tauri::AppHandle, path: &str) -> Result<(), String> {
+    if get_single_draft(app.clone(), path)?.is_some() {
+        let p = single_draft_path(&app)?;
+        fs::remove_file(p).map_err(err)?;
+    }
     Ok(())
 }
 

@@ -1,11 +1,13 @@
 /* 砚知正文排版(语雀式,初版):正文排版是颜值主战场,持续打磨 */
 .yz-editor-doc {
   outline: none;
+  flex: 1;
   font-family: var(--editor-font-family, var(--font-sans));
   font-size: var(--editor-font-size, 16px);
   line-height: var(--editor-line-height, 1.75);
   color: var(--foreground);
   caret-color: var(--primary);
+  letter-spacing: 0.004em;
 }
 
 .yz-editor-doc > * + * {
@@ -18,19 +20,20 @@
   font-weight: 600;
   line-height: 1.4;
   margin-top: 1.6em;
+  letter-spacing: -0.018em;
 }
 
 .yz-editor-doc h1 {
-  font-size: 1.75em;
+  font-size: 1.9em;
   margin-top: 0.5em;
 }
 
 .yz-editor-doc h2 {
-  font-size: 1.4em;
+  font-size: 1.5em;
 }
 
 .yz-editor-doc h3 {
-  font-size: 1.2em;
+  font-size: 1.22em;
 }
 
 .yz-editor-doc ul,
@@ -52,7 +55,9 @@
 
 .yz-editor-doc blockquote {
   border-left: 3px solid var(--primary);
-  padding-left: 1em;
+  border-radius: 0 var(--radius-md, 6px) var(--radius-md, 6px) 0;
+  padding: 0.3em 1em;
+  background: color-mix(in oklab, var(--primary) 4%, transparent);
   color: var(--muted-foreground);
 }
 
@@ -422,18 +427,25 @@
 }
 
 /* 表格卡片(GFM 管道表格):全网格细线 + 表头浅底;不做合并单元格 */
+.yz-editor-doc .tableWrapper {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 6px);
+  margin-top: 2.6em;
+  margin-bottom: 1em;
+  overflow: hidden;
+}
+
 .yz-editor-doc table {
-  border: 1px solid var(--border);
+  border: 0;
   border-collapse: collapse;
   table-layout: fixed;
   width: 100%;
-  overflow: hidden;
 }
 
 .yz-editor-doc th,
 .yz-editor-doc td {
-  border: 1px solid var(--border);
-  padding: 0.4em 0.75em;
+  border: 1px solid var(--border-subtle);
+  padding: 0.55em 0.8em;
   position: relative;
   vertical-align: top;
   /* 单元格内容溢出裁剪,列宽不被长文本撑开 */
@@ -441,7 +453,7 @@
 }
 
 .yz-editor-doc th {
-  background: var(--muted);
+  background: color-mix(in oklab, var(--surface-hover) 42%, var(--editor) 58%);
   font-weight: 600;
 }
 
@@ -550,4 +562,111 @@
 .yz-diff-del {
   background: color-mix(in oklab, var(--destructive) 12%, transparent);
   color: var(--destructive);
+}
+
+/* 内置帮助窗直接渲染 markdown-it HTML(不经 PM NodeView);
+   这里补齐 Callout 的静态展示样式,视觉与编辑器卡片保持同一 token 层级。 */
+.help-doc [data-callout] {
+  border-left: 3px solid var(--callout-c);
+  background: var(--callout-bg);
+  border-radius: var(--radius-md, 6px);
+  padding: 0.6em 0.9em;
+}
+
+.help-doc [data-callout]::before {
+  content: attr(data-title);
+  display: block;
+  color: var(--callout-c);
+  font-weight: 600;
+  font-size: 0.95em;
+  line-height: 1.6;
+  margin-bottom: 0.2em;
+}
+
+.help-doc [data-callout="info"] {
+  --callout-c: var(--callout-info);
+  --callout-bg: var(--callout-info-bg);
+}
+
+.help-doc [data-callout="success"] {
+  --callout-c: var(--callout-success);
+  --callout-bg: var(--callout-success-bg);
+}
+
+.help-doc [data-callout="warning"] {
+  --callout-c: var(--callout-warning);
+  --callout-bg: var(--callout-warning-bg);
+}
+
+.help-doc [data-callout="caution"] {
+  --callout-c: var(--callout-caution);
+  --callout-bg: var(--callout-caution-bg);
+}
+
+.help-doc details {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 6px);
+  padding: 0.45em 0.75em;
+}
+
+.help-doc details summary {
+  cursor: pointer;
+  color: var(--foreground);
+  font-weight: 600;
+  font-size: 0.95em;
+  line-height: 1.6;
+}
+
+.help-doc details > *:not(summary) {
+  margin-top: 0.5em;
+}
+
+.help-mermaid {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 6px);
+  margin: 1em 0;
+  overflow-x: auto;
+  padding: 1em;
+  background: color-mix(in oklab, var(--editor) 94%, var(--foreground) 6%);
+  text-align: center;
+}
+
+.help-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* 格式工具栏按编辑卡片实际宽度收纳低频操作:
+   1) 较窄窗口先收删除线/分割线/复制为;
+   2) 小窗口再收高亮/颜色/引用/表格/待办;
+   3) 窄窗口再收下划线/行内代码;
+   4) 极端宽度仅兜底内部滚动,不允许撑破中央纸张卡片。 */
+.yz-toolbar {
+  container-type: inline-size;
+}
+
+.yz-toolbar > div {
+  scrollbar-width: none;
+}
+
+.yz-toolbar > div::-webkit-scrollbar {
+  display: none;
+}
+
+@container (max-width: 640px) {
+  .yz-toolbar-hide-cozy {
+    display: none;
+  }
+}
+
+@container (max-width: 520px) {
+  .yz-toolbar-hide-compact {
+    display: none;
+  }
+}
+
+@container (max-width: 384px) {
+  .yz-toolbar-hide-narrow {
+    display: none;
+  }
 }

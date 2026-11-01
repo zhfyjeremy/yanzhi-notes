@@ -62,6 +62,18 @@ function firstDoc(nodes: TreeNode[]): string | null {
   return null;
 }
 
+/** 回收站徽标按最上层条目计数,已包含在文件夹里的子项不重复计数。 */
+function topLevelTrashCount(entries: TrashEntry[]): number {
+  const paths = new Set(entries.map((entry) => entry.path));
+  return entries.filter((entry) => {
+    const parts = entry.path.split("/");
+    for (let i = 1; i < parts.length; i++) {
+      if (paths.has(parts.slice(0, i).join("/"))) return false;
+    }
+    return true;
+  }).length;
+}
+
 export function useKb(settings: AppSettings) {
   const [booted, setBooted] = useState(false);
   const [kbRoot, setKbRoot] = useState<string | null>(null);
@@ -86,6 +98,7 @@ export function useKb(settings: AppSettings) {
   const [indexReady, setIndexReady] = useState(false);
   // 未识别条目(5.2.1):外部改名/移动/删除导致的失联 meta;只在开库/外部变动/整理动作后重扫
   const [orphanMeta, setOrphanMeta] = useState<OrphanMetaEntry[]>([]);
+  const [trashCount, setTrashCount] = useState(0);
   // [[出链]]索引(反向链接 5.4-2):与搜索索引同点位维护;refsVersion 驱动面板重算
   const wikiRefIdx = useRef(new WikiRefIndex());
   const [refsVersion, setRefsVersion] = useState(0);
@@ -114,6 +127,19 @@ export function useKb(settings: AppSettings) {
   const markSelfWrite = () => {
     selfWriteUntil.current = Date.now() + SELF_WRITE_QUIET_MS;
   };
+
+  const refreshTrashCount = useCallback(async () => {
+    const root = rootRef.current;
+    if (!root) {
+      setTrashCount(0);
+      return;
+    }
+    try {
+      setTrashCount(topLevelTrashCount(await kbBackend.listTrash(root)));
+    } catch {
+      setTrashCount(0);
+    }
+  }, []);
 
   /** meta 落盘(去抖;写失败只丢偏好不阻塞,9.1.4) */
   const persistMeta = useCallback(() => {
@@ -512,6 +538,7 @@ export function useKb(settings: AppSettings) {
       setRecent(await kbBackend.getRecent());
       setKbRoot(root);
       rootRef.current = root;
+      void refreshTrashCount();
       // meta 先于树加载:排序/折叠要参与首帧渲染
       metaRef.current = parseMeta(await kbBackend.readMeta(root).catch(() => ""));
       setCollapsed(collapsedFolders(metaRef.current));
@@ -542,7 +569,7 @@ export function useKb(settings: AppSettings) {
         savedMdRef.current = "# 未命名文档\n";
       }
     },
-    [openDoc, rebuildIndex],
+    [openDoc, rebuildIndex, refreshTrashCount],
   );
 
   const openKbAt = useCallback(
@@ -609,6 +636,7 @@ export function useKb(settings: AppSettings) {
     setTree([]);
     setCurrentPath(null);
     setOrphanMeta([]);
+    setTrashCount(0);
   }, [flushSave]);
 
   /* ---------------- 增删改(目录树操作) ---------------- */
@@ -672,6 +700,7 @@ export function useKb(settings: AppSettings) {
       try {
         markSelfWrite();
         await kbBackend.moveToTrash(root, rel);
+        void refreshTrashCount();
         metaRef.current = removeMetaKeys(metaRef.current, rel, !(rel.endsWith(".md")));
         persistMeta();
         for (const p of flattenDocs(treeRef.current)) {
@@ -698,7 +727,7 @@ export function useKb(settings: AppSettings) {
         console.error("[kb] 删除失败:", e);
       }
     },
-    [flushSave, openDoc, persistMeta, refreshTree],
+    [flushSave, openDoc, persistMeta, refreshTree, refreshTrashCount],
   );
 
   /** 重命名 + 双链引用联动(5.1):flushSave 后由后端扫全库替换;
@@ -909,6 +938,14 @@ export function useKb(settings: AppSettings) {
 
   /** 全库标签清单(树/meta 更新点位刷新) */
   const allTags = useMemo(() => allTagsOf(metaRef.current), [tree, kbRoot]);
+  /** 全库标签 → 文档数(左侧筛选浮层展示) */
+  const tagCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const doc of Object.values(metaRef.current.docs)) {
+      for (const tag of doc.tags ?? []) counts[tag] = (counts[tag] ?? 0) + 1;
+    }
+    return counts;
+  }, [tree, kbRoot]);
   /** 当前文档标签 */
   const currentTags = useMemo(
     () => metaRef.current.docs[currentPath ?? ""]?.tags ?? [],
@@ -934,7 +971,9 @@ export function useKb(settings: AppSettings) {
   const listTrash = useCallback(async (): Promise<TrashEntry[]> => {
     const root = rootRef.current;
     if (!root) return [];
-    return kbBackend.listTrash(root);
+    const entries = await kbBackend.listTrash(root);
+    setTrashCount(topLevelTrashCount(entries));
+    return entries;
   }, []);
 
   /** 当前文档的反向链接(5.4-2);解析与点击跳转同构 */
@@ -951,10 +990,11 @@ export function useKb(settings: AppSettings) {
       markSelfWrite();
       const finalRel = await kbBackend.restoreTrash(root, rel, strategy);
       await refreshTree();
+      void refreshTrashCount();
       void rebuildIndex(); // 恢复可能带回多篇文档,重建最稳
       return finalRel;
     },
-    [rebuildIndex, refreshTree],
+    [rebuildIndex, refreshTree, refreshTrashCount],
   );
 
   /** V3 批量恢复:默认在冲突时恢复为新名称,绝不静默覆盖库内文档。 */
@@ -974,11 +1014,12 @@ export function useKb(settings: AppSettings) {
         }
       }
       await refreshTree();
+      void refreshTrashCount();
       void rebuildIndex();
       void refreshTrashRefs();
       return { ok, failed: rels.length - ok, errors };
     },
-    [rebuildIndex, refreshTree, refreshTrashRefs],
+    [rebuildIndex, refreshTree, refreshTrashRefs, refreshTrashCount],
   );
 
   /** 彻底删除/清空回收站(不可恢复);不碰库内文件 → 无需刷树/重建索引 */
@@ -987,14 +1028,16 @@ export function useKb(settings: AppSettings) {
     if (!root) throw new Error("未打开知识库");
     markSelfWrite();
     await kbBackend.purgeTrash(root, rel);
+    void refreshTrashCount();
     void refreshTrashRefs();
-  }, [refreshTrashRefs]);
+  }, [refreshTrashCount, refreshTrashRefs]);
 
   const emptyTrash = useCallback(async (): Promise<void> => {
     const root = rootRef.current;
     if (!root) throw new Error("未打开知识库");
     markSelfWrite();
     await kbBackend.emptyTrash(root);
+    setTrashCount(0);
     void refreshTrashRefs();
   }, [refreshTrashRefs]);
 
@@ -1166,6 +1209,7 @@ export function useKb(settings: AppSettings) {
     setTags,
     setTagsMany,
     allTags,
+    tagCounts,
     currentTags,
     pinnedDocs,
     docsByTag,
@@ -1174,6 +1218,7 @@ export function useKb(settings: AppSettings) {
     restoreTrashMany,
     purgeTrash,
     emptyTrash,
+    trashCount,
     getBacklinks,
     refsVersion,
     orphanMeta,

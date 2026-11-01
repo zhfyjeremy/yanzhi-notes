@@ -122,15 +122,17 @@ export function TableToolbar({ editor }: TableToolbarProps) {
   return (
     <div
       ref={ref}
-      className="bg-background/95 absolute z-20 flex items-center gap-0.5 rounded-lg p-0.5 shadow-md backdrop-blur"
+      className="bg-popover border-border-subtle absolute z-20 flex items-center gap-0.5 rounded-lg border p-0.5 shadow-lg"
       style={{ top: pos.top, left: pos.left, height: TOOLBAR_HEIGHT }}
     >
+      <span className="text-muted-foreground px-1.5 text-[10px] font-semibold tracking-wide">表格</span>
+      <div className="bg-border-subtle mx-0.5 h-4 w-px shrink-0" />
       {/* 行操作 */}
       <MenuButton icon={Rows3} label="行" items={rowItems} />
       {/* 列操作 */}
       <MenuButton icon={Columns3} label="列" items={colItems} />
 
-      <div className="mx-1 h-5 w-px shrink-0 bg-border" />
+      <div className="bg-border-subtle mx-1 h-4 w-px shrink-0" />
 
       {/* 对齐:整列设置;点击已生效项还原默认 */}
       {ALIGN_ITEMS.map(({ key, label, icon: Icon }) => (
@@ -140,7 +142,7 @@ export function TableToolbar({ editor }: TableToolbarProps) {
             size="icon-xs"
             className={cn(
               "text-muted-foreground hover:text-foreground",
-              state.align === key && "bg-accent text-accent-foreground hover:text-accent-foreground",
+              state.align === key && "bg-selection text-foreground ring-primary/20 hover:text-foreground ring-1",
             )}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() =>
@@ -152,7 +154,7 @@ export function TableToolbar({ editor }: TableToolbarProps) {
         </Hint>
       ))}
 
-      <div className="mx-1 h-5 w-px shrink-0 bg-border" />
+      <div className="bg-border-subtle mx-1 h-4 w-px shrink-0" />
 
       <Hint label="删除表格">
         <Button

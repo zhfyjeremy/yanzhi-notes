@@ -13,6 +13,18 @@ export interface RecentState {
   lastDoc?: string | null;
 }
 
+/** 单文件模式的最近打开记录(应用配置;与知识库 recent 分离) */
+export interface RecentFilesState {
+  recent: string[];
+}
+
+/** 单文件崩溃恢复草稿(只存应用配置,不改原文件) */
+export interface SingleDraft {
+  path: string;
+  content: string;
+  savedAt: number;
+}
+
 /** rename_entry 返回:新路径 + 引用被联动改写的文档 + 替换次数(5.1 重命名联动) */
 export interface RenameResult {
   newPath: string;
@@ -78,6 +90,28 @@ export interface KbBackend {
   writeMeta(root: string, content: string): Promise<void>;
   getRecent(): Promise<RecentState>;
   setRecent(root: string): Promise<void>;
+  /* ---- 单文件模式(docs/single-file-mode.md) ---- */
+  pickSingleFile(): Promise<string | null>;
+  readSingleFile(path: string): Promise<string>;
+  writeSingleFile(path: string, content: string): Promise<void>;
+  saveSingleFileAs(defaultName: string, content: string): Promise<string | null>;
+  watchSingleFile(path: string): Promise<void>;
+  closeSingleFile(path: string): Promise<void>;
+  getRecentFiles(): Promise<RecentFilesState>;
+  setRecentFile(path: string): Promise<void>;
+  listenSingleFileEvent(cb: (path: string) => void): Promise<() => void>;
+  /* ---- 单文件 P1 ---- */
+  saveSingleAsset(path: string, ext: string, bytes: Uint8Array): Promise<string>;
+  importSingleImagesFromPicker(path: string): Promise<string[] | null>;
+  importSingleAttachmentsFromPicker(path: string): Promise<AttachmentInfo[] | null>;
+  openSingleAttachment(path: string, src: string): Promise<"ok" | "missing" | "unsupported">;
+  readSingleAssetBase64(path: string, src: string): Promise<{ data: string; mime: string } | null>;
+  resolveSingleAssetSrc(path: string, src: string): string;
+  saveSingleToKb(root: string, path: string, content: string, assetSrcs: string[]): Promise<string>;
+  saveSingleDraft(path: string, content: string): Promise<void>;
+  getSingleDraft(path: string): Promise<SingleDraft | null>;
+  clearSingleDraft(path: string): Promise<void>;
+  takeStartupSingleFile(): Promise<string | null>;
   /* ---- 全局设置(8:应用配置目录 / mock localStorage) ---- */
   getSettings(): Promise<string>;
   setSettings(content: string): Promise<void>;

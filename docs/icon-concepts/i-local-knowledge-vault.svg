@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="vaultBg" x1="145" y1="110" x2="875" y2="910" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7EB9FF"/>
+      <stop offset=".38" stop-color="#2074DE"/>
+      <stop offset="1" stop-color="#103775"/>
+    </linearGradient>
+    <linearGradient id="vaultCard" x1="250" y1="210" x2="770" y2="810" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFEFA"/>
+      <stop offset=".62" stop-color="#F0EADC"/>
+      <stop offset="1" stop-color="#D6CBB5"/>
+    </linearGradient>
+    <filter id="vaultShadow" x="-18%" y="-18%" width="136%" height="136%">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#072A5C" flood-opacity=".24"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#vaultBg)"/>
+  <path d="M188 302h245l48 57h355c18 0 32 14 32 32v337c0 18-14 32-32 32H188c-18 0-32-14-32-32V334c0-18 14-32 32-32Z" fill="#0B2E62" opacity=".20"/>
+  <path d="M219 340h224l46 54h316c18 0 32 14 32 32v288c0 18-14 32-32 32H219c-18 0-32-14-32-32V372c0-18 14-32 32-32Z" fill="url(#vaultCard)" filter="url(#vaultShadow)"/>
+  <path d="M260 448h462" stroke="#26221F" stroke-opacity=".24" stroke-width="27" stroke-linecap="round"/>
+  <path d="M292 528h398" stroke="#2074DE" stroke-opacity=".82" stroke-width="21" stroke-linecap="round"/>
+  <path d="M292 604h330" stroke="#26221F" stroke-opacity=".20" stroke-width="18" stroke-linecap="round"/>
+  <path d="M292 678h234" stroke="#26221F" stroke-opacity=".15" stroke-width="18" stroke-linecap="round"/>
+  <path d="M726 588c46 34 69 61 69 82 0 30-25 50-62 50s-62-20-62-50c0-21 18-48 55-82Z" fill="#2074DE"/>
+  <path d="M702 675c25 4 43-1 55-15 12-14 15-31 9-52 22 21 31 39 27 55-6 22-25 33-57 33-18 0-30-7-34-21Z" fill="#0E3471"/>
+  <path d="M723 594c19 25 29 44 29 58 0 15-9 23-27 25-15 2-26-3-33-15 9-24 19-45 31-68Z" fill="#BAD9FF" opacity=".42"/>
+  <rect x="238" y="760" width="548" height="20" rx="10" fill="#2074DE" opacity=".18"/>
+</svg>

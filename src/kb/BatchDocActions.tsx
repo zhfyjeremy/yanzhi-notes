@@ -116,7 +116,7 @@ export function BatchDocActions({
 
   return (
     <>
-      <div className="bg-accent/40 flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-0.5 text-xs">
+      <div className="bg-selection flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-0.5 text-xs ring-1 ring-primary/10">
         <Hint label="退出选择模式">
           <Button
             size="icon-sm"
@@ -137,7 +137,7 @@ export function BatchDocActions({
               <button
                 type="button"
                 aria-label="批量操作"
-                className="text-muted-foreground hover:text-foreground hover:bg-accent flex size-6 shrink-0 cursor-pointer items-center justify-center rounded"
+                className="text-muted-foreground hover:text-foreground hover:bg-hover flex size-6 shrink-0 cursor-pointer items-center justify-center rounded"
               >
                 <MoreHorizontal className="size-4" />
               </button>
@@ -176,7 +176,7 @@ export function BatchDocActions({
             <label className="space-y-1.5 text-xs">
               <span className="text-muted-foreground">目标文件夹</span>
               <select
-                className="border-border bg-background h-9 w-full rounded-md border px-2 outline-none"
+                className="border-border-subtle bg-raised h-9 w-full rounded-md border px-2 outline-none"
                 value={dest}
                 onChange={(e) => setDest(e.target.value)}
               >
@@ -197,7 +197,7 @@ export function BatchDocActions({
                     key={op}
                     className={cn(
                       "flex-1 cursor-pointer rounded-md px-2 py-1.5",
-                      tagOp === op ? "bg-background shadow-sm" : "text-muted-foreground",
+                      tagOp === op ? "bg-raised shadow-sm" : "text-muted-foreground",
                     )}
                     onClick={() => setTagOp(op)}
                   >
@@ -210,7 +210,7 @@ export function BatchDocActions({
                 <input
                   autoFocus
                   list="yz-batch-tags"
-                  className="border-border bg-background h-9 w-full rounded-md border px-2 outline-none"
+                  className="border-border-subtle bg-raised h-9 w-full rounded-md border px-2 outline-none"
                   placeholder="项目, 待读"
                   value={tags}
                   onChange={(e) => setTags(e.target.value)}
@@ -228,7 +228,7 @@ export function BatchDocActions({
                 <label className="space-y-1">
                   <span className="text-muted-foreground">查找</span>
                   <input
-                    className="border-border bg-background h-8 w-full rounded-md border px-2 outline-none"
+                    className="border-border-subtle bg-raised h-8 w-full rounded-md border px-2 outline-none"
                     value={find}
                     onChange={(e) => setFind(e.target.value)}
                     placeholder="可选"
@@ -237,7 +237,7 @@ export function BatchDocActions({
                 <label className="space-y-1">
                   <span className="text-muted-foreground">替换</span>
                   <input
-                    className="border-border bg-background h-8 w-full rounded-md border px-2 outline-none"
+                    className="border-border-subtle bg-raised h-8 w-full rounded-md border px-2 outline-none"
                     value={replace}
                     onChange={(e) => setReplace(e.target.value)}
                     placeholder="可选"
@@ -246,7 +246,7 @@ export function BatchDocActions({
                 <label className="space-y-1">
                   <span className="text-muted-foreground">前缀</span>
                   <input
-                    className="border-border bg-background h-8 w-full rounded-md border px-2 outline-none"
+                    className="border-border-subtle bg-raised h-8 w-full rounded-md border px-2 outline-none"
                     value={prefix}
                     onChange={(e) => setPrefix(e.target.value)}
                     placeholder="可选"
@@ -255,15 +255,15 @@ export function BatchDocActions({
                 <label className="space-y-1">
                   <span className="text-muted-foreground">后缀</span>
                   <input
-                    className="border-border bg-background h-8 w-full rounded-md border px-2 outline-none"
+                    className="border-border-subtle bg-raised h-8 w-full rounded-md border px-2 outline-none"
                     value={suffix}
                     onChange={(e) => setSuffix(e.target.value)}
                     placeholder="可选"
                   />
                 </label>
               </div>
-              <div className="rounded-md border border-border">
-                <div className="text-muted-foreground flex items-center gap-1 border-b border-border px-2 py-1">
+              <div className="border-border-subtle rounded-md border">
+                <div className="text-muted-foreground border-border-subtle flex items-center gap-1 border-b px-2 py-1">
                   <ListFilter className="size-3" /> 预览
                 </div>
                 <div className="max-h-32 overflow-y-auto p-1">

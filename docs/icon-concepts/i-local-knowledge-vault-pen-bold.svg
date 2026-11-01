@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bgBold" x1="145" y1="110" x2="875" y2="910" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7EB9FF"/>
+      <stop offset=".35" stop-color="#2176E2"/>
+      <stop offset="1" stop-color="#0F3470"/>
+    </linearGradient>
+    <linearGradient id="cardBold" x1="235" y1="205" x2="770" y2="815" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFEFA"/>
+      <stop offset=".60" stop-color="#F0EADC"/>
+      <stop offset="1" stop-color="#D5C9B2"/>
+    </linearGradient>
+    <linearGradient id="bodyBold" x1="690" y1="275" x2="805" y2="745" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFEFA"/>
+      <stop offset=".48" stop-color="#D8E8FF"/>
+      <stop offset="1" stop-color="#92BAF4"/>
+    </linearGradient>
+    <linearGradient id="tipBold" x1="590" y1="720" x2="725" y2="815" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8FC1FF"/>
+      <stop offset=".42" stop-color="#2176E2"/>
+      <stop offset="1" stop-color="#123F83"/>
+    </linearGradient>
+    <filter id="boldShadow" x="-18%" y="-18%" width="136%" height="136%">
+      <feDropShadow dx="0" dy="20" stdDeviation="22" flood-color="#072A5C" flood-opacity=".25"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bgBold)"/>
+  <path d="M172 276h245l48 57h387c18 0 32 14 32 32v349c0 18-14 32-32 32H172c-18 0-32-14-32-32V308c0-18 14-32 32-32Z" fill="#0B2E62" opacity=".20"/>
+  <path d="M205 320h224l46 54h329c18 0 32 14 32 32v286c0 18-14 32-32 32H205c-18 0-32-14-32-32V352c0-18 14-32 32-32Z" fill="url(#cardBold)" filter="url(#boldShadow)"/>
+  <path d="M254 425h225" stroke="#26221F" stroke-opacity=".23" stroke-width="26" stroke-linecap="round"/>
+  <path d="M285 507h147" stroke="#2176E2" stroke-opacity=".82" stroke-width="20" stroke-linecap="round"/>
+  <path d="M254 592h187" stroke="#26221F" stroke-opacity=".18" stroke-width="17" stroke-linecap="round"/>
+  <path d="M254 675h126" stroke="#26221F" stroke-opacity=".15" stroke-width="17" stroke-linecap="round"/>
+  <g transform="rotate(37 660 600)">
+    <rect x="629" y="276" width="64" height="415" rx="26" fill="url(#bodyBold)"/>
+    <rect x="629" y="276" width="64" height="415" rx="26" fill="none" stroke="#16457F" stroke-opacity=".22" stroke-width="8"/>
+    <rect x="643" y="316" width="36" height="30" rx="13" fill="#2176E2" opacity=".30"/>
+    <path d="M637 674h49l-11 41-14 26-13-26-11-41Z" fill="url(#tipBold)"/>
+    <circle cx="661" cy="714" r="9" fill="#FFFEFA" opacity=".82"/>
+  </g>
+  <rect x="232" y="761" width="560" height="20" rx="10" fill="#2176E2" opacity=".18"/>
+</svg>

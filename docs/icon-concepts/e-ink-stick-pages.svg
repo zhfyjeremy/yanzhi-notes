@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="150" y1="100" x2="860" y2="900" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#45403A"/>
+      <stop offset=".55" stop-color="#25211E"/>
+      <stop offset="1" stop-color="#141211"/>
+    </linearGradient>
+    <linearGradient id="page" x1="270" y1="190" x2="750" y2="810" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFDF7"/>
+      <stop offset="1" stop-color="#DDD3C1"/>
+    </linearGradient>
+    <linearGradient id="inkStick" x1="320" y1="500" x2="720" y2="730" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8FC1FF"/>
+      <stop offset=".48" stop-color="#2074DE"/>
+      <stop offset="1" stop-color="#123E83"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#000" flood-opacity=".22"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <path d="M238 318c0-20 16-36 36-36h386l126 126v444c0 20-16 36-36 36H274c-20 0-36-16-36-36V318Z" fill="#F5EFE4" opacity=".22"/>
+  <path d="M274 374c0-22 18-40 40-40h336l100 100v360c0 22-18 40-40 40H314c-22 0-40-18-40-40V374Z" fill="#E4DAC8" opacity=".48"/>
+  <path d="M310 348h320l88 88v352c0 16-13 29-29 29H339c-16 0-29-13-29-29V377c0-16 13-29 29-29Z" fill="url(#page)" filter="url(#softShadow)"/>
+  <path d="M310 436h408v20H310zM310 512h408v18H310zM310 584h306v18H310z" fill="#332E28" opacity=".24"/>
+  <path d="M330 693c96-51 182-68 258-51 58 13 88 44 90 93 1 35-20 59-63 72-104 32-206 8-306-72l21-42Z" fill="#26221F" opacity=".95"/>
+  <path d="M374 700c68-27 126-34 174-21 36 10 54 29 54 58 0 27-18 43-54 50-66 12-126-13-174-87Z" fill="url(#inkStick)"/>
+  <path d="M395 712c49-17 91-21 126-12 25 7 37 20 37 40 0 20-13 31-38 36-42 8-82-14-125-64Z" fill="#D8E9FF" opacity=".24"/>
+  <path d="M691 235c44 47 70 86 78 117 6 24-5 41-33 51-25 9-47 2-64-21-20-27-27-68-20-124l39-23Z" fill="#2074DE"/>
+  <circle cx="664" cy="203" r="24" fill="#6EA8FF"/>
+</svg>

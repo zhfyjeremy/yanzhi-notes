@@ -192,6 +192,15 @@ export function YanzhiEditor({
     },
   });
 
+  /** 空白文档只有一行时,点击正文下方留白应聚焦末尾;正文/链接/按钮仍交给 PM 默认处理 */
+  const focusEditorFromBlankArea = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !editor || editor.isDestroyed) return;
+    const target = event.target as HTMLElement;
+    if (target.closest(".yz-editor-doc, a, button, input, textarea, select")) return;
+    event.preventDefault();
+    editor.commands.focus("end");
+  };
+
   useEffect(() => {
     if (editor) onReady?.(editor);
   }, [editor, onReady]);
@@ -265,11 +274,14 @@ export function YanzhiEditor({
       )}
       <div
         ref={scrollContainerRef}
-        className="min-h-0 flex-1 overflow-y-auto"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable]"
       >
         {/* relative 是 TableToolbar/ImageToolbar 浮层的定位锚 */}
-        <div className="relative mx-auto max-w-3xl px-16 py-12">
-          <EditorContent editor={editor} />
+        <div
+          className="relative mx-auto flex w-full max-w-3xl flex-1 flex-col px-16 pt-10 pb-24"
+          onMouseDown={focusEditorFromBlankArea}
+        >
+          <EditorContent editor={editor} className="flex flex-1 flex-col" />
           {editor && <TableToolbar editor={editor} />}
           {editor && <ImageToolbar editor={editor} onPreview={setPreviewSrc} />}
         </div>

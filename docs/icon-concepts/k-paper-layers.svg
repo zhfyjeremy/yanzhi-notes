@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="layerBg" x1="150" y1="105" x2="870" y2="905" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFEFA"/>
+      <stop offset=".58" stop-color="#F1EBDF"/>
+      <stop offset="1" stop-color="#D7CCB7"/>
+    </linearGradient>
+    <linearGradient id="frontSheet" x1="270" y1="240" x2="760" y2="810" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset=".68" stop-color="#F5F0E6"/>
+      <stop offset="1" stop-color="#DFD5C2"/>
+    </linearGradient>
+    <linearGradient id="layerBlue" x1="310" y1="570" x2="720" y2="730" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#82BAFF"/>
+      <stop offset=".45" stop-color="#2074DE"/>
+      <stop offset="1" stop-color="#143F85"/>
+    </linearGradient>
+    <filter id="sheetShadow" x="-18%" y="-18%" width="136%" height="136%">
+      <feDropShadow dx="0" dy="16" stdDeviation="17" flood-color="#4B4135" flood-opacity=".18"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#layerBg)"/>
+  <path d="M255 328h514v390c0 17-14 31-31 31H286c-17 0-31-14-31-31V328Z" fill="#CFC3AD" opacity=".52"/>
+  <path d="M295 294h514v390c0 17-14 31-31 31H326c-17 0-31-14-31-31V294Z" fill="#E1D7C4" opacity=".78"/>
+  <path d="M335 250h360c17 0 31 14 31 31v394c0 17-14 31-31 31H335c-17 0-31-14-31-31V281c0-17 14-31 31-31Z" fill="url(#frontSheet)" filter="url(#sheetShadow)"/>
+  <path d="M388 355h252" stroke="#26221F" stroke-opacity=".24" stroke-width="25" stroke-linecap="round"/>
+  <path d="M388 431h181" stroke="#2074DE" stroke-opacity=".82" stroke-width="20" stroke-linecap="round"/>
+  <path d="M388 505h220" stroke="#26221F" stroke-opacity=".18" stroke-width="17" stroke-linecap="round"/>
+  <path d="M361 659c70-56 137-72 201-49 42 15 63 42 63 81 0 34-24 53-72 59-89 10-158-25-208-105l16-10Z" fill="url(#layerBlue)"/>
+  <path d="M407 665c43-29 82-35 117-18 23 11 33 27 31 48-2 24-20 34-54 32-38-2-68-21-94-62Z" fill="#E9F3FF" opacity=".20"/>
+  <path d="M650 236c37 43 56 78 57 105 1 23-11 34-35 34-23 0-36-12-39-36-4-32 1-66 17-103Z" fill="#26221F" opacity=".78"/>
+  <circle cx="628" cy="210" r="18" fill="#26221F" opacity=".78"/>
+</svg>

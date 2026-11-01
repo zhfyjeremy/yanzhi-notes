@@ -9,7 +9,16 @@ import { isTauriEnv } from "./backend";
  * 「重建索引」要动主窗的 KB 状态,经 yz-settings-action 事件回主窗执行。
  */
 
-const VALID_TABS: SettingsTab[] = ["general", "appearance", "editor", "storage", "image", "search", "about"];
+const VALID_TABS: SettingsTab[] = [
+  "general",
+  "templates",
+  "appearance",
+  "editor",
+  "storage",
+  "image",
+  "search",
+  "about",
+];
 
 export function SettingsWindow({ initialTab }: { initialTab: string }) {
   const [tab, setTab] = useState<SettingsTab>(
@@ -37,12 +46,20 @@ export function SettingsWindow({ initialTab }: { initialTab: string }) {
     );
   };
 
+  const onCreateTemplateFromCurrent = () => {
+    if (!isTauriEnv()) return;
+    void import("@tauri-apps/api/event").then(({ emit }) =>
+      emit("yz-settings-action", { action: "template-from-current" }),
+    );
+  };
+
   return (
-    <div className="bg-background h-screen overflow-hidden">
+    <div className="bg-workspace h-screen overflow-hidden">
       <SettingsPage
         settings={settings}
         onChange={update}
         onRebuildIndex={onRebuildIndex}
+        onCreateTemplateFromCurrent={onCreateTemplateFromCurrent}
         tab={tab}
         onTabChange={setTab}
       />

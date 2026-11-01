@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="150" y1="110" x2="880" y2="900" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7F2E8"/>
+      <stop offset="1" stop-color="#D8CEBB"/>
+    </linearGradient>
+    <linearGradient id="slab" x1="220" y1="390" x2="800" y2="740" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#48423C"/>
+      <stop offset="1" stop-color="#1D1A17"/>
+    </linearGradient>
+    <linearGradient id="water" x1="315" y1="525" x2="710" y2="680" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7DB8FF"/>
+      <stop offset=".55" stop-color="#2074DE"/>
+      <stop offset="1" stop-color="#16438C"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <path d="M184 388h656c0 58-33 102-99 132H283c-66-30-99-74-99-132Z" fill="#2E2925" opacity=".20"/>
+  <path d="M154 318h716c14 0 24 11 24 25 0 71-43 124-129 161H259c-86-37-129-90-129-161 0-14 10-25 24-25Z" fill="url(#slab)"/>
+  <path d="M286 526h452c14 0 24 11 24 25 0 67-40 116-121 148H383c-81-32-121-81-121-148 0-14 10-25 24-25Z" fill="#37312C"/>
+  <path d="M314 562h396v17c0 46-28 80-83 100H397c-55-20-83-54-83-100v-17Z" fill="url(#water)"/>
+  <path d="M719 178c42 57 63 103 63 139 0 46-37 83-83 83s-83-37-83-83c0-36 21-82 63-139l40-32Z" fill="#2074DE"/>
+  <path d="M681 224c22 36 33 63 33 81 0 27-17 43-51 48-18-29-25-55-21-78l39-51Z" fill="#BCD9FF" opacity=".72"/>
+  <path d="M238 774h548c15 0 27 12 27 27s-12 27-27 27H238c-15 0-27-12-27-27s12-27 27-27Z" fill="#26221F" opacity=".78"/>
+</svg>

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { templateToContent } from "../templates";
+import {
+  TEMPLATE_SKELETONS,
+  templateBadges,
+  templateSummary,
+  templateToContent,
+  uniqueTemplateName,
+} from "../templates";
 
 describe("templateToContent(7.5 模板 → 新文档正文)", () => {
   it("首行 H1:剥离 H1 与其后空行,正文保留", () => {
@@ -37,5 +43,33 @@ describe("templateToContent(7.5 模板 → 新文档正文)", () => {
 
   it("H1 后紧跟正文无空行:只剥 H1 行", () => {
     expect(templateToContent("# 标题\n正文\n")).toBe("正文\n");
+  });
+});
+
+describe("模板管理辅助函数", () => {
+  it("内置骨架覆盖会议纪要 / 周报 / 阅读笔记,且不写入 H1", () => {
+    expect(TEMPLATE_SKELETONS.map((item) => item.id)).toEqual(["meeting", "weekly", "reading"]);
+    for (const item of TEMPLATE_SKELETONS) {
+      expect(item.content.trim().length).toBeGreaterThan(0);
+      expect(item.content.startsWith("# ")).toBe(false);
+    }
+  });
+
+  it("摘要剥掉 H1 与常见 Markdown 符号", () => {
+    expect(templateSummary("# 周报\n\n## 本周进展\n\n- 完成编辑器打磨\n")).toBe("本周进展");
+    expect(templateSummary("")).toBe("空白模板");
+  });
+
+  it("结构标记识别表格 / 任务 / Callout / 双链", () => {
+    const badges = templateBadges(
+      "| A | B |\n| --- | --- |\n- [ ] todo\n\n> [!WARNING] 注意\n\n[[目标]]",
+    );
+    expect(badges.map((badge) => badge.label)).toEqual(["表格", "任务", "提示块", "双链"]);
+  });
+
+  it("复制模板使用非破坏性唯一名", () => {
+    expect(uniqueTemplateName(["周报"], "周报 副本")).toBe("周报 副本");
+    expect(uniqueTemplateName(["周报", "周报 副本 2"], "周报 副本")).toBe("周报 副本 3");
+    expect(uniqueTemplateName([], "")).toBe("未命名模板");
   });
 });

@@ -65,7 +65,7 @@ const HEADING_ITEMS = [
 ] as const;
 
 function Divider() {
-  return <div className="mx-1 h-5 w-px shrink-0 bg-border" />;
+  return <div className="bg-border-subtle mx-0.5 h-4 w-px shrink-0" />;
 }
 
 interface ToolButtonProps {
@@ -73,6 +73,7 @@ interface ToolButtonProps {
   active?: boolean;
   disabled?: boolean;
   onClick: () => void;
+  className?: string;
   children: React.ReactNode;
 }
 
@@ -81,6 +82,7 @@ function ToolButton({
   active,
   disabled,
   onClick,
+  className,
   children,
 }: ToolButtonProps) {
   return (
@@ -89,7 +91,11 @@ function ToolButton({
         variant="ghost"
         size="icon"
         disabled={disabled}
-        className={cn("text-muted-foreground hover:text-foreground", active && "bg-accent text-accent-foreground hover:text-accent-foreground")}
+        className={cn(
+          "text-muted-foreground hover:text-foreground size-7 rounded-md",
+          className,
+          active && "bg-selection text-foreground ring-primary/20 hover:text-foreground ring-1",
+        )}
         onMouseDown={(e) => e.preventDefault()}
         onClick={onClick}
       >
@@ -159,11 +165,12 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
     HEADING_ITEMS.find((item) => item.level === state.heading) ?? HEADING_ITEMS[0];
 
   return (
-    <div role="toolbar" aria-label="格式工具栏" className="bg-background flex h-12 shrink-0 items-center gap-0.5 px-3">
+    <div role="toolbar" aria-label="格式工具栏" className="yz-toolbar bg-editor flex h-14 shrink-0 items-center justify-center px-4">
+      <div className="border-border-subtle bg-raised flex h-9 w-full max-w-[640px] min-w-0 items-center gap-0.5 overflow-x-auto rounded-[10px] border px-1.5 shadow-sm">
       {/* 标题下拉 */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" className="text-muted-foreground hover:text-foreground h-8 w-24 justify-between px-2.5 font-normal">
+          <Button variant="ghost" className="text-muted-foreground hover:text-foreground h-7 w-20 justify-between rounded-md px-2 font-normal">
             <span className="flex items-center gap-1.5">
               <currentHeading.icon className="size-4" />
               {currentHeading.label}
@@ -193,16 +200,16 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
       <ToolButton title="斜体" active={state.italic} onClick={() => editor.chain().focus().toggleItalic().run()}>
         <Italic className="size-4" />
       </ToolButton>
-      <ToolButton title="下划线" active={state.underline} onClick={() => editor.chain().focus().toggleUnderline().run()}>
+      <ToolButton title="下划线" className="yz-toolbar-hide-narrow" active={state.underline} onClick={() => editor.chain().focus().toggleUnderline().run()}>
         <Underline className="size-4" />
       </ToolButton>
-      <ToolButton title="删除线" active={state.strike} onClick={() => editor.chain().focus().toggleStrike().run()}>
+      <ToolButton title="删除线" className="yz-toolbar-hide-cozy" active={state.strike} onClick={() => editor.chain().focus().toggleStrike().run()}>
         <Strikethrough className="size-4" />
       </ToolButton>
-      <ToolButton title="行内代码" active={state.code} onClick={() => editor.chain().focus().toggleCode().run()}>
+      <ToolButton title="行内代码" className="yz-toolbar-hide-narrow" active={state.code} onClick={() => editor.chain().focus().toggleCode().run()}>
         <Code className="size-4" />
       </ToolButton>
-      <ToolButton title="高亮" active={state.highlight} onClick={() => editor.chain().focus().toggleHighlight().run()}>
+      <ToolButton title="高亮" className="yz-toolbar-hide-compact" active={state.highlight} onClick={() => editor.chain().focus().toggleHighlight().run()}>
         <Highlighter className="size-4" />
       </ToolButton>
 
@@ -217,7 +224,10 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
             <Button
               variant="ghost"
               size="icon"
-              className={cn("text-muted-foreground hover:text-foreground", state.fontColor && "bg-accent text-accent-foreground hover:text-accent-foreground")}
+              className={cn(
+                "text-muted-foreground hover:text-foreground size-7 rounded-md yz-toolbar-hide-compact",
+                state.fontColor && "bg-selection text-foreground ring-primary/20 hover:text-foreground ring-1",
+              )}
               onMouseDown={(e) => e.preventDefault()}
             >
               <Palette className="size-4" />
@@ -277,7 +287,10 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
             <Button
               variant="ghost"
               size="icon"
-              className={cn("text-muted-foreground hover:text-foreground", state.link && "bg-accent text-accent-foreground hover:text-accent-foreground")}
+              className={cn(
+                "text-muted-foreground hover:text-foreground size-7 rounded-md",
+                state.link && "bg-selection text-foreground ring-primary/20 hover:text-foreground ring-1",
+              )}
             >
               <Link2 className="size-4" />
             </Button>
@@ -323,17 +336,18 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
       <ToolButton title="有序列表" active={state.orderedList} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
         <ListOrdered className="size-4" />
       </ToolButton>
-      <ToolButton title="待办列表" active={state.taskList} onClick={() => editor.chain().focus().toggleTaskList().run()}>
+      <ToolButton title="待办列表" className="yz-toolbar-hide-compact" active={state.taskList} onClick={() => editor.chain().focus().toggleTaskList().run()}>
         <ListTodo className="size-4" />
       </ToolButton>
-      <ToolButton title="引用" active={state.blockquote} onClick={() => editor.chain().focus().toggleBlockquote().run()}>
+      <ToolButton title="引用" className="yz-toolbar-hide-compact" active={state.blockquote} onClick={() => editor.chain().focus().toggleBlockquote().run()}>
         <TextQuote className="size-4" />
       </ToolButton>
-      <ToolButton title="分割线" onClick={() => editor.chain().focus().setHorizontalRule().run()}>
+      <ToolButton title="分割线" className="yz-toolbar-hide-cozy" onClick={() => editor.chain().focus().setHorizontalRule().run()}>
         <Minus className="size-4" />
       </ToolButton>
       <ToolButton
         title="表格"
+        className="yz-toolbar-hide-compact"
         active={state.table}
         onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
       >
@@ -349,7 +363,7 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
             <Button
               variant="ghost"
               size="icon"
-              className="text-muted-foreground hover:text-foreground"
+              className="text-muted-foreground hover:text-foreground size-7 rounded-md yz-toolbar-hide-cozy"
               onMouseDown={(e) => e.preventDefault()}
             >
               <ClipboardCopy className="size-4" />
@@ -381,6 +395,7 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
       <ToolButton title="重做" disabled={!state.canRedo} onClick={() => editor.chain().focus().redo().run()}>
         <Redo2 className="size-4" />
       </ToolButton>
+      </div>
     </div>
   );
 }

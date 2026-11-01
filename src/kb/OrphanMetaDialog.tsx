@@ -154,7 +154,7 @@ export function OrphanMetaDialog({
         </DialogHeader>
 
         {selected.size > 0 && (
-          <div className="bg-accent/40 flex flex-wrap items-center gap-1.5 rounded-md px-2 py-1.5 text-xs">
+          <div className="bg-selection ring-primary/10 flex flex-wrap items-center gap-1.5 rounded-md px-2 py-1.5 text-xs ring-1">
             <span className="text-primary mr-auto font-medium">已选 {selected.size} 条</span>
             <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={claimSameName}>
               认领同名
@@ -209,8 +209,8 @@ export function OrphanMetaDialog({
                   <li
                     key={e.path}
                     className={cn(
-                      "hover:bg-accent/50 flex flex-col rounded-md px-2 py-1.5",
-                      isClaiming && "bg-accent/50",
+                      "hover:bg-hover flex flex-col rounded-md px-2 py-1.5",
+                      isClaiming && "bg-hover",
                     )}
                   >
                     <div className="flex items-center gap-2">
@@ -266,7 +266,7 @@ export function OrphanMetaDialog({
                     </div>
 
                     {isClaiming && entry && (
-                      <div className="border-border mt-1.5 rounded-md border p-1.5">
+                      <div className="border-border-subtle mt-1.5 rounded-md border p-1.5">
                         <input
                           autoFocus
                           className="placeholder:text-muted-foreground/70 h-6 w-full rounded bg-transparent px-1 text-xs outline-none"
@@ -278,7 +278,7 @@ export function OrphanMetaDialog({
                           {candidates.slice(0, MAX_LIST).map((c) => (
                             <li key={c.path}>
                               <button
-                                className="hover:bg-accent/50 flex w-full cursor-pointer items-center gap-1.5 rounded px-1.5 py-1 text-left"
+                                className="hover:bg-hover flex w-full cursor-pointer items-center gap-1.5 rounded px-1.5 py-1 text-left"
                                 onClick={() => {
                                   onClaim(entry, c.path);
                                   setClaiming(null);

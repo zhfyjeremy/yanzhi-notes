@@ -27,8 +27,17 @@
   --destructive: hsl(0 72% 51%);
   --destructive-foreground: hsl(0 0% 100%);
   --border: hsl(34 15% 90%);
+  --border-subtle: hsl(34 18% 93%);
   --input: hsl(34 15% 88%);
   --ring: hsl(204 89% 44%);
+  /* 工作区层级:外壳 / 侧栏 / 编辑纸张 / 浮起控件。
+     自定义主色只改变 primary/accent,selection 会由当前 primary 自动混色。 */
+  --workspace: hsl(34 23% 92%);
+  --sidebar: hsl(36 25% 94%);
+  --editor: hsl(37 36% 98%);
+  --raised: hsl(0 0% 100%);
+  --surface-hover: hsl(34 22% 87%);
+  --selection: color-mix(in oklab, var(--primary) 11%, var(--editor) 89%);
   /* 文档正文链接色:比 UI 主色更深一档,长文阅读达到 WCAG AA(4.5:1) */
   --link: hsl(204 89% 36%);
 
@@ -80,8 +89,15 @@
   --destructive: hsl(0 62% 50%);
   --destructive-foreground: hsl(0 0% 100%);
   --border: hsl(25 9% 20%);
+  --border-subtle: hsl(25 8% 16%);
   --input: hsl(25 9% 24%);
   --ring: hsl(204 85% 56%);
+  --workspace: hsl(24 12% 7%);
+  --sidebar: hsl(25 11% 9.5%);
+  --editor: hsl(26 10% 11.5%);
+  --raised: hsl(26 9% 14%);
+  --surface-hover: hsl(26 9% 17%);
+  --selection: color-mix(in oklab, var(--primary) 18%, var(--editor) 82%);
   --link: hsl(204 85% 62%);
 
   /* 代码语法色:暗色下整体提亮、略降饱和,靠 muted 底色衬出 */
@@ -130,8 +146,15 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-workspace: var(--workspace);
+  --color-sidebar: var(--sidebar);
+  --color-editor: var(--editor);
+  --color-raised: var(--raised);
+  --color-hover: var(--surface-hover);
+  --color-selection: var(--selection);
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 2px);
@@ -157,4 +180,137 @@ body {
   /* 桌面应用:整页不滚动,滚动只发生在编辑区等内容容器内 */
   overflow: hidden;
   font-family: var(--font-sans);
+}
+
+/* 欢迎页:墨色工作台上的宣纸卡。纹理和光晕只做深度,不引入第二色源。 */
+.welcome-shell,
+.app-shell {
+  background:
+    radial-gradient(
+      52% 44% at 22% 18%,
+      color-mix(in oklab, var(--primary) 7%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      46% 40% at 82% 78%,
+      color-mix(in oklab, var(--foreground) 5%, transparent),
+      transparent 72%
+    );
+}
+
+.app-shell {
+  background-size: auto, auto;
+}
+
+.welcome-rise,
+.welcome-rise-delayed {
+  animation: welcome-rise 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.welcome-rise-delayed {
+  animation-delay: 50ms;
+}
+
+.welcome-icon {
+  animation: welcome-icon-settle 320ms cubic-bezier(0.22, 1, 0.36, 1) 30ms both;
+}
+
+.welcome-action {
+  animation: welcome-action-rise 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.welcome-action:nth-child(1) {
+  animation-delay: 80ms;
+}
+
+.welcome-action:nth-child(2) {
+  animation-delay: 130ms;
+}
+
+.welcome-action:nth-child(3) {
+  animation-delay: 180ms;
+}
+
+.welcome-note {
+  animation: welcome-note-fade 240ms ease-out 250ms both;
+}
+
+.welcome-recent-card {
+  animation: welcome-recent-rise 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.welcome-recent-card:nth-child(1) { animation-delay: 280ms; }
+.welcome-recent-card:nth-child(2) { animation-delay: 325ms; }
+.welcome-recent-card:nth-child(3) { animation-delay: 370ms; }
+.welcome-recent-card:nth-child(4) { animation-delay: 415ms; }
+.welcome-recent-card:nth-child(5) { animation-delay: 460ms; }
+
+@keyframes welcome-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes welcome-icon-settle {
+  from {
+    opacity: 0;
+    transform: scale(0.88) translateY(-4px);
+  }
+  62% {
+    opacity: 1;
+    transform: scale(1.015) translateY(0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes welcome-action-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes welcome-note-fade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes welcome-recent-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome-rise,
+  .welcome-rise-delayed,
+  .welcome-icon,
+  .welcome-action,
+  .welcome-note,
+  .welcome-recent-card {
+    animation: none;
+  }
 }

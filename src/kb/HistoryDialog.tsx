@@ -64,7 +64,7 @@ export function HistoryDialog({ open, onOpenChange, entry, currentMd, loadConten
           </DialogDescription>
         </DialogHeader>
 
-        <div className="bg-muted/60 flex rounded-lg p-1" role="radiogroup" aria-label="查看方式">
+        <div className="bg-hover flex rounded-lg p-1" role="radiogroup" aria-label="查看方式">
           {(
             [
               { id: "preview", label: "只读查看", icon: Eye },
@@ -78,7 +78,7 @@ export function HistoryDialog({ open, onOpenChange, entry, currentMd, loadConten
               className={cn(
                 "flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors",
                 mode === id
-                  ? "bg-background text-foreground shadow-sm"
+                  ? "bg-raised text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}
               onClick={() => setMode(id)}
@@ -89,7 +89,7 @@ export function HistoryDialog({ open, onOpenChange, entry, currentMd, loadConten
           ))}
         </div>
 
-        <div className="border-border bg-muted/20 max-h-[55vh] min-h-40 overflow-auto rounded-md border p-1 font-mono text-xs leading-5">
+        <div className="border-border-subtle bg-editor max-h-[55vh] min-h-40 overflow-auto rounded-lg border p-1.5 font-mono text-xs leading-5 shadow-[inset_0_1px_0_color-mix(in_oklab,var(--foreground)_4%,transparent)]">
           {error ? (
             <p className="text-destructive p-3 font-sans text-sm">快照读取失败,可能已被清理</p>
           ) : content == null ? (
@@ -102,7 +102,7 @@ export function HistoryDialog({ open, onOpenChange, entry, currentMd, loadConten
                 <div
                   key={i}
                   className={cn(
-                    "px-2 py-0.5 whitespace-pre-wrap",
+                    "px-2 py-1 whitespace-pre-wrap",
                     r.type === "add" && "yz-diff-add",
                     r.type === "del" && "yz-diff-del",
                   )}

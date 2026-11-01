@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { extractAssetReferences, migrateMarkdownAssetRefs, unReferencedAssets } from "../assets";
+import {
+  extractAssetReferences,
+  migrateMarkdownAssetRefs,
+  prepareSingleMarkdownForKb,
+  unReferencedAssets,
+} from "../assets";
 
 describe("V3 未引用资源扫描", () => {
   it("提取 Markdown 图片/链接、HTML src/href 与上层目录资源", () => {
@@ -44,5 +49,16 @@ describe("V3 未引用资源扫描", () => {
       { from: "assets/a.png", to: "新/assets/a.png" },
       { from: "旧/assets/b.pdf", to: "新/assets/b.pdf" },
     ]);
+  });
+
+  it("单文件转存知识库时改写资源引用并给出本地源路径", () => {
+    const result = prepareSingleMarkdownForKb(
+      "/tmp/notes/单文件.md",
+      "![图](./assets/a.png)\n[文档](./other.md)\n[附件](../shared/b.pdf)",
+    );
+    expect(result.content).toBe(
+      "![图](./assets/a.png)\n[文档](./other.md)\n[附件](./assets/b.pdf)",
+    );
+    expect(result.assetSrcs).toEqual(["/tmp/notes/assets/a.png", "/tmp/shared/b.pdf"]);
   });
 });

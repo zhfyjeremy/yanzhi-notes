@@ -14,6 +14,8 @@ import type {
   HistoryEntry,
   KbBackend,
   RecentState,
+  RecentFilesState,
+  SingleDraft,
   RenameResult,
   TreeNode,
   TrashEntry,
@@ -21,6 +23,7 @@ import type {
 import { movePatternsFor, refPatternsFor, updateWikiRefs } from "./wiki-refs";
 import { assetRelPosix, isExternalSrc } from "./asset-src";
 import { migrateMarkdownAssetRefs } from "./assets";
+import { STARTER_MD } from "./help-docs";
 
 export class KbNotEmptyError extends Error {
   constructor() {
@@ -49,6 +52,10 @@ const invoke = async <T>(cmd: string, args?: Record<string, unknown>): Promise<T
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<T>(cmd, args);
 };
+
+const singleParent = (path: string): string =>
+  path.includes("/") || path.includes("\\") ? path.replace(/[\\/][^\\/]+$/, "") : "";
+const singleBase = (path: string): string => path.split(/[\\/]/).pop() ?? path;
 
 const tauriBackend: KbBackend = {
   kind: "tauri",
@@ -120,6 +127,30 @@ const tauriBackend: KbBackend = {
   },
   async setRecent(root) {
     await invoke("set_recent", { root });
+  },
+  async pickSingleFile() {
+    return invoke<string | null>("pick_single_file");
+  },
+  async readSingleFile(path) {
+    return invoke<string>("read_single_file", { path });
+  },
+  async writeSingleFile(path, content) {
+    await invoke("write_single_file", { path, content });
+  },
+  async saveSingleFileAs(defaultName, content) {
+    return invoke<string | null>("save_single_file_as", { defaultName, content });
+  },
+  async watchSingleFile(path) {
+    await invoke("watch_single_file", { path });
+  },
+  async closeSingleFile(path) {
+    await invoke("close_single_file", { path });
+  },
+  async getRecentFiles() {
+    return invoke<RecentFilesState>("get_recent_files");
+  },
+  async setRecentFile(path) {
+    await invoke("set_recent_file", { path });
   },
   async setLastDoc(rel) {
     await invoke("set_last_doc", { rel });
@@ -232,12 +263,94 @@ const tauriBackend: KbBackend = {
     const un = await listen<string[]>("kb-fs-event", (e) => cb(e.payload));
     return un;
   },
+  async listenSingleFileEvent(cb) {
+    const { listen } = await import("@tauri-apps/api/event");
+    const un = await listen<string>("yz-single-file-event", (e) => cb(e.payload));
+    return un;
+  },
+  async saveSingleAsset(path, ext, bytes) {
+    const r = await invoke<{ src: string }>("save_asset", {
+      root: singleParent(path),
+      docRel: singleBase(path),
+      ext,
+      bytes,
+    });
+    return r.src;
+  },
+  async importSingleImagesFromPicker(path) {
+    const paths = await invoke<string[] | null>("pick_images");
+    if (!paths?.length) return null;
+    const out: string[] = [];
+    for (const p of paths) {
+      const r = await invoke<{ src: string }>("import_asset", {
+        root: singleParent(path),
+        docRel: singleBase(path),
+        srcAbs: p,
+      });
+      out.push(r.src);
+    }
+    return out;
+  },
+  async importSingleAttachmentsFromPicker(path) {
+    const paths = await invoke<string[] | null>("pick_files");
+    if (!paths?.length) return null;
+    const out: AttachmentInfo[] = [];
+    for (const p of paths) {
+      const r = await invoke<{ src: string }>("import_asset", {
+        root: singleParent(path),
+        docRel: singleBase(path),
+        srcAbs: p,
+      });
+      out.push({ name: singleBase(p), src: r.src });
+    }
+    return out;
+  },
+  async openSingleAttachment(path, src) {
+    const rel = assetRelPosix(singleBase(path), src);
+    if (!rel) return "unsupported" as const;
+    try {
+      await invoke("open_path", { root: singleParent(path), rel });
+      return "ok" as const;
+    } catch {
+      return "missing" as const;
+    }
+  },
+  async readSingleAssetBase64(path, src) {
+    const rel = assetRelPosix(singleBase(path), src);
+    if (!rel) return null;
+    return invoke<{ data: string; mime: string } | null>("read_asset_base64", {
+      root: singleParent(path),
+      rel,
+    });
+  },
+  resolveSingleAssetSrc(path, src) {
+    return this.resolveAssetSrc(singleParent(path), singleBase(path), src);
+  },
+  async saveSingleToKb(root, path, content, assetSrcs) {
+    return invoke<string>("save_single_to_kb", { root, path, content, assetSrcs });
+  },
+  async saveSingleDraft(path, content) {
+    await invoke("save_single_draft", { path, content });
+  },
+  async getSingleDraft(path) {
+    return invoke<SingleDraft | null>("get_single_draft", { path });
+  },
+  async clearSingleDraft(path) {
+    await invoke("clear_single_draft", { path });
+  },
+  async takeStartupSingleFile() {
+    return invoke<string | null>("take_startup_single_file");
+  },
 };
 
 /* ---------------- browser mock:localStorage 里的假库 ---------------- */
 
 const MOCK_KEY = "yz-mock-kb-v1";
 const RECENT_KEY = "yz-mock-recent-v1";
+const SINGLE_FILES_KEY = "yz-mock-single-files-v1";
+const SINGLE_RECENT_KEY = "yz-mock-single-recent-v1";
+const SINGLE_ASSETS_KEY = "yz-mock-single-assets-v1";
+const SINGLE_DRAFT_KEY = "yz-mock-single-draft-v1";
 const SETTINGS_KEY = "yz-mock-settings-v1";
 
 interface MockFs {
@@ -253,7 +366,7 @@ interface MockFs {
 }
 
 const SEED_DOCS: Record<string, string> = {
-  "开始使用.md": "# 开始使用\n\nmock 库:浏览器开发模式,数据在 localStorage,清空即重置。\n",
+  "开始使用.md": STARTER_MD,
   "随笔/第一篇.md": "# 第一篇\n\nmock 正文,砚知本地知识库。\n\n- 列表一\n- 列表二\n",
   "tech/notes.md": "# Notes\n\nmock tech note with yanzhi search.\n",
 };
@@ -372,6 +485,41 @@ function mockRecent(): RecentState {
   } catch {
     return { last: null, recent: [] };
   }
+}
+
+function mockRecentFiles(): RecentFilesState {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SINGLE_RECENT_KEY) ?? "") as RecentFilesState;
+    return { recent: Array.isArray(parsed.recent) ? parsed.recent.slice(0, 10) : [] };
+  } catch {
+    return { recent: [] };
+  }
+}
+
+function loadSingleFiles(): Record<string, string> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SINGLE_FILES_KEY) ?? "{}") as Record<string, string>;
+    return typeof parsed === "object" && parsed !== null ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSingleFiles(files: Record<string, string>): void {
+  localStorage.setItem(SINGLE_FILES_KEY, JSON.stringify(files));
+}
+
+function loadSingleAssets(): Record<string, string> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SINGLE_ASSETS_KEY) ?? "{}") as Record<string, string>;
+    return typeof parsed === "object" && parsed !== null ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSingleAssets(assets: Record<string, string>): void {
+  localStorage.setItem(SINGLE_ASSETS_KEY, JSON.stringify(assets));
 }
 
 const parentOf = (rel: string): string => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "");
@@ -615,6 +763,54 @@ const browserBackend: KbBackend = {
       RECENT_KEY,
       JSON.stringify({ last: root, recent: [root] } satisfies RecentState),
     );
+  },
+  async pickSingleFile() {
+    let files: File[];
+    try {
+      files = await pickFilesViaInput(".md,.markdown,text/markdown", false);
+    } catch {
+      return null;
+    }
+    const file = files[0];
+    if (!file) return null;
+    const path = `/mock-single/${file.name}`;
+    const all = loadSingleFiles();
+    all[path] = await file.text();
+    saveSingleFiles(all);
+    return path;
+  },
+  async readSingleFile(path) {
+    const content = loadSingleFiles()[path];
+    if (content === undefined) throw new Error(`文件不存在: ${path}`);
+    return content;
+  },
+  async writeSingleFile(path, content) {
+    const all = loadSingleFiles();
+    if (!(path in all)) throw new Error(`文件不存在: ${path}`);
+    all[path] = content;
+    saveSingleFiles(all);
+  },
+  async saveSingleFileAs(defaultName, content) {
+    const all = loadSingleFiles();
+    let path = `/mock-single/${defaultName}`;
+    let n = 2;
+    while (path in all) {
+      const dot = defaultName.lastIndexOf(".");
+      path = `/mock-single/${dot > 0 ? `${defaultName.slice(0, dot)} (${n++})${defaultName.slice(dot)}` : `${defaultName} (${n++})`}`;
+    }
+    all[path] = content;
+    saveSingleFiles(all);
+    return path;
+  },
+  async watchSingleFile() {},
+  async closeSingleFile() {},
+  async getRecentFiles() {
+    return mockRecentFiles();
+  },
+  async setRecentFile(path) {
+    const state = mockRecentFiles();
+    state.recent = [path, ...state.recent.filter((p) => p !== path)].slice(0, 10);
+    localStorage.setItem(SINGLE_RECENT_KEY, JSON.stringify(state));
   },
   async setLastDoc(rel) {
     // recent.json 损坏时 mockRecent 已容错回默认,这里不再裸 parse(否则打开文档链路被炸)
@@ -867,6 +1063,102 @@ const browserBackend: KbBackend = {
   },
   async listenFsEvent() {
     return () => {}; // mock 无外部改动
+  },
+  async listenSingleFileEvent() {
+    return () => {}; // mock 无外部改动
+  },
+  async saveSingleAsset(path, ext, bytes) {
+    const name = `${fnv1aHex(bytes)}.${ext || "png"}`;
+    const e = (ext || "png").toLowerCase();
+    const mime = /^png|jpe?g|gif|webp|bmp|avif$/.test(e)
+      ? `image/${e}`
+      : e === "svg"
+        ? "image/svg+xml"
+        : "application/octet-stream";
+    const assets = loadSingleAssets();
+    assets[`${singleParent(path)}/assets/${name}`] = `data:${mime};base64,${bytesToBase64(bytes)}`;
+    saveSingleAssets(assets);
+    return `./assets/${name}`;
+  },
+  async importSingleImagesFromPicker(path) {
+    let files: File[];
+    try {
+      files = await pickFilesViaInput("image/*", true);
+    } catch {
+      return null;
+    }
+    const out: string[] = [];
+    for (const file of files) {
+      const ext = (file.name.split(".").pop() ?? "png").toLowerCase();
+      out.push(await browserBackend.saveSingleAsset(path, ext, new Uint8Array(await file.arrayBuffer())));
+    }
+    return out.length ? out : null;
+  },
+  async importSingleAttachmentsFromPicker(path) {
+    let files: File[];
+    try {
+      files = await pickFilesViaInput("", true);
+    } catch {
+      return null;
+    }
+    const out: AttachmentInfo[] = [];
+    for (const file of files) {
+      const ext = (file.name.split(".").pop() ?? "bin").toLowerCase();
+      const src = await browserBackend.saveSingleAsset(path, ext, new Uint8Array(await file.arrayBuffer()));
+      out.push({ name: file.name, src });
+    }
+    return out.length ? out : null;
+  },
+  async openSingleAttachment() {
+    return "unsupported" as const;
+  },
+  async readSingleAssetBase64(path, src) {
+    const rel = assetRelPosix(singleBase(path), src);
+    if (!rel) return null;
+    const dataUrl = loadSingleAssets()[`${singleParent(path)}/${rel}`];
+    const m = /^data:([^;,]*);base64,(.*)$/s.exec(dataUrl ?? "");
+    return m ? { mime: m[1], data: m[2] } : null;
+  },
+  resolveSingleAssetSrc(path, src) {
+    if (isExternalSrc(src)) return src;
+    const rel = assetRelPosix(singleBase(path), src);
+    if (!rel) return src;
+    return loadSingleAssets()[`${singleParent(path)}/${rel}`] ?? src;
+  },
+  async saveSingleToKb(_root, path, content, assetSrcs) {
+    const fs = loadMock();
+    const name = singleBase(path);
+    let rel = name;
+    let n = 2;
+    while (rel in fs.files) rel = `${name.replace(/\.md$/i, "")} (${n++}).md`;
+    fs.files[rel] = content;
+    const assets = loadSingleAssets();
+    for (const src of assetSrcs) {
+      const data = assets[src];
+      if (!data) continue;
+      const fileName = singleBase(src);
+      fs.assets[`assets/${fileName}`] = data;
+    }
+    saveMock(fs);
+    return rel;
+  },
+  async saveSingleDraft(path, content) {
+    localStorage.setItem(SINGLE_DRAFT_KEY, JSON.stringify({ path, content, savedAt: Date.now() }));
+  },
+  async getSingleDraft(path) {
+    try {
+      const draft = JSON.parse(localStorage.getItem(SINGLE_DRAFT_KEY) ?? "null") as SingleDraft | null;
+      return draft?.path === path ? draft : null;
+    } catch {
+      return null;
+    }
+  },
+  async clearSingleDraft(path) {
+    const draft = await browserBackend.getSingleDraft(path);
+    if (draft) localStorage.removeItem(SINGLE_DRAFT_KEY);
+  },
+  async takeStartupSingleFile() {
+    return null;
   },
 };
 

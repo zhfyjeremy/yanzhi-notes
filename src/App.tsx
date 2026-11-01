@@ -20,14 +20,17 @@ import { OrphanMetaDialog } from "./kb/OrphanMetaDialog";
 import { SettingsDialog } from "./kb/SettingsDialog";
 import { TemplatePicker } from "./kb/TemplatePicker";
 import { TemplateManager } from "./kb/TemplateManager";
-import { templateToContent } from "./kb/templates";
+import { templateToContent, uniqueTemplateName } from "./kb/templates";
 import { compressImageFile, isImageFile } from "./kb/image-compress";
 import { useSettings } from "./settings";
 import { WelcomePage } from "./kb/WelcomePage";
+import { SingleFileWorkspace } from "./kb/SingleFileWorkspace";
 import { useKb } from "./kb/useKb";
+import { useSingleFile } from "./kb/useSingleFile";
 import { isTauriEnv, kbBackend } from "./kb/backend";
 import { setAssetResolver } from "./kb/asset-src";
 import { buildExportHtml } from "./kb/export-html";
+import { prepareSingleMarkdownForKb } from "./kb/assets";
 import { flattenDocs, wikiTargetFor } from "./kb/wiki-refs";
 import type { HistoryEntry } from "./kb/types";
 import { formatShortcut, shortcutMatches } from "./shortcuts";
@@ -54,10 +57,14 @@ const stripTitle = (raw: string): string =>
 const docBasename = (rel: string): string =>
   rel.split("/").pop()?.replace(/\.md$/i, "") ?? "";
 
+type EditorScope = "kb" | "single";
+
 function App() {
   const { settings, update: updateSettings } = useSettings();
   const kb = useKb(settings);
+  const single = useSingleFile();
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [editorScope, setEditorScope] = useState<EditorScope | null>(null);
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
   const [title, setTitle] = useState("");
   const [focusMode, setFocusMode] = useState(false);
@@ -78,6 +85,21 @@ function App() {
   const [tplPicker, setTplPicker] = useState<{ folder: string; name: string } | null>(null);
   const [tplNames, setTplNames] = useState<string[]>([]);
   const [tplMgrOpen, setTplMgrOpen] = useState(false);
+  const [singlePending, setSinglePending] = useState<
+    | { kind: "close"; nextWindow?: boolean }
+    | { kind: "open-picker" }
+    | { kind: "open-path"; path: string }
+    | { kind: "open-kb-picker" }
+    | { kind: "new-kb" }
+    | { kind: "open-kb"; root: string; docRel?: string }
+    | null
+  >(null);
+  const [singleAssetsConfirmOpen, setSingleAssetsConfirmOpen] = useState(false);
+  const [singleSaveToKbOpen, setSingleSaveToKbOpen] = useState(false);
+  const [singleSavedToKb, setSingleSavedToKb] = useState<{ root: string; rel: string } | null>(null);
+  const [singleOutlineOpen, setSingleOutlineOpen] = useState(false);
+  const singleAssetsAllowedRef = useRef(false);
+  const singleAssetsResolveRef = useRef<((ok: boolean) => void) | null>(null);
   const searchPresetSeq = useRef(0);
   // 全局搜索定位信号(seq 单调递增:同文档重复点击也能触发定位)
   const [locateSignal, setLocateSignal] = useState<{ term: string; seq: number } | null>(null);
@@ -104,6 +126,111 @@ function App() {
     } else {
       setSettingsOpen(true);
     }
+  }, []);
+
+  const confirmSingleAssets = useCallback(() => {
+    if (singleAssetsAllowedRef.current) return Promise.resolve(true);
+    setSingleAssetsConfirmOpen(true);
+    return new Promise<boolean>((resolve) => {
+      singleAssetsResolveRef.current?.(false);
+      singleAssetsResolveRef.current = resolve;
+    });
+  }, []);
+
+  const runSinglePending = useCallback(
+    async (pending: NonNullable<typeof singlePending>) => {
+      setSinglePending(null);
+      if (pending.kind === "close") {
+        await single.close();
+        if (pending.nextWindow && isTauriEnv()) {
+          void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => void getCurrentWindow().destroy());
+        }
+        return;
+      }
+      if (pending.kind === "open-picker") {
+        const result = await single.openPicker();
+        if (result?.error) showToast(result.error);
+        if (!result?.path) return;
+        // 取消选择时留在当前知识库;选中文件后再关闭知识库,避免一次取消把用户甩到欢迎页
+        if (kb.kbRoot) await kb.closeKb();
+        return;
+      }
+      if (pending.kind === "open-path") {
+        if (kb.kbRoot) await kb.closeKb();
+        const err = await single.openFile(pending.path);
+        if (err) showToast(err);
+        return;
+      }
+      if (pending.kind === "open-kb-picker") {
+        const err = await kb.pickAndOpen();
+        if (err) {
+          showToast(err);
+          return;
+        }
+        await single.close();
+        return;
+      }
+      if (pending.kind === "new-kb") {
+        const result = await kb.pickAndCreate();
+        if (result?.kind === "not-empty") setMenuPending({ root: result.root, yanzhi: false });
+        else if (result?.kind === "is-yanzhi") setMenuPending({ root: result.root, yanzhi: true });
+        else if (result?.kind === "error") showToast(result.message);
+        if (result) return;
+        await single.close();
+        return;
+      }
+      await single.close();
+      const err = await kb.openKbAt(pending.root);
+      if (err) showToast(err);
+      else if (pending.docRel) await kb.openDoc(pending.docRel);
+    },
+    [kb, showToast, single],
+  );
+
+  const requestSingleAction = useCallback(
+    (pending: NonNullable<typeof singlePending>) => {
+      if (single.active && single.dirty) setSinglePending(pending);
+      else void runSinglePending(pending);
+    },
+    [runSinglePending, single.active, single.dirty],
+  );
+
+  const singlePendingDescription = useMemo(() => {
+    if (!singlePending) return "";
+    if (singlePending.kind === "close") return "关闭文件前可以先保存、放弃修改,或继续编辑。";
+    if (singlePending.kind === "open-picker") return "打开新的 Markdown 文件前,先处理当前未保存修改。";
+    if (singlePending.kind === "open-path") return "切换到新的 Markdown 文件前,先处理当前未保存修改。";
+    if (singlePending.kind === "open-kb-picker") return "打开知识库前,先处理当前未保存修改。";
+    if (singlePending.kind === "new-kb") return "新建知识库前,先处理当前未保存修改。";
+    return "切换工作区前,先处理当前未保存修改。";
+  }, [singlePending]);
+
+  const saveAndRunSinglePending = useCallback(() => {
+    const pending = singlePending;
+    if (!pending) return;
+    void single.save().then((ok) => {
+      if (ok) void runSinglePending(pending);
+      else showToast("保存失败,当前修改未丢弃");
+    });
+  }, [runSinglePending, showToast, single, singlePending]);
+
+  const discardAndRunSinglePending = useCallback(() => {
+    const pending = singlePending;
+    if (!pending) return;
+    void runSinglePending(pending);
+  }, [runSinglePending, singlePending]);
+
+  const allowSingleAssets = useCallback(() => {
+    singleAssetsAllowedRef.current = true;
+    setSingleAssetsConfirmOpen(false);
+    singleAssetsResolveRef.current?.(true);
+    singleAssetsResolveRef.current = null;
+  }, []);
+
+  const rejectSingleAssets = useCallback(() => {
+    setSingleAssetsConfirmOpen(false);
+    singleAssetsResolveRef.current?.(false);
+    singleAssetsResolveRef.current = null;
   }, []);
 
   /* ---- 导入导出(5.6;入口 = 原生菜单「文件」) ---- */
@@ -140,6 +267,79 @@ function App() {
     );
   }, [kb, showToast, title]);
 
+  const exportSingleMd = useCallback(() => {
+    void kbBackend.exportText(single.fileName || "未命名文档.md", "md", single.getMarkdownNow()).then((p) => {
+      if (p) showToast(`已导出:${p}`);
+    });
+  }, [showToast, single.fileName, single.getMarkdownNow]);
+
+  const exportSingleHtml = useCallback(() => {
+    void buildExportHtml({
+      md: single.getMarkdownNow(),
+      title: single.fileStem || "未命名文档",
+      docRel: single.fileName,
+      readAssetBase64: single.readAssetBase64,
+    }).then((html) =>
+      kbBackend.exportText(`${single.fileStem || "未命名文档"}.html`, "html", html).then((p) => {
+        if (p) showToast(`已导出:${p}`);
+      }),
+    );
+  }, [showToast, single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64]);
+
+  const saveCurrentSingleToKb = useCallback(
+    async (root: string) => {
+      if (!single.filePath) return;
+      const prepared = prepareSingleMarkdownForKb(single.filePath, single.getMarkdownNow());
+      try {
+        const rel = await kbBackend.saveSingleToKb(root, single.filePath, prepared.content, prepared.assetSrcs);
+        setSingleSaveToKbOpen(false);
+        setSingleSavedToKb({ root, rel });
+      } catch (e) {
+        showToast(`存入知识库失败:${String(e)}`);
+      }
+    },
+    [showToast, single.filePath, single.getMarkdownNow],
+  );
+
+  const openSingleSavedKb = useCallback(
+    async (info: { root: string; rel: string }) => {
+      setSingleSavedToKb(null);
+      if (single.dirty) {
+        const saved = await single.save();
+        if (!saved) {
+          showToast("原文件保存失败,请先处理未保存修改");
+          return;
+        }
+      }
+      await single.close();
+      const err = await kb.openKbAt(info.root);
+      if (err) showToast(err);
+      else await kb.openDoc(info.rel);
+    },
+    [kb, showToast, single],
+  );
+
+  const saveCurrentAsTemplate = useCallback(async () => {
+    if (!kb.kbRoot || !kb.currentPath) {
+      showToast("未打开文档,无法保存为模板");
+      return;
+    }
+    try {
+      const existing = await kbBackend.listTemplates(kb.kbRoot);
+      const name = uniqueTemplateName(existing, docBasename(kb.currentPath));
+      await kbBackend.writeTemplate(kb.kbRoot, name, kb.getMarkdownNow());
+      window.dispatchEvent(new CustomEvent("yz-templates-changed"));
+      if (isTauriEnv()) {
+        void import("@tauri-apps/api/event").then(({ emit }) =>
+          emit("yz-templates-changed"),
+        );
+      }
+      showToast(`已保存为模板「${name}」`);
+    } catch {
+      showToast("保存模板失败");
+    }
+  }, [kb.currentPath, kb.getMarkdownNow, kb.kbRoot, showToast]);
+
   // 原生菜单(5.0.4-2):Rust 侧建菜单并发 kb-menu 事件。
   // 非空/已是砚知库的确认走 App 级弹窗(欢迎页按钮触发时仍用页内确认卡,两条路只走一条)
   const [menuPending, setMenuPending] = useState<{ root: string; yanzhi: boolean } | null>(null);
@@ -148,25 +348,64 @@ function App() {
     let un: (() => void) | undefined;
     void (async () => {
       const { listen } = await import("@tauri-apps/api/event");
-      un = await listen<{ action: string; root?: string; key?: string; value?: boolean }>("kb-menu", (e) => {
+      un = await listen<{
+        action: string;
+        root?: string;
+        path?: string;
+        doc?: string;
+        key?: string;
+        value?: boolean;
+      }>("kb-menu", (e) => {
         void (async () => {
-          const { action, root, key, value } = e.payload;
+          const { action, root, key, value, doc } = e.payload;
+          const { path } = e.payload;
           if (action === "new") {
+            if (single.active && single.dirty) {
+              setSinglePending({ kind: "new-kb" });
+              return;
+            }
             const r = await kb.pickAndCreate();
             if (r?.kind === "not-empty") setMenuPending({ root: r.root, yanzhi: false });
             else if (r?.kind === "is-yanzhi") setMenuPending({ root: r.root, yanzhi: true });
             else if (r?.kind === "error") showToast(r.message);
           } else if (action === "open") {
+            if (single.active && single.dirty) {
+              setSinglePending({ kind: "open-kb-picker" });
+              return;
+            }
             const err = await kb.pickAndOpen();
             if (err) showToast(err);
           } else if (action === "open-recent" && root) {
+            if (single.active && single.dirty) {
+              setSinglePending({ kind: "open-kb", root });
+              return;
+            }
             const err = await kb.openKbAt(root);
             if (err) showToast(err);
+          } else if (action === "open-single") {
+            requestSingleAction({ kind: "open-picker" });
+          } else if (action === "open-recent-single" && path) {
+            requestSingleAction({ kind: "open-path", path });
+          } else if (action === "save-single") {
+            if (single.active) void single.save();
+          } else if (action === "save-single-as") {
+            if (single.active) void single.saveAs();
+          } else if (action === "close-single") {
+            if (single.active) requestSingleAction({ kind: "close" });
+          } else if (action === "save-single-to-kb") {
+            if (single.active) setSingleSaveToKbOpen(true);
           } else if (action === "import-md") {
+            if (single.active) {
+              showToast("单文件模式请先打开知识库再导入");
+              return;
+            }
             onImportDocs();
           } else if (action === "export-md" || action === "export-html") {
             // 无文档打开时导出静默无意义,给明确提示
-            if (!kb.currentPath) showToast("未打开文档");
+            if (single.active) {
+              if (action === "export-md") exportSingleMd();
+              else exportSingleHtml();
+            } else if (!kb.currentPath) showToast("未打开文档");
             else if (action === "export-md") onExportMd();
             else onExportHtml();
           } else if (action === "settings") {
@@ -179,8 +418,16 @@ function App() {
                 invoke("open_aux_window", { label: "shortcuts", tab: null }).catch((e) => console.error(e)),
               );
             }
-          } else if (action === "graph") {
+          } else if (action === "help-doc" && (doc === "quick-start" || doc === "markdown")) {
             if (isTauriEnv()) {
+              void import("@tauri-apps/api/core").then(({ invoke }) =>
+                invoke("open_aux_window", { label: "help", tab: doc }).catch((e) => console.error(e)),
+              );
+            }
+          } else if (action === "graph") {
+            if (single.active) {
+              showToast("文档图谱需要打开知识库");
+            } else if (isTauriEnv()) {
               void import("@tauri-apps/api/core").then(({ invoke }) =>
                 invoke("open_aux_window", { label: "graph", tab: null }).catch((e) => console.error(e)),
               );
@@ -199,7 +446,24 @@ function App() {
       });
     })();
     return () => un?.();
-  }, [kb.pickAndCreate, kb.pickAndOpen, kb.openKbAt, onImportDocs, onExportMd, onExportHtml, openSettings, updateSettings, showToast]);
+  }, [
+    exportSingleHtml,
+    exportSingleMd,
+    kb.pickAndCreate,
+    kb.pickAndOpen,
+    kb.openKbAt,
+    onImportDocs,
+    onExportMd,
+    onExportHtml,
+    openSettings,
+    requestSingleAction,
+    single.active,
+    single.dirty,
+    single.save,
+    single.saveAs,
+    showToast,
+    updateSettings,
+  ]);
 
   // 显示菜单勾选态回写(状态源在前端:面板/工具栏/分区持久化在 settings,专注模式会话级)
   useEffect(() => {
@@ -252,15 +516,108 @@ function App() {
       un = await listen<{ action: string }>("yz-settings-action", (e) => {
         if (e.payload?.action === "rebuild") {
           void kb.rebuildIndex().then(() => showToast("索引已重建"));
+        } else if (e.payload?.action === "template-from-current") {
+          void saveCurrentAsTemplate();
         }
       });
     })();
     return () => un?.();
-  }, [kb.rebuildIndex, showToast]);
+  }, [kb.rebuildIndex, saveCurrentAsTemplate, showToast]);
+
+  // 系统「打开方式」/启动参数带来的 Markdown;前端监听就绪后再消费
+  useEffect(() => {
+    if (!kb.booted) return;
+    let un: (() => void) | undefined;
+    let disposed = false;
+    let retryTimer: number | undefined;
+    const consume = () => {
+      void kbBackend
+        .takeStartupSingleFile()
+        .then((path) => {
+          if (path) requestSingleAction({ kind: "open-path", path });
+        })
+        .catch(() => undefined);
+    };
+    consume();
+    // macOS Opened 可能早于前端监听注册;延迟后再取一次 Rust pending
+    retryTimer = window.setTimeout(consume, 1600);
+    if (isTauriEnv()) {
+      void import("@tauri-apps/api/event").then(({ listen }) => {
+        void listen<string>("yz-open-single-file", () => {
+          // 事件只作唤醒;路径仍从 pending 取走,避免延迟重试重复打开
+          consume();
+        }).then((fn) => {
+          if (disposed) fn();
+          else un = fn;
+        });
+      });
+    }
+    return () => {
+      disposed = true;
+      window.clearTimeout(retryTimer);
+      un?.();
+    };
+  }, [kb.booted, requestSingleAction]);
+
+  // 单文件有未保存修改时拦下窗口关闭,给保存/放弃/继续编辑三选一
+  useEffect(() => {
+    if (!single.active) return;
+    if (!isTauriEnv()) {
+      const onBeforeUnload = (e: BeforeUnloadEvent) => {
+        if (single.dirty) e.preventDefault();
+      };
+      window.addEventListener("beforeunload", onBeforeUnload);
+      return () => window.removeEventListener("beforeunload", onBeforeUnload);
+    }
+    let un: (() => void) | undefined;
+    let disposed = false;
+    void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+      void getCurrentWindow().onCloseRequested((event) => {
+        if (!single.dirty) return;
+        event.preventDefault();
+        setSinglePending({ kind: "close", nextWindow: true });
+      }).then((fn) => {
+        if (disposed) fn();
+        else un = fn;
+      });
+    });
+    return () => {
+      disposed = true;
+      un?.();
+    };
+  }, [single.active, single.dirty]);
 
   // V3 全局快捷键(设置来自应用配置;查找/替换由 Editor 内监听)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // 浏览器开发无原生应用菜单:仅在此环境用 ⌘/Ctrl+, 打开设置。
+      // Tauri 由原生菜单 accelerator 接管,避免双触发。
+      if (
+        !isTauriEnv() &&
+        (e.metaKey || e.ctrlKey) &&
+        !e.altKey &&
+        !e.shiftKey &&
+        e.code === "Comma"
+      ) {
+        e.preventDefault();
+        openSettings();
+        return;
+      }
+      if (!isTauriEnv() && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === "KeyO") {
+        e.preventDefault();
+        requestSingleAction({ kind: "open-picker" });
+        return;
+      }
+      if (!isTauriEnv() && single.active && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === "KeyS") {
+        e.preventDefault();
+        void single.save();
+        return;
+      }
+      if (!isTauriEnv() && single.active && (e.metaKey || e.ctrlKey) && !e.altKey && e.shiftKey && e.code === "KeyS") {
+        e.preventDefault();
+        void single.saveAs();
+        return;
+      }
       if (shortcutMatches(e, settings.shortcuts.focus)) {
         e.preventDefault();
         setFocusMode((v) => !v);
@@ -268,12 +625,12 @@ function App() {
       }
       if (shortcutMatches(e, settings.shortcuts.navBack)) {
         e.preventDefault();
-        void kb.navBack();
+        if (!single.active) void kb.navBack();
         return;
       }
       if (shortcutMatches(e, settings.shortcuts.navForward)) {
         e.preventDefault();
-        void kb.navForward();
+        if (!single.active) void kb.navForward();
         return;
       }
       if (shortcutMatches(e, settings.shortcuts.slashMenu)) {
@@ -283,16 +640,23 @@ function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [editor, kb.navBack, kb.navForward, settings.shortcuts]);
+  }, [editor, kb.navBack, kb.navForward, openSettings, requestSingleAction, settings.shortcuts, single.active, single.save, single.saveAs]);
 
-  const handleReady = useCallback((e: Editor) => setEditor(e), []);
+  const handleSingleReady = useCallback((e: Editor) => {
+    setEditor(e);
+    setEditorScope("single");
+  }, []);
+  const handleKbReady = useCallback((e: Editor) => {
+    setEditor(e);
+    setEditorScope("kb");
+  }, []);
   const handleScrollRef = useCallback((el: HTMLDivElement | null) => setScrollEl(el), []);
 
   // 图片 src 渲染解析注册(layout effect 先于子组件 passive effect 的 setContent,
   // 文档切换时新图片挂载前 resolver 已指向新文档;无库时置空回落原样返回)
   useLayoutEffect(() => {
-    setAssetResolver(kb.kbRoot ? kb.assetSrcResolver : null);
-  }, [kb.kbRoot, kb.assetSrcResolver, kb.currentPath]);
+    setAssetResolver(single.active ? single.assetSrcResolver : kb.kbRoot ? kb.assetSrcResolver : null);
+  }, [single.active, single.assetSrcResolver, kb.kbRoot, kb.assetSrcResolver, kb.currentPath]);
 
   // 搜索结果点击 → 打开文档;载入完成后再发定位信号(编辑器 setContent 之后)
   const onSearchSelect = useCallback(
@@ -317,9 +681,11 @@ function App() {
 
   // 打开/切换文档 → 标题跟随文件名(9.2)
   const currentPath = kb.currentPath;
+  const kbEditor = editorScope === "kb" ? editor : null;
+  const singleEditor = editorScope === "single" ? editor : null;
   useEffect(() => {
-    setTitle(currentPath ? docBasename(currentPath) : "");
-  }, [currentPath]);
+    setTitle(single.active ? single.fileStem : currentPath ? docBasename(currentPath) : "");
+  }, [single.active, single.fileStem, currentPath]);
 
   // 打开失败(文件被外部删除/权限):明确反馈,不静默(M4 异常恢复)
   useEffect(() => {
@@ -511,10 +877,51 @@ function App() {
   );
   const onPickImage = useCallback(() => kb.importImagesFromPicker(), [kb.importImagesFromPicker]);
 
+  const onSingleImageFiles = useCallback(
+    async (files: File[]): Promise<string[]> => {
+      if (!(await confirmSingleAssets())) return [];
+      const prepared = settings.imageCompress
+        ? await Promise.all(files.map((f) => compressImageFile(f)))
+        : files;
+      const srcs = await single.saveImageFiles(prepared);
+      if (editor) {
+        for (let i = 0; i < srcs.length; i++) {
+          insertImage(editor, {
+            src: srcs[i],
+            alt: prepared[i]?.name?.replace(/\.[^.]+$/, "") || null,
+          });
+        }
+      }
+      if (!srcs.length) showToast("图片保存失败");
+      return srcs;
+    },
+    [confirmSingleAssets, editor, settings.imageCompress, showToast, single],
+  );
+
+  const onPickSingleImage = useCallback(async (): Promise<string[] | null> => {
+    if (!(await confirmSingleAssets())) return null;
+    return single.importImagesFromPicker();
+  }, [confirmSingleAssets, single]);
+
   /* ---- 附件卡片(6.1.5):文件选择 → assets;点击卡片 → 系统打开 ---- */
   const onPickAttachment = useCallback(
     () => kb.importAttachmentsFromPicker(),
     [kb.importAttachmentsFromPicker],
+  );
+
+  const onPickSingleAttachment = useCallback(async (): Promise<{ name: string; href: string }[] | null> => {
+    if (!(await confirmSingleAssets())) return null;
+    return single.importAttachmentsFromPicker();
+  }, [confirmSingleAssets, single]);
+
+  const onOpenSingleAttachment = useCallback(
+    (href: string) => {
+      void single.openAttachment(href).then((r) => {
+        if (r === "missing") showToast("附件文件不存在或已被移动");
+        else if (r === "unsupported") showToast("当前环境不支持打开附件");
+      });
+    },
+    [single, showToast],
   );
   const onOpenAttachment = useCallback(
     (href: string) => {
@@ -546,13 +953,23 @@ function App() {
       }
       e.preventDefault();
       if (e.type !== "drop") return;
-      const imgs = dt ? Array.from(dt.files).filter(isImageFile) : [];
+      const files = dt ? Array.from(dt.files) : [];
+      const md = files.find((f) => /\.(md|markdown)$/i.test(f.name));
+      if (md) {
+        const path = (md as File & { path?: string }).path;
+        if (path) requestSingleAction({ kind: "open-path", path });
+        else showToast("无法获取拖入文件的原始路径,请使用「打开 Markdown 文件」");
+        return;
+      }
+      const imgs = files.filter(isImageFile);
       if (!imgs.length) return;
       const r = scrollEl?.getBoundingClientRect();
       const hit =
         !!r && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
       // 坐标异常(0,0,WKWebView 合成事件形态)也放行:PM 没接住 + 有图片文件
-      if (hit || (e.clientX === 0 && e.clientY === 0)) void onImageFiles(imgs);
+      if (hit || (e.clientX === 0 && e.clientY === 0)) {
+        void (single.active ? onSingleImageFiles(imgs) : onImageFiles(imgs));
+      }
     };
     window.addEventListener("dragover", guard);
     window.addEventListener("drop", guard);
@@ -560,21 +977,65 @@ function App() {
       window.removeEventListener("dragover", guard);
       window.removeEventListener("drop", guard);
     };
-  }, [scrollEl, onImageFiles]);
+  }, [scrollEl, onImageFiles, onSingleImageFiles, requestSingleAction, single.active, showToast]);
 
   if (!kb.booted) {
     return <main className="bg-background flex h-screen items-center justify-center" />;
+  }
+
+  if (single.active) {
+    return (
+      <SingleFileWorkspace
+        single={single}
+        editor={singleEditor}
+        onReady={handleSingleReady}
+        scrollRef={handleScrollRef}
+        scrollEl={scrollEl}
+        showToolbar={settings.showToolbar}
+        cardBorder={settings.cardBorder}
+        shortcuts={settings.shortcuts}
+        focusMode={focusMode}
+        onToggleFocus={() => setFocusMode((v) => !v)}
+        outlineOpen={singleOutlineOpen}
+        onToggleOutline={() => setSingleOutlineOpen((v) => !v)}
+        onOpenFile={() => requestSingleAction({ kind: "open-picker" })}
+        onCloseFile={() => requestSingleAction({ kind: "close" })}
+        onOpenKb={() => requestSingleAction({ kind: "open-kb-picker" })}
+        onImageFiles={onSingleImageFiles}
+        onPickImage={onPickSingleImage}
+        onPickAttachment={onPickSingleAttachment}
+        onOpenAttachment={onOpenSingleAttachment}
+        toast={toast}
+        pending={singlePending ? { description: singlePendingDescription, nextWindow: singlePending.kind === "close" && singlePending.nextWindow } : null}
+        onCancelPending={() => setSinglePending(null)}
+        onSavePending={saveAndRunSinglePending}
+        onDiscardPending={discardAndRunSinglePending}
+        assetsConfirmOpen={singleAssetsConfirmOpen}
+        onAllowAssets={allowSingleAssets}
+        onRejectAssets={rejectSingleAssets}
+        saveToKbOpen={singleSaveToKbOpen}
+        onSaveToKbOpenChange={setSingleSaveToKbOpen}
+        recentRoots={kb.recent.recent}
+        onSaveToKb={(root) => void saveCurrentSingleToKb(root)}
+        savedToKb={singleSavedToKb}
+        onStayAfterSaveToKb={() => setSingleSavedToKb(null)}
+        onOpenSavedKb={(info) => void openSingleSavedKb(info)}
+      />
+    );
   }
 
   if (!kb.kbRoot) {
     return (
       <WelcomePage
         recent={kb.recent.recent}
+        recentFiles={single.recentFiles.recent}
         bootError={kb.bootError}
         onPickCreate={kb.pickAndCreate}
         onForceCreate={(root) => kb.createKbAt(root, true)}
         onPickOpen={kb.pickAndOpen}
         onOpenRecent={kb.openKbAt}
+        onPickSingleFile={() => single.openPicker().then((r) => r?.error ?? null)}
+        onOpenRecentFile={single.openFile}
       />
     );
   }
@@ -591,8 +1052,8 @@ function App() {
             : "就绪";
 
   return (
-    <main className="bg-background text-foreground flex h-screen flex-col">
-      <div className="flex min-h-0 flex-1">
+    <main className="app-shell bg-workspace text-foreground flex h-screen flex-col">
+      <div className="flex min-h-0 flex-1 gap-3 p-3">
         {!focusMode && (
           <DocTree
             root={kb.kbRoot}
@@ -612,13 +1073,26 @@ function App() {
             onSearchSelect={onSearchSelect}
             searchPreset={searchPreset}
             onRebuildIndex={() => void kb.rebuildIndex()}
-            onOpenSettings={() => openSettings()}
             onOpenTrash={() => setTrashOpen(true)}
+            onOpenMarkdownFile={() => requestSingleAction({ kind: "open-picker" })}
+            onBackHome={() => void kb.closeKb()}
+            onOpenOtherKb={() => {
+              void kb.pickAndOpen().then((err) => err && showToast(err));
+            }}
+            onCreateKb={() => {
+              void kb.pickAndCreate().then((result) => {
+                if (result?.kind === "not-empty") setMenuPending({ root: result.root, yanzhi: false });
+                else if (result?.kind === "is-yanzhi") setMenuPending({ root: result.root, yanzhi: true });
+                else if (result?.kind === "error") showToast(result.message);
+              });
+            }}
+            trashCount={kb.trashCount}
             orphanCount={kb.orphanMeta.length}
             onOpenOrphans={() => setOrphansOpen(true)}
             pinnedSet={kb.pinnedDocs}
             onTogglePin={(rel, pinned) => kb.togglePinned(rel, pinned)}
             allTags={kb.allTags}
+            tagCounts={kb.tagCounts}
             tagFilter={tagFilter}
             onTagFilter={setTagFilter}
             onBatchMove={batchMoveDocs}
@@ -627,28 +1101,24 @@ function App() {
             onToast={showToast}
           />
         )}
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="border-border-subtle bg-editor flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-[0_10px_32px_-20px_color-mix(in_oklab,var(--foreground)_25%,transparent)]">
           {currentPath ? (
             /* 专注模式:导航按钮收起(纯 chrome,⌘[ ⌘] 仍可用),标题与正文同列对齐
-             * (mx-auto max-w-3xl px-16,同 EditorContent 容器);常态:按钮 + 标题一行 */
-            <div className="w-full shrink-0 px-6 pt-6 pb-2">
-              {focusMode ? (
-                <div className="mx-auto max-w-3xl px-16">
-                  <input
-                    className="bg-background w-full pb-1 text-3xl font-bold outline-none placeholder:text-muted-foreground/50"
-                    value={title}
-                    onChange={(e) => onTitleChange(e.target.value)}
-                    placeholder="未命名文档"
-                  />
-                </div>
-              ) : (
-                <div className="flex items-center gap-1">
-                  <div className="mb-1 flex items-center gap-0.5">
+             * (mx-auto max-w-3xl px-16,同 EditorContent 容器);常态:导航胶囊放在
+             * 正文列左边界内侧,避免窄卡片时贴到纸张左缘 */
+            <div className="w-full shrink-0 px-6 pt-7 pb-3">
+              <div className="relative mx-auto max-w-3xl px-16">
+                {!focusMode && (
+                  <div
+                    role="group"
+                    aria-label="文档导航"
+                    className="border-border-subtle bg-raised/55 absolute -left-1 top-1.5 flex items-center gap-0.5 rounded-lg border p-0.5 shadow-[0_1px_2px_color-mix(in_oklab,var(--workspace)_25%,transparent)]"
+                  >
                     <Hint label={`后退 (${formatShortcut(settings.shortcuts.navBack)})`}>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="text-muted-foreground size-7"
+                        className="text-muted-foreground hover:text-foreground hover:bg-hover size-6 rounded-[5px]"
                         disabled={!kb.canBack}
                         onClick={() => void kb.navBack()}
                       >
@@ -659,7 +1129,7 @@ function App() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="text-muted-foreground size-7"
+                        className="text-muted-foreground hover:text-foreground hover:bg-hover size-6 rounded-[5px]"
                         disabled={!kb.canFront}
                         onClick={() => void kb.navForward()}
                       >
@@ -667,21 +1137,21 @@ function App() {
                       </Button>
                     </Hint>
                   </div>
-                  <input
-                    className="bg-background min-w-0 flex-1 px-10 pb-1 text-3xl font-bold outline-none placeholder:text-muted-foreground/50"
-                    value={title}
-                    onChange={(e) => onTitleChange(e.target.value)}
-                    placeholder="未命名文档"
-                  />
-                </div>
-              )}
+                )}
+                <input
+                  className="w-full bg-transparent pb-1 text-[2rem] leading-tight font-semibold tracking-[-0.035em] outline-none placeholder:text-muted-foreground/45"
+                  value={title}
+                  onChange={(e) => onTitleChange(e.target.value)}
+                  placeholder="未命名文档"
+                />
+              </div>
             </div>
           ) : (
             <div className="h-[76px] shrink-0" />
           )}
           <YanzhiEditor
             markdown={kb.markdown}
-            onReady={handleReady}
+            onReady={handleKbReady}
             scrollContainerRef={handleScrollRef}
             onMarkdownChange={kb.onMarkdownChange}
             wikiDocs={getWikiDocs}
@@ -696,18 +1166,23 @@ function App() {
             shortcuts={settings.shortcuts}
           />
         </div>
-        {!focusMode && settings.showRightPanel && editor && (
-          <aside aria-label="右侧面板" className="bg-muted/40 flex w-60 shrink-0 flex-col">
+        {!focusMode && settings.showRightPanel && kbEditor && (
+          <aside
+            aria-label="右侧面板"
+            className="border-border-subtle bg-sidebar flex w-[272px] shrink-0 flex-col overflow-hidden rounded-2xl border shadow-[0_10px_28px_-20px_color-mix(in_oklab,var(--foreground)_18%,transparent)]"
+          >
             {kb.currentPath && settings.showTags && (
               <TagsPanel
                 tags={kb.currentTags}
+                allTags={kb.allTags}
+                tagCounts={kb.tagCounts}
                 activeFilter={tagFilter}
                 onFilter={setTagFilter}
                 onAdd={(ts) => kb.currentPath && kb.setTags(kb.currentPath, [...kb.currentTags, ...ts])}
                 onRemove={(t) => kb.currentPath && kb.setTags(kb.currentPath, kb.currentTags.filter((x) => x !== t))}
               />
             )}
-            {settings.showOutline && <TocPanel editor={editor} scrollContainer={scrollEl} />}
+            {settings.showOutline && <TocPanel editor={kbEditor} scrollContainer={scrollEl} />}
             {settings.showBacklinks && (
               <BacklinksPanel
                 rows={backlinks}
@@ -744,7 +1219,7 @@ function App() {
         )}
       </div>
       <StatusBar
-        editor={editor}
+        editor={kbEditor}
         kbRoot={kb.kbRoot}
         saveLabel={saveLabel}
         focusMode={focusMode}
@@ -819,6 +1294,7 @@ function App() {
         onRebuildIndex={() => {
           void kb.rebuildIndex().then(() => showToast("索引已重建"));
         }}
+        onCreateTemplateFromCurrent={() => void saveCurrentAsTemplate()}
       />
       {/* 菜单触发的库切换确认(5.0.2):非空目录 / 已是砚知库 */}
       <Dialog open={menuPending !== null} onOpenChange={(v) => !v && setMenuPending(null)}>

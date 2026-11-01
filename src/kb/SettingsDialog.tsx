@@ -20,6 +20,7 @@ interface SettingsDialogProps {
   /** 局部更新(合并 + 落盘由 useSettings 负责) */
   onChange: (patch: Partial<AppSettings>) => void;
   onRebuildIndex: () => void;
+  onCreateTemplateFromCurrent?: () => void;
 }
 
 export function SettingsDialog({
@@ -28,6 +29,7 @@ export function SettingsDialog({
   settings,
   onChange,
   onRebuildIndex,
+  onCreateTemplateFromCurrent,
 }: SettingsDialogProps) {
   const [tab, setTab] = useState<SettingsTab>("general");
   return (
@@ -40,6 +42,7 @@ export function SettingsDialog({
             settings={settings}
             onChange={onChange}
             onRebuildIndex={onRebuildIndex}
+            onCreateTemplateFromCurrent={onCreateTemplateFromCurrent}
             tab={tab}
             onTabChange={setTab}
           />

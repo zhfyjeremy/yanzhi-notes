@@ -8,16 +8,14 @@ import {
   FolderClosed,
   FolderOpen,
   FolderPlus,
-  Hash,
+  House,
   ListChecks,
   PenLine,
   Pin,
   Plus,
-  Settings,
   Square,
   SquarePen,
   Trash2,
-  X,
 } from "lucide-react";
 import type { TreeNode } from "./types";
 import type { SearchHit } from "./search";
@@ -33,6 +31,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -69,8 +68,12 @@ interface DocTreeProps {
   /** 外部预置搜索词,透传 SearchBox(失效双链「搜索同名文档」) */
   searchPreset?: { term: string; seq: number } | null;
   onRebuildIndex: () => void;
-  onOpenSettings: () => void;
   onOpenTrash: () => void;
+  onOpenMarkdownFile: () => void;
+  onBackHome: () => void;
+  onOpenOtherKb: () => void;
+  onCreateKb: () => void;
+  trashCount: number;
   /** 失联 meta 条数(5.2.1);>0 才渲染底部入口 */
   orphanCount: number;
   onOpenOrphans: () => void;
@@ -80,6 +83,7 @@ interface DocTreeProps {
   onTogglePin: (rel: string, pinned: boolean) => void;
   /** 全库标签(筛选下拉) */
   allTags: string[];
+  tagCounts: Record<string, number>;
   /** 激活中的标签筛选;null = 未筛选(树已由上层过滤,过滤态禁拖) */
   tagFilter: string | null;
   onTagFilter: (tag: string | null) => void;
@@ -200,7 +204,8 @@ function TreeRow({
   const [renaming, setRenaming] = useState(false);
   const active = !node.isDir && node.path === currentPath;
   const isCollapsed = collapsed.has(node.path);
-  const pad = { paddingLeft: 8 + depth * 14 };
+  // 缩进由子树导轨承担,行自身保持同一安全边;深度参数仅继续传给递归组件
+  const pad = { paddingLeft: 2 };
   const hint = dropHint?.path === node.path ? dropHint.zone : null;
   // 置顶行不参与拖拽(永远在组内最上,落位无意义);筛选态全禁
   const noDrag = dragLocked || (pinned && !node.isDir);
@@ -212,16 +217,20 @@ function TreeRow({
       if (v && v !== node.name) onRenameEntry(node.path, v);
     };
     return (
-      <div className="flex w-full items-center gap-1 py-1 pr-2" style={pad}>
+      <div className="flex w-full items-center gap-1.5 py-1 pr-2" style={pad}>
         {node.isDir ? (
-          <FolderOpen className="text-muted-foreground size-4 shrink-0" />
+          <span className="bg-selection text-primary flex size-5 shrink-0 items-center justify-center rounded-md">
+            <FolderOpen className="size-3.5" />
+          </span>
         ) : (
-          <FileText className="text-muted-foreground ml-[18px] size-4 shrink-0" />
+          <span className="bg-hover text-muted-foreground flex size-5 shrink-0 items-center justify-center rounded-md">
+            <FileText className="size-3.5" />
+          </span>
         )}
         <input
           autoFocus
           defaultValue={node.name}
-          className="border-input bg-background h-6 min-w-0 flex-1 rounded px-1 text-sm outline-none focus:ring-1 focus:ring-ring"
+          className="border-border-subtle bg-raised focus:ring-ring h-7 min-w-0 flex-1 rounded-md border px-2 text-[13px] outline-none focus:ring-1"
           onClick={(e) => e.stopPropagation()}
           onBlur={(e) => commit(e.target.value)}
           onKeyDown={(e) => {
@@ -242,20 +251,23 @@ function TreeRow({
             tabIndex={0}
             data-path={node.path}
             className={cn(
-              "group flex w-full items-center gap-1 rounded-md py-1 pr-2 text-left text-sm",
+              "group relative flex w-full items-center gap-1.5 rounded-lg py-1 pr-2 text-left text-[13px] transition-colors",
               active
-                ? "bg-accent text-accent-foreground"
+                ? "bg-raised text-foreground ring-primary/15 shadow-[0_1px_2px_color-mix(in_oklab,var(--workspace)_45%,transparent)] ring-1"
                 : selected
-                  ? "bg-primary/10 text-foreground"
-                  : "hover:bg-accent/50 text-foreground/90",
-              hint === "into" && "bg-primary/10 ring-primary/40 ring-1",
+                  ? "bg-selection text-foreground"
+                  : node.isDir
+                    ? "hover:bg-raised/60 text-foreground/90 font-medium"
+                    : "hover:bg-raised/55 text-foreground/80",
+              node.isDir ? "min-h-9" : "min-h-8",
+              hint === "into" && "bg-primary/10 ring-primary/35 ring-1",
             )}
             style={{
               ...pad,
               ...(hint === "before"
-                ? { boxShadow: "inset 0 2px 0 0 var(--primary)" }
+                ? { boxShadow: "inset 0 2px 0 0 color-mix(in oklab, var(--primary) 70%, transparent)" }
                 : hint === "after"
-                  ? { boxShadow: "inset 0 -2px 0 0 var(--primary)" }
+                  ? { boxShadow: "inset 0 -2px 0 0 color-mix(in oklab, var(--primary) 70%, transparent)" }
                   : {}),
             }}
             draggable
@@ -343,23 +355,41 @@ function TreeRow({
             )}
             {node.isDir ? (
               <>
-                {isCollapsed ? (
-                  <ChevronRight className="text-muted-foreground size-3.5 shrink-0" />
-                ) : (
-                  <ChevronDown className="text-muted-foreground size-3.5 shrink-0" />
-                )}
-                {isCollapsed ? (
-                  <FolderClosed className="text-muted-foreground size-4 shrink-0" />
-                ) : (
-                  <FolderOpen className="text-muted-foreground size-4 shrink-0" />
-                )}
+                <span
+                  className={cn(
+                    "text-muted-foreground/70 group-hover:text-foreground flex size-4 shrink-0 items-center justify-center rounded-[5px] transition-colors",
+                    !isCollapsed && "bg-hover",
+                  )}
+                >
+                  {isCollapsed ? (
+                    <ChevronRight className="size-3" />
+                  ) : (
+                    <ChevronDown className="size-3" />
+                  )}
+                </span>
+                <span className="bg-selection text-primary flex size-5 shrink-0 items-center justify-center rounded-md">
+                  {isCollapsed ? (
+                    <FolderClosed className="size-3.5" />
+                  ) : (
+                    <FolderOpen className="size-3.5" />
+                  )}
+                </span>
               </>
             ) : (
-              <FileText className="text-muted-foreground size-4 shrink-0" />
+              <span
+                className={cn(
+                  "flex size-5 shrink-0 items-center justify-center rounded-md",
+                  active ? "bg-primary/15 text-primary" : "bg-hover/70 text-muted-foreground",
+                )}
+              >
+                <FileText className="size-3.5" />
+              </span>
             )}
-            <span className="truncate">{node.name}</span>
+            <span className={cn("truncate", (active || node.isDir) && "font-medium")}>{node.name}</span>
             {pinned && !node.isDir && (
-              <Pin className="text-primary/70 ml-auto size-3 shrink-0" aria-label="已置顶" />
+              <span className="bg-primary/10 text-primary ml-auto flex size-5 shrink-0 items-center justify-center rounded-full">
+                <Pin className="size-3" aria-label="已置顶" />
+              </span>
             )}
             {node.isDir && (
               /* 不能用 hidden group-hover:flex:菜单弹出覆盖鼠标会打断 :hover,
@@ -373,8 +403,8 @@ function TreeRow({
                       pointerdown 处理器,中间隔一层会挡掉 → 菜单打不开 */}
                   <Hint label="新建文档或子文件夹">
                     <DropdownMenuTrigger asChild>
-                      <span className="text-muted-foreground hover:text-foreground cursor-pointer rounded p-0.5">
-                        <Plus className="size-3.5" />
+                      <span className="text-muted-foreground hover:text-foreground hover:bg-selection bg-raised cursor-pointer rounded-md p-1">
+                        <Plus className="size-3" />
                       </span>
                     </DropdownMenuTrigger>
                   </Hint>
@@ -439,7 +469,7 @@ function TreeRow({
         </ContextMenuContent>
       </ContextMenu>
       {node.isDir && !isCollapsed && (
-        <div>
+        <div className="border-border-subtle/70 ml-[13px] mt-0.5 min-w-0 border-l pl-0.5">
           {node.children.map((child) => (
             <TreeRow
               key={child.path}
@@ -492,13 +522,18 @@ export function DocTree({
   onSearchSelect,
   searchPreset,
   onRebuildIndex,
-  onOpenSettings,
   onOpenTrash,
+  onOpenMarkdownFile,
+  onBackHome,
+  onOpenOtherKb,
+  onCreateKb,
+  trashCount,
   orphanCount,
   onOpenOrphans,
   pinnedSet,
   onTogglePin,
   allTags,
+  tagCounts,
   tagFilter,
   onTagFilter,
   onBatchMove,
@@ -621,8 +656,8 @@ export function DocTree({
   };
 
   return (
-    <aside className="bg-background flex w-60 min-w-60 flex-col border-r border-border">
-      <div className="flex h-10 shrink-0 items-center gap-1 px-3">
+    <aside className="bg-sidebar border-border-subtle flex w-[248px] min-w-[248px] flex-col overflow-hidden rounded-2xl border shadow-[0_10px_28px_-20px_color-mix(in_oklab,var(--foreground)_18%,transparent)]">
+      <div className="shrink-0 px-2.5 pt-2.5">
         {selectionMode ? (
           <BatchDocActions
             selected={[...selectedPaths]}
@@ -638,38 +673,74 @@ export function DocTree({
           />
         ) : (
           <>
-            <span className="truncate text-xs font-medium" title={root}>
-              {rootName}
-            </span>
-            <span className="ml-auto flex gap-0.5">
-              <Hint label="进入批量选择">
-                <button
-                  type="button"
-                  aria-label="进入批量选择"
-                  className="text-muted-foreground hover:text-foreground hover:bg-accent flex cursor-pointer rounded p-1"
-                  onClick={enterSelection}
-                >
-                  <ListChecks className="size-4" />
-                </button>
-              </Hint>
+            <div className="border-border-subtle bg-raised/60 flex h-11 items-center gap-2 rounded-xl border px-2 shadow-[0_1px_2px_color-mix(in_oklab,var(--workspace)_35%,transparent)]">
               <DropdownMenu>
-                <Hint label="新建">
-                  <DropdownMenuTrigger asChild>
-                    <span className="text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer rounded p-1">
-                      <Plus className="size-4" />
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="hover:bg-hover/60 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg py-1 pr-1 pl-1 text-left transition-colors outline-none"
+                    title={root}
+                  >
+                    <span className="bg-selection text-primary flex size-7 shrink-0 items-center justify-center rounded-lg">
+                      <FolderOpen className="size-4" />
                     </span>
-                  </DropdownMenuTrigger>
-                </Hint>
-                <DropdownMenuContent align="end" alignOffset={-4}>
-                  <DropdownMenuItem onClick={() => onCreateDoc("", "未命名文档")}>
-                    <SquarePen /> 新建文档
+                    <span className="min-w-0 flex-1">
+                      <span className="text-foreground truncate block text-xs leading-4 font-semibold">
+                        {rootName}
+                      </span>
+                      <span className="text-muted-foreground/70 flex items-center gap-0.5 text-[10px] leading-3">
+                        知识库
+                        <ChevronDown className="size-3" />
+                      </span>
+                    </span>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" alignOffset={-6} className="w-52">
+                  <DropdownMenuItem onClick={onBackHome}>
+                    <House /> 返回欢迎页
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onCreateFolder("", "新文件夹")}>
-                    <FolderPlus /> 新建文件夹
+                  <DropdownMenuItem onClick={onOpenMarkdownFile}>
+                    <FileText /> 打开 Markdown 文件…
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={onOpenOtherKb}>
+                    <FolderOpen /> 打开其它知识库…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={onCreateKb}>
+                    <FolderPlus /> 新建知识库…
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-            </span>
+              <span className="flex shrink-0 gap-0.5">
+                <Hint label="进入批量选择">
+                  <button
+                    type="button"
+                    aria-label="进入批量选择"
+                    className="text-muted-foreground hover:text-foreground hover:bg-hover flex cursor-pointer rounded-md p-1.5"
+                    onClick={enterSelection}
+                  >
+                    <ListChecks className="size-4" />
+                  </button>
+                </Hint>
+                <DropdownMenu>
+                  <Hint label="新建">
+                    <DropdownMenuTrigger asChild>
+                      <span className="text-muted-foreground hover:text-foreground hover:bg-hover cursor-pointer rounded-md p-1.5">
+                        <Plus className="size-4" />
+                      </span>
+                    </DropdownMenuTrigger>
+                  </Hint>
+                  <DropdownMenuContent align="end" alignOffset={-4}>
+                    <DropdownMenuItem onClick={() => onCreateDoc("", "未命名文档")}>
+                      <SquarePen /> 新建文档
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onCreateFolder("", "新文件夹")}>
+                      <FolderPlus /> 新建文件夹
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </span>
+            </div>
           </>
         )}
       </div>
@@ -679,54 +750,26 @@ export function DocTree({
         onSelect={onSearchSelect}
         onRebuild={onRebuildIndex}
         preset={searchPreset}
+        tags={allTags}
+        tagCounts={tagCounts}
+        activeTag={tagFilter}
+        onTagFilter={onTagFilter}
       />
-      {(allTags.length > 0 || tagFilter) && (
-        /* 标签筛选条(6.3-2):下拉选全库标签;激活时显示当前标签 + 清除 */
-        <div className="flex h-7 shrink-0 items-center gap-1.5 px-2 text-xs">
-          <DropdownMenu>
-            <Hint label="按标签筛选文档">
-              <DropdownMenuTrigger asChild>
-                <button className="text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-0.5 rounded px-1 py-0.5">
-                  <Hash className="size-3" />
-                  标签
-                </button>
-              </DropdownMenuTrigger>
-            </Hint>
-            <DropdownMenuContent align="start" alignOffset={-4}>
-              {allTags.length === 0 ? (
-                <div className="text-muted-foreground px-2 py-1 text-xs">暂无标签</div>
-              ) : (
-                allTags.map((t) => (
-                  <DropdownMenuItem key={t} onClick={() => onTagFilter(t === tagFilter ? null : t)}>
-                    <Hash /> {t}
-                  </DropdownMenuItem>
-                ))
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          {tagFilter && (
-            <span className="border-primary/45 bg-primary/10 text-primary inline-flex max-w-32 items-center gap-0.5 truncate rounded-full border px-1.5 py-0.5 text-[11px] leading-4">
-              <span className="truncate">#{tagFilter}</span>
-              <button
-                className="hover:text-foreground shrink-0 cursor-pointer"
-                title="清除筛选"
-                onClick={() => onTagFilter(null)}
-              >
-                <X className="size-3" />
-              </button>
-            </span>
-          )}
-        </div>
-      )}
       <nav
         ref={navRef}
-        className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1"
+        className="min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-2"
         onDragOver={(e) => e.preventDefault()} /* 允许拖到空白处松手(仅清除提示) */
       >
         {tree.length === 0 ? (
-          <p className="text-muted-foreground px-3 py-6 text-center text-xs">
-            {tagFilter ? `没有带「#${tagFilter}」标签的文档` : "空知识库:点击上方按钮新建第一篇文档"}
-          </p>
+          <div className="text-muted-foreground border-border-subtle mx-1 rounded-xl border border-dashed px-3 py-6 text-center">
+            <FolderOpen className="mx-auto mb-2 size-5 opacity-50" />
+            <p className="text-xs">
+              {tagFilter ? `没有带「#${tagFilter}」标签的文档` : "空知识库"}
+            </p>
+            {!tagFilter && (
+              <p className="mt-1 text-[10px]">点击右上角 + 新建第一篇文档</p>
+            )}
+          </div>
         ) : (
           tree.map((node) => (
             <TreeRow
@@ -763,11 +806,11 @@ export function DocTree({
           ))
         )}
       </nav>
-      {/* 语雀式:低频入口放左栏底部;未识别条目有失联时才出现(5.2.1),主色轻提示 */}
-      <div className="flex shrink-0 flex-col border-t border-border">
+      {/* 左栏底部只保留知识库工具;工作区切换在顶部库身份卡,避免和回收站混层 */}
+      <div className="border-border-subtle flex shrink-0 flex-col gap-1 border-t p-2">
         {orphanCount > 0 && (
           <button
-            className="text-primary hover:bg-accent/50 flex h-8 cursor-pointer items-center gap-2 px-3 text-xs"
+            className="text-primary hover:bg-hover flex h-8 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-xs"
             onClick={onOpenOrphans}
           >
             <CircleAlert className="size-3.5 shrink-0" />
@@ -777,24 +820,26 @@ export function DocTree({
             </span>
           </button>
         )}
-        <div className="flex h-8 items-center">
-          <button
-            className="text-muted-foreground hover:bg-accent/50 hover:text-foreground flex flex-1 cursor-pointer items-center gap-2 px-3 text-xs"
-            onClick={onOpenTrash}
-          >
+        <button
+          aria-label={trashCount > 0 ? `回收站,${trashCount} 项` : "回收站"}
+          className={cn(
+            "hover:bg-hover hover:text-foreground flex h-8 w-full cursor-pointer items-center justify-between rounded-lg border px-2.5 text-xs transition-colors",
+            trashCount > 0
+              ? "border-border-subtle bg-raised/65 text-foreground/75 shadow-sm"
+              : "text-muted-foreground/80 border-transparent",
+          )}
+          onClick={onOpenTrash}
+        >
+          <span className="flex items-center gap-2">
             <TrashGlyph className="size-3.5" />
             回收站
-          </button>
-          {/* 常驻齿轮:设置是中频操作,只藏 ⋯ 菜单里不够显眼(语雀/Notion 同款左栏底部) */}
-          <Hint label="设置">
-            <button
-              className="text-muted-foreground hover:bg-accent/50 hover:text-foreground mr-1.5 flex h-6 w-6 cursor-pointer items-center justify-center rounded"
-              onClick={onOpenSettings}
-            >
-              <Settings className="size-3.5" />
-            </button>
-          </Hint>
-        </div>
+          </span>
+          {trashCount > 0 && (
+            <span className="bg-hover text-muted-foreground rounded-full px-1.5 text-[10px] leading-4 tabular-nums">
+              {trashCount}
+            </span>
+          )}
+        </button>
       </div>
     </aside>
   );

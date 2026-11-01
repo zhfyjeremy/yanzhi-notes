@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import { Loader2, RotateCcw, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown, Loader2, RotateCcw, Search, Tag, X } from "lucide-react";
 import type { SearchHit } from "./search";
 import { cn } from "@/lib/utils";
+import { Hint } from "@/components/hint";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 /**
  * 顶部全局搜索(PRD 5.5):左栏树上方搜索框,输入即搜(标题+正文+路径,标题加权),
@@ -16,18 +18,51 @@ interface SearchBoxProps {
   onRebuild: () => void;
   /** 外部预置搜索词(失效双链「搜索同名文档」等入口);seq 变化触发 */
   preset?: { term: string; seq: number } | null;
+  /** 全库标签筛选 */
+  tags: string[];
+  tagCounts: Record<string, number>;
+  activeTag: string | null;
+  onTagFilter: (tag: string | null) => void;
 }
 
 const DEBOUNCE_MS = 160;
 
-export function SearchBox({ indexReady, onSearch, onSelect, onRebuild, preset }: SearchBoxProps) {
+export function SearchBox({
+  indexReady,
+  onSearch,
+  onSelect,
+  onRebuild,
+  preset,
+  tags,
+  tagCounts,
+  activeTag,
+  onTagFilter,
+}: SearchBoxProps) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [focused, setFocused] = useState(false);
   const [active, setActive] = useState(0);
+  const [tagOpen, setTagOpen] = useState(false);
+  const [tagQuery, setTagQuery] = useState("");
+  const [tagActive, setTagActive] = useState(0);
   const timer = useRef<number | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
+  const tagInputRef = useRef<HTMLInputElement>(null);
   const lastPresetSeq = useRef(0);
+
+  const tagOptions = useMemo(() => {
+    const q = tagQuery.trim().toLocaleLowerCase();
+    const matches = tags.filter((tag) => !q || tag.toLocaleLowerCase().includes(q));
+    return [
+      ...(!q ? [{ tag: null as string | null }] : []),
+      ...matches.map((tag) => ({ tag })),
+    ];
+  }, [tags, tagQuery]);
+
+  useEffect(() => {
+    if (!tagOpen) return;
+    setTagActive(0);
+  }, [tagOpen, tagQuery]);
 
   useEffect(() => {
     if (!preset || preset.seq === lastPresetSeq.current) return;
@@ -59,39 +94,152 @@ export function SearchBox({ indexReady, onSearch, onSelect, onRebuild, preset }:
     (document.activeElement as HTMLElement | null)?.blur();
   };
 
+  const selectTag = (tag: string | null) => {
+    onTagFilter(tag);
+    setTagOpen(false);
+  };
+
   return (
-    <div className="relative px-2 pt-1 pb-1.5">
-      <div className="focus-within:border-ring flex h-7 items-center gap-1.5 rounded-md border border-input bg-background px-2">
-        {indexReady ? (
-          <Search className="text-muted-foreground size-3.5 shrink-0" />
-        ) : (
-          <Loader2 className="text-muted-foreground size-3.5 shrink-0 animate-spin" />
+    <div className="relative px-2.5 pt-0.5 pb-2">
+      <div className="flex items-center gap-1.5">
+        <div className="focus-within:border-ring border-border-subtle bg-raised flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border px-2.5 shadow-[0_1px_0_color-mix(in_oklab,var(--foreground)_5%,transparent)]">
+          {indexReady ? (
+            <Search className="text-muted-foreground size-3.5 shrink-0" />
+          ) : (
+            <Loader2 className="text-muted-foreground size-3.5 shrink-0 animate-spin" />
+          )}
+          <input
+            ref={inputRef}
+            className="placeholder:text-muted-foreground/70 h-full min-w-0 flex-1 bg-transparent text-xs outline-none"
+            placeholder="搜索文档…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => window.setTimeout(() => setFocused(false), 150)}
+            onKeyDown={(e) => {
+              if (!open || !hits.length) return;
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setActive((i) => (i + 1) % hits.length);
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setActive((i) => (i - 1 + hits.length) % hits.length);
+              } else if (e.key === "Enter") {
+                e.preventDefault();
+                openHit(hits[Math.min(active, hits.length - 1)]);
+              }
+            }}
+          />
+        </div>
+        {(tags.length > 0 || activeTag) && (
+          <Popover
+            open={tagOpen}
+            onOpenChange={(open) => {
+              setTagOpen(open);
+              if (open) {
+                setTagQuery("");
+                window.setTimeout(() => tagInputRef.current?.focus(), 0);
+              }
+            }}
+          >
+            <Hint label={activeTag ? `筛选标签:#${activeTag}` : "筛选标签"}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="筛选标签"
+                  aria-pressed={activeTag !== null}
+                  className={cn(
+                    "border-border-subtle bg-raised flex h-8 w-9 shrink-0 cursor-pointer items-center justify-center gap-0.5 rounded-lg border transition-colors",
+                    activeTag
+                      ? "bg-selection text-primary border-primary/25"
+                      : "text-muted-foreground hover:text-foreground hover:bg-hover",
+                  )}
+                >
+                  <Tag className="size-3.5" />
+                  <ChevronDown className="size-2.5 opacity-55" />
+                </button>
+              </PopoverTrigger>
+            </Hint>
+            <PopoverContent align="end" sideOffset={6} className="w-56 p-1.5">
+              <div className="px-1.5 pt-0.5 pb-1.5 text-[11px] font-semibold tracking-[0.03em]">
+                筛选标签
+              </div>
+              <input
+                ref={tagInputRef}
+                value={tagQuery}
+                onChange={(e) => setTagQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setTagActive((i) => Math.min(i + 1, tagOptions.length - 1));
+                  } else if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setTagActive((i) => Math.max(i - 1, 0));
+                  } else if (e.key === "Enter" && tagOptions[tagActive]) {
+                    e.preventDefault();
+                    selectTag(tagOptions[tagActive].tag);
+                  }
+                }}
+                placeholder="搜索标签…"
+                className="border-border-subtle bg-raised mb-1 h-7 w-full rounded-md border px-2 text-xs outline-none placeholder:text-muted-foreground/60 focus:ring-1 focus:ring-ring"
+              />
+              <div className="max-h-56 overflow-y-auto">
+                {tagOptions.length === 0 ? (
+                  <p className="text-muted-foreground px-2 py-3 text-center text-xs">没有匹配的标签</p>
+                ) : (
+                  tagOptions.map((option, i) => {
+                    const isActive = option.tag === activeTag;
+                    return (
+                      <button
+                        key={option.tag ?? "__all__"}
+                        type="button"
+                        className={cn(
+                          "flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-xs",
+                          i === tagActive ? "bg-selection" : "hover:bg-hover",
+                        )}
+                        onMouseEnter={() => setTagActive(i)}
+                        onClick={() => selectTag(option.tag)}
+                      >
+                        <Tag className="text-muted-foreground size-3.5 shrink-0" />
+                        <span className="min-w-0 flex-1 truncate">
+                          {option.tag === null ? "全部文档" : `#${option.tag}`}
+                        </span>
+                        {option.tag !== null && (
+                          <span className="text-muted-foreground text-[10px] tabular-nums">
+                            {tagCounts[option.tag] ?? 0}
+                          </span>
+                        )}
+                        {isActive && <Check className="text-primary size-3.5 shrink-0" />}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
         )}
-        <input
-          ref={inputRef}
-          className="placeholder:text-muted-foreground/70 h-full min-w-0 flex-1 bg-transparent text-xs outline-none"
-          placeholder="搜索文档…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => window.setTimeout(() => setFocused(false), 150)}
-          onKeyDown={(e) => {
-            if (!open || !hits.length) return;
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setActive((i) => (i + 1) % hits.length);
-            } else if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setActive((i) => (i - 1 + hits.length) % hits.length);
-            } else if (e.key === "Enter") {
-              e.preventDefault();
-              openHit(hits[Math.min(active, hits.length - 1)]);
-            }
-          }}
-        />
       </div>
+      {activeTag && (
+        <div className="mt-1.5 flex">
+          <span className="border-primary/25 bg-selection text-primary inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] leading-4">
+            <Tag className="size-3 shrink-0" />
+            <span className="truncate">#{activeTag}</span>
+            <span className="text-primary/65 text-[10px] tabular-nums">
+              {tagCounts[activeTag] ?? 0}
+            </span>
+            <button
+              type="button"
+              aria-label="清除标签筛选"
+              className="hover:text-foreground ml-0.5 shrink-0 cursor-pointer"
+              onClick={() => onTagFilter(null)}
+            >
+              <X className="size-3" />
+            </button>
+          </span>
+        </div>
+      )}
       {open && (
-        <div className="bg-popover text-popover-foreground absolute inset-x-2 top-[calc(100%-2px)] z-40 max-h-80 overflow-y-auto rounded-md border border-border shadow-lg">
+        <div className="bg-popover text-popover-foreground border-border-subtle absolute inset-x-2.5 top-[calc(100%-2px)] z-40 max-h-80 overflow-y-auto rounded-lg border shadow-xl">
           {!indexReady ? (
             <p className="text-muted-foreground px-3 py-4 text-center text-xs">索引构建中,稍候再搜…</p>
           ) : hits.length === 0 ? (
@@ -112,7 +260,7 @@ export function SearchBox({ indexReady, onSearch, onSelect, onRebuild, preset }:
                   <button
                     className={cn(
                       "block w-full px-2.5 py-1.5 text-left",
-                      i === active ? "bg-accent/70" : "hover:bg-accent/50",
+                      i === active ? "bg-selection" : "hover:bg-hover",
                     )}
                     onMouseEnter={() => setActive(i)}
                     onClick={() => openHit(hit)}

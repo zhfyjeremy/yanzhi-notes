@@ -34,6 +34,20 @@ impl Default for ViewFlagsInner {
 #[derive(Default)]
 struct ViewFlags(std::sync::Mutex<ViewFlagsInner>);
 
+/// 系统「打开方式」/启动参数带来的待打开 Markdown;前端就绪后 take
+#[derive(Default)]
+struct StartupSingleFile(std::sync::Mutex<Option<String>>);
+
+#[tauri::command]
+fn take_startup_single_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    Ok(app
+        .state::<StartupSingleFile>()
+        .0
+        .lock()
+        .unwrap()
+        .take())
+}
+
 /// 应用菜单(参考 Typora,全量中文重建):砚知 / 文件 / 编辑 / 显示 / 窗口。
 /// 编辑与窗口用预定义项(快捷键、系统行为由 OS 接管);文件/显示里的自定义项
 /// 经 `kb-menu` 事件转发前端执行。recent 列表取自 recent.json,set_recent 时整体重建。
@@ -60,6 +74,14 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         Some(NativeIcon::Folder),
         None::<&str>,
     )?;
+    let open_single = IconMenuItem::with_id_and_native_icon(
+        app,
+        "yz_open_single",
+        "打开 Markdown 文件…",
+        true,
+        Some(NativeIcon::MultipleDocuments),
+        Some("CmdOrCtrl+O"),
+    )?;
     let file = SubmenuBuilder::new(app, "文件")
         .item(&new_kb)
         .item(&open_kb)
@@ -83,6 +105,42 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .items(&recent_refs)
         .submenu_native_icon(NativeIcon::Folder)
         .build()?;
+    let recent_files = kb::read_recent_files(app).recent;
+    let recent_file_items: Vec<_> = if recent_files.is_empty() {
+        vec![MenuItem::with_id(app, "yz_recent_file_none", "暂无最近文件", false, None::<&str>)?]
+    } else {
+        recent_files
+            .iter()
+            .take(10)
+            .enumerate()
+            .map(|(i, path)| {
+                MenuItem::with_id(app, format!("yz_recent_file::{i}"), path, true, None::<&str>)
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let recent_file_refs: Vec<&dyn tauri::menu::IsMenuItem<_>> =
+        recent_file_items.iter().map(|i| i as &dyn tauri::menu::IsMenuItem<_>).collect();
+    let recent_file_menu = SubmenuBuilder::new(app, "打开最近文件")
+        .items(&recent_file_refs)
+        .submenu_native_icon(NativeIcon::MultipleDocuments)
+        .build()?;
+    let save_single = MenuItem::with_id(app, "yz_save_single", "保存", true, Some("CmdOrCtrl+S"))?;
+    let save_single_as = MenuItem::with_id(
+        app,
+        "yz_save_single_as",
+        "另存为…",
+        true,
+        Some("CmdOrCtrl+Shift+S"),
+    )?;
+    let close_single = MenuItem::with_id(app, "yz_close_single", "关闭文件", true, None::<&str>)?;
+    let save_single_to_kb = IconMenuItem::with_id_and_native_icon(
+        app,
+        "yz_save_single_to_kb",
+        "存入知识库…",
+        true,
+        Some(NativeIcon::Folder),
+        None::<&str>,
+    )?;
     let import_md = IconMenuItem::with_id_and_native_icon(
         app,
         "yz_import_md",
@@ -108,7 +166,15 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let file = file
+        .item(&open_single)
+        .separator()
         .item(&recent_menu)
+        .item(&recent_file_menu)
+        .separator()
+        .item(&save_single)
+        .item(&save_single_as)
+        .item(&close_single)
+        .item(&save_single_to_kb)
         .separator()
         .item(&import_md)
         .item(&export_md)
@@ -120,7 +186,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     let about = IconMenuItem::with_id_and_native_icon(
         app,
         "yz_about",
-        format!("关于{app_name}…"),
+        format!("关于{app_name}"),
         true,
         Some(NativeIcon::Info),
         None::<&str>,
@@ -161,7 +227,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     let graph = IconMenuItem::with_id_and_native_icon(
         app,
         "yz_graph",
-        "文档图谱…",
+        "文档图谱",
         true,
         Some(NativeIcon::Network),
         None::<&str>,
@@ -243,19 +309,40 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     let help_keys = IconMenuItem::with_id_and_native_icon(
         app,
         "yz_help_keys",
-        "快捷键说明…",
+        "快捷键说明",
         true,
         Some(NativeIcon::Info),
         None::<&str>,
     )?;
+    let help_quick_start = MenuItem::with_id(
+        app,
+        "yz_help_quick_start",
+        "快速上手",
+        true,
+        None::<&str>,
+    )?;
+    let help_markdown = MenuItem::with_id(
+        app,
+        "yz_help_markdown",
+        "Markdown 能力示例",
+        true,
+        None::<&str>,
+    )?;
+    let help_docs = SubmenuBuilder::new(app, "使用文档")
+        .item(&help_quick_start)
+        .item(&help_markdown)
+        .submenu_native_icon(NativeIcon::Bookmarks)
+        .build()?;
     #[cfg(not(target_os = "macos"))]
     let help_menu = SubmenuBuilder::new(app, "帮助")
         .item(&help_keys)
         .separator()
+        .item(&help_docs)
+        .separator()
         .item(&MenuItem::with_id(
             app,
             "yz_about_help",
-            format!("关于{app_name}…"),
+            format!("关于{app_name}"),
             true,
             None::<&str>,
         )?)
@@ -263,6 +350,8 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
     let help_menu = SubmenuBuilder::new(app, "帮助")
         .item(&help_keys)
+        .separator()
+        .item(&help_docs)
         .build()?;
 
     let menu = Menu::with_items(app, &[&app_submenu, &file, &edit, &view, &window, &help_menu])?;
@@ -279,11 +368,14 @@ fn open_aux_window(app: tauri::AppHandle, label: String, tab: Option<String>) ->
         let _ = w.set_focus();
         if label == "settings" && tab.is_some() {
             let _ = app.emit("yz-settings-tab", tab.unwrap_or_default());
+        } else if label == "help" && tab.is_some() {
+            let _ = app.emit("yz-help-doc", tab.unwrap_or_default());
         }
         return Ok(());
     }
     let (title, w, h, resizable) = match label.as_str() {
         "shortcuts" => ("快捷键说明", 460.0, 600.0, false),
+        "help" => ("使用文档", 820.0, 620.0, true),
         "graph" => ("文档图谱", 1080.0, 760.0, true),
         _ => ("设置", 780.0, 560.0, true),
     };
@@ -359,7 +451,19 @@ pub fn run() {
         )
         .manage(kb::WatchState(std::sync::Mutex::new(None)))
         .manage(ViewFlags::default())
+        .manage(StartupSingleFile::default())
         .setup(|app| {
+            let pending = std::env::args()
+                .skip(1)
+                .filter(|p| {
+                    let lower = p.to_lowercase();
+                    (lower.ends_with(".md") || lower.ends_with(".markdown"))
+                        && std::path::Path::new(p).is_file()
+                })
+                .last();
+            if let Some(path) = pending {
+                *app.state::<StartupSingleFile>().0.lock().unwrap() = Some(path);
+            }
             build_app_menu(app.handle())?;
             Ok(())
         })
@@ -369,6 +473,16 @@ pub fn run() {
                 serde_json::json!({ "action": "new" })
             } else if id == "yz_open_kb" {
                 serde_json::json!({ "action": "open" })
+            } else if id == "yz_open_single" {
+                serde_json::json!({ "action": "open-single" })
+            } else if id == "yz_save_single" {
+                serde_json::json!({ "action": "save-single" })
+            } else if id == "yz_save_single_as" {
+                serde_json::json!({ "action": "save-single-as" })
+            } else if id == "yz_close_single" {
+                serde_json::json!({ "action": "close-single" })
+            } else if id == "yz_save_single_to_kb" {
+                serde_json::json!({ "action": "save-single-to-kb" })
             } else if id == "yz_settings" {
                 serde_json::json!({ "action": "settings" })
             } else if id == "yz_import_md" {
@@ -381,6 +495,10 @@ pub fn run() {
                 serde_json::json!({ "action": "about" })
             } else if id == "yz_help_keys" {
                 serde_json::json!({ "action": "help-keys" })
+            } else if id == "yz_help_quick_start" {
+                serde_json::json!({ "action": "help-doc", "doc": "quick-start" })
+            } else if id == "yz_help_markdown" {
+                serde_json::json!({ "action": "help-doc", "doc": "markdown" })
             } else if id == "yz_graph" {
                 serde_json::json!({ "action": "graph" })
             } else if id == "yz_view_panel"
@@ -406,6 +524,11 @@ pub fn run() {
                 match kb::read_recent(app).recent.get(i) {
                     Some(root) => serde_json::json!({ "action": "open-recent", "root": root }),
                     None => return, // 菜单与 recent.json 短暂不同步(重建中),忽略
+                }
+            } else if let Some(i) = id.strip_prefix("yz_recent_file::").and_then(|s| s.parse::<usize>().ok()) {
+                match kb::read_recent_files(app).recent.get(i) {
+                    Some(path) => serde_json::json!({ "action": "open-recent-single", "path": path }),
+                    None => return,
                 }
             } else {
                 return;
@@ -433,7 +556,20 @@ pub fn run() {
             kb::write_meta,
             kb::get_recent,
             kb::set_recent,
+            kb::get_recent_files,
+            kb::set_recent_file,
             kb::set_last_doc,
+            kb::pick_single_file,
+            kb::read_single_file,
+            kb::write_single_file,
+            kb::save_single_file_as,
+            kb::watch_single_file,
+            kb::close_single_file,
+            kb::save_single_to_kb,
+            kb::save_single_draft,
+            kb::get_single_draft,
+            kb::clear_single_draft,
+            take_startup_single_file,
             kb::read_all_docs,
             kb::save_asset,
             kb::import_asset,
@@ -460,6 +596,24 @@ pub fn run() {
             kb::import_docs,
             kb::export_text,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = event {
+                let path = urls.iter().find_map(|url| {
+                    url.to_file_path()
+                        .ok()
+                        .map(|p| p.to_string_lossy().to_string())
+                });
+                if let Some(path) = path {
+                    *app.state::<StartupSingleFile>().0.lock().unwrap() = Some(path.clone());
+                    let _ = app.emit("yz-open-single-file", path);
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = (app, event);
+            }
+        });
 }

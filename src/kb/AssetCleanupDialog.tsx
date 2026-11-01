@@ -85,8 +85,8 @@ export function AssetCleanupDialog({ open, onOpenChange, root }: AssetCleanupDia
           </DialogDescription>
         </DialogHeader>
 
-        <div className="rounded-lg border border-border">
-          <div className="bg-muted/40 flex items-center gap-2 border-b border-border px-3 py-2 text-xs">
+        <div className="border-border-subtle rounded-lg border">
+          <div className="bg-hover flex items-center gap-2 border-b border-border-subtle px-3 py-2 text-xs">
             {scanning ? <LoaderCircle className="size-4 animate-spin" /> : <HardDrive className="size-4" />}
             <span>
               {scanning ? "正在扫描…" : `assets 文件 ${assets.length} 个,未引用 ${unused.length} 个`}
@@ -138,7 +138,7 @@ export function AssetCleanupDialog({ open, onOpenChange, root }: AssetCleanupDia
             onClick={() => setConfirming(true)}
           >
             <Trash2 className="size-3.5" />
-            {busy ? "清理中…" : `清理 ${unused.length} 个…`}
+            {busy ? "清理中…" : `清理 ${unused.length} 个`}
           </Button>
         </DialogFooter>
       </DialogContent>

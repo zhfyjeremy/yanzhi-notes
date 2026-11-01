@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, FileText } from "lucide-react";
+import { ArrowUpRight, ChevronDown, ChevronRight, FileText, Trash2 } from "lucide-react";
 import type { BacklinkRow } from "./backlinks";
 import { cn } from "@/lib/utils";
 
@@ -37,10 +37,10 @@ function Snippet({ text }: { text: string }) {
   }
   if (last < text.length) parts.push({ text: text.slice(last), wiki: false });
   return (
-    <span className="line-clamp-2 block text-xs leading-4 break-all">
+    <span className="line-clamp-2 block text-[11px] leading-5 break-words">
       {parts.map((p, i) =>
         p.wiki ? (
-          <span key={i} className="text-primary font-medium">
+          <span key={i} className="text-primary bg-primary/10 rounded-[3px] px-0.5 font-medium">
             {p.text}
           </span>
         ) : (
@@ -55,10 +55,10 @@ export function BacklinksPanel({ rows, onOpenSource, onOpenTrash }: BacklinksPan
   const [collapsed, setCollapsed] = useState(true);
 
   return (
-    <section className="flex max-h-72 shrink-0 flex-col border-t border-border">
-      <header className="flex h-9 shrink-0 items-center gap-1 px-2">
+    <section className="border-border-subtle flex max-h-72 shrink-0 flex-col border-t">
+      <header className="flex h-10 shrink-0 items-center gap-1 px-3">
         <button
-          className="text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-xs font-medium"
+          className="text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 text-[11px] font-semibold tracking-[0.03em]"
           onClick={() => setCollapsed((v) => !v)}
         >
           {collapsed ? (
@@ -69,44 +69,55 @@ export function BacklinksPanel({ rows, onOpenSource, onOpenTrash }: BacklinksPan
           反向链接
         </button>
         {rows.length > 0 && (
-          <span className="bg-accent text-accent-foreground rounded-full px-1.5 text-[10px] leading-4">
+          <span className="bg-selection text-primary ring-primary/15 rounded-full px-1.5 text-[10px] leading-4 ring-1">
             {rows.length}
           </span>
         )}
       </header>
       {!collapsed && (
-        <div className="max-h-60 min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5">
+        <div className="max-h-60 min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2 pb-2">
           {rows.length === 0 ? (
-            <p className="text-muted-foreground px-2 py-3 text-xs">暂无文档引用本文档</p>
+            <div className="text-muted-foreground mx-1 rounded-lg border border-dashed border-border-subtle px-3 py-5 text-center">
+              <FileText className="mx-auto mb-1.5 size-4 opacity-55" />
+              <p className="text-xs">暂无文档引用本文档</p>
+            </div>
           ) : (
             rows.map((r, i) => (
               <button
                 key={`${r.source}:${i}`}
+                type="button"
+                aria-label={r.deleted ? `打开回收站查看已删除来源 ${r.source}` : `打开来源文档 ${r.source}`}
                 onClick={() => (r.deleted ? onOpenTrash() : onOpenSource(r.source))}
                 className={cn(
-                  "hover:bg-accent/50 flex w-full cursor-pointer flex-col gap-0.5 rounded px-2 py-1.5 text-left",
-                  r.deleted ? "opacity-55" : "text-foreground/90",
+                  "group border-border-subtle bg-raised/55 hover:border-primary/25 hover:bg-raised flex w-full cursor-pointer flex-col gap-2 rounded-lg border p-2 text-left transition-colors",
+                  r.deleted
+                    ? "border-dashed opacity-70"
+                    : "shadow-[0_1px_0_color-mix(in_oklab,var(--workspace)_35%,transparent)]",
                 )}
                 title={r.deleted ? `「${r.source}」已移入回收站` : r.source}
               >
-                <span className="flex w-full min-w-0 items-center gap-1.5">
-                  <FileText className="text-muted-foreground size-3.5 shrink-0" />
-                  <span className="truncate text-xs leading-4 font-medium">{rowName(r.source)}</span>
-                  {r.heading && (
-                    <span className="text-muted-foreground ml-auto shrink-0 truncate text-[10px] leading-3">
-                      {r.heading}
-                    </span>
-                  )}
-                  {r.deleted && (
-                    <span className="text-muted-foreground ml-auto shrink-0 text-[10px]">已删除</span>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="bg-selection text-primary flex size-5 shrink-0 items-center justify-center rounded-md">
+                    {r.deleted ? <Trash2 className="size-3" /> : <FileText className="size-3" />}
+                  </span>
+                  <span className="text-foreground/90 min-w-0 flex-1 truncate text-xs leading-4 font-medium">
+                    {rowName(r.source)}
+                  </span>
+                  {!r.deleted && (
+                    <ArrowUpRight className="text-muted-foreground/50 group-hover:text-primary size-3.5 shrink-0 transition-colors" />
                   )}
                 </span>
-                {rowParent(r.source) && !r.heading && (
-                  <span className="text-muted-foreground block truncate pl-5 text-[10px] leading-3">
-                    {rowParent(r.source)}
-                  </span>
-                )}
-                <span className="pl-5">
+                <span className="text-muted-foreground flex min-w-0 gap-1 pl-6 text-[10px] leading-4">
+                  <span className="truncate">{rowParent(r.source) || "根目录"}</span>
+                  {r.heading && (
+                    <>
+                      <span className="text-border">/</span>
+                      <span className="truncate">{r.heading}</span>
+                    </>
+                  )}
+                  {r.deleted && <span className="text-destructive ml-auto shrink-0">已删除</span>}
+                </span>
+                <span className="border-primary/25 bg-hover/45 text-muted-foreground ml-2 rounded-r-md border-l-2 py-1 pr-2 pl-2">
                   <Snippet text={r.snippet} />
                 </span>
               </button>
