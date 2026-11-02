@@ -1111,7 +1111,7 @@ function App() {
         typewriterMode={settings.typewriterMode}
         onToggleTypewriter={() => updateSettings({ typewriterMode: !settings.typewriterMode })}
         shortcuts={settings.shortcuts}
-        aiEnabled={settings.aiEnabled}
+        aiReady={settings.aiEnabled && settings.aiVerified}
         aiSession={aiSession}
         onNeedAiSettings={() => openSettings("ai")}
         focusMode={focusMode}
@@ -1299,7 +1299,7 @@ function App() {
             showToolbar={settings.showToolbar && !focusMode}
             typewriter={focusMode && settings.typewriterMode}
             shortcuts={settings.shortcuts}
-            aiEnabled={settings.aiEnabled}
+            aiReady={settings.aiEnabled && settings.aiVerified}
             aiSession={aiSession}
             onNeedAiSettings={() => openSettings("ai")}
           />

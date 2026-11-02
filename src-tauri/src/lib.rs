@@ -686,6 +686,7 @@ pub fn run() {
             ai::set_ai_key,
             ai::clear_ai_key,
             ai::has_ai_key,
+            ai::ai_list_models,
             ai::ai_test_connection,
             ai::ai_chat,
             ai::ai_cancel,

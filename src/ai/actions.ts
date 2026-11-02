@@ -33,7 +33,7 @@ export interface AiActionDef {
 }
 
 const OUTPUT_MD =
-  "只输出可用的 Markdown 正文,不要解释过程,不要用代码围栏包裹全文,不要加前后客套话。";
+  "只输出可用的 Markdown 正文,不要解释过程,不要用代码围栏包裹全文,不要加前后客套话;替换选区时只输出选区对应片段,不要额外添加标题/列表/引用等块级语法。";
 
 export const AI_ACTIONS: AiActionDef[] = [
   {

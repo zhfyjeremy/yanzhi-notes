@@ -71,8 +71,8 @@ interface YanzhiEditorProps {
   typewriter?: boolean;
   /** V3 可自定义全局快捷键 */
   shortcuts?: ShortcutBindings;
-  /** AI BYOK(§7.8):总开关开时挂浮动条/右键;/ai 经 session */
-  aiEnabled?: boolean;
+  /** AI BYOK(§7.8):总开关开且测试通过后才挂浮动条/右键;/ai 经 session */
+  aiReady?: boolean;
   aiSession?: AiSession | null;
   onNeedAiSettings?: () => void;
 }
@@ -93,7 +93,7 @@ export function YanzhiEditor({
   showToolbar = true,
   typewriter = false,
   shortcuts = DEFAULT_SHORTCUTS,
-  aiEnabled = false,
+  aiReady = false,
   aiSession = null,
   onNeedAiSettings,
 }: YanzhiEditorProps) {
@@ -275,14 +275,14 @@ export function YanzhiEditor({
       return;
     }
     setSlashAiHandler((ed, actionId) => {
-      if (!aiEnabled) {
+      if (!aiReady) {
         onNeedAiSettings?.();
         return;
       }
-      void aiSession.run(ed, actionId, undefined, actionId === "continue");
+      void aiSession.run(ed, actionId);
     });
     return () => setSlashAiHandler(null);
-  }, [aiSession, aiEnabled, onNeedAiSettings]);
+  }, [aiSession, aiReady, onNeedAiSettings]);
 
   // 全局搜索定位:文档载入完成后跳首个命中 + 高亮 + 打开查找条
   const lastLocateSeq = useRef(-1);
@@ -346,11 +346,11 @@ export function YanzhiEditor({
           <EditorContent editor={editor} className="flex flex-1 flex-col" />
           {editor && <TableToolbar editor={editor} />}
           {editor && <ImageToolbar editor={editor} onPreview={setPreviewSrc} />}
-          {editor && aiSession && (
+          {editor && aiSession && aiReady && (
             <AiChrome
               editor={editor}
               session={aiSession}
-              enabled={aiEnabled}
+              enabled={aiReady}
               onNeedSettings={() => onNeedAiSettings?.()}
             />
           )}

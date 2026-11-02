@@ -51,7 +51,8 @@ describe("settings 解析(PRD §8)", () => {
       "http://127.0.0.1:11434/v1",
     );
     expect(parseSettings('{"aiModel":" qwen "}').aiModel).toBe("qwen");
-    expect(parseSettings('{"aiProvider":"kimi"}').aiProvider).toBe("kimi");
+    expect(parseSettings('{"aiProvider":"kimi"}').aiProvider).toBe("custom");
+    expect(parseSettings('{"aiProvider":"kimi_coding"}').aiProvider).toBe("kimi_coding");
     expect(parseSettings('{"aiBaseUrl":"https://api.deepseek.com/v1"}').aiProvider).toBe(
       "deepseek",
     );
@@ -60,6 +61,8 @@ describe("settings 解析(PRD §8)", () => {
     );
     expect(parseSettings('{"aiTemperature":9}').aiTemperature).toBe(2);
     expect(parseSettings('{"aiMaxTokens":-1}').aiMaxTokens).toBe(0);
+    expect(parseSettings('{"aiVerified":true}').aiVerified).toBe(true);
+    expect(parseSettings('{"aiVerified":"true"}').aiVerified).toBe(false);
     expect(JSON.stringify(parseSettings('{"aiEnabled":true}'))).not.toMatch(/sk-/);
   });
   it("快照设置(§8 存储,V2):整数直读并钳制,缺失/异型回默认(30 份 / 5 分钟)", () => {

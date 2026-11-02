@@ -1,10 +1,12 @@
 /**
  * AI 请求层:Tauri invoke / 浏览器 mock(localStorage Key + fetch)。
+ * Key 存储统一走本模块:Tauri=系统安全存储+进程内兜底缓存;浏览器 dev=localStorage。
+ * Key 只会作为鉴权头发往用户填写的模型 Endpoint,不上传砚知服务器。
  * 关闭总开关时上层不得调用;本层仍假定调用方已检查。
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { aiChatUrl } from "./providers";
+import { aiChatUrl, aiModelsUrl, isAnthropicBase } from "./providers";
 
 const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const MOCK_KEY = "yz-ai-api-key";
@@ -64,21 +66,70 @@ export async function hasAiKey(): Promise<boolean> {
   return Boolean(localStorage.getItem(MOCK_KEY)?.trim());
 }
 
-export async function testAiConnection(baseUrl: string, model: string): Promise<string> {
+export async function listAiModels(baseUrl: string, keyDraft?: string): Promise<string[]> {
   if (isTauri()) {
-    return invoke<string>("ai_test_connection", { baseUrl, model });
+    return invoke<string[]>("ai_list_models", {
+      baseUrl,
+      key: keyDraft?.trim() || null,
+    });
+  }
+  const base = assertBase(baseUrl);
+  const key = keyDraft?.trim() || localStorage.getItem(MOCK_KEY)?.trim();
+  if (!key) throw new Error("未配置 API Key");
+  const headers: Record<string, string> = { Authorization: `Bearer ${key}` };
+  if (isAnthropicBase(base)) {
+    headers["x-api-key"] = key;
+    headers["anthropic-version"] = "2023-06-01";
+  }
+  const res = await fetch(aiModelsUrl(base), { headers });
+  const text = await res.text();
+  let json: { data?: { id?: string }[]; error?: { message?: string } };
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+  }
+  if (json.error?.message) throw new Error(json.error.message);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+  const models = (json.data ?? [])
+    .map((m) => m.id?.trim())
+    .filter((m): m is string => Boolean(m));
+  if (!models.length) throw new Error("接口未返回可用模型");
+  return [...new Set(models)].sort((a, b) => a.localeCompare(b));
+}
+
+export async function testAiConnection(
+  baseUrl: string,
+  model: string,
+  keyDraft?: string,
+): Promise<string> {
+  if (isTauri()) {
+    return invoke<string>("ai_test_connection", {
+      baseUrl,
+      model,
+      key: keyDraft?.trim() || null,
+    });
   }
   const id = `test-${Date.now()}`;
-  await aiChat({
-    baseUrl,
-    model,
-    system: "You are a connection probe. Reply with exactly: ok",
-    user: "ping",
-    temperature: 0,
-    maxTokens: 8,
-    requestId: id,
-  });
-  return "连接成功";
+  const previousKey = localStorage.getItem(MOCK_KEY);
+  if (keyDraft?.trim()) localStorage.setItem(MOCK_KEY, keyDraft.trim());
+  try {
+    await aiChat({
+      baseUrl,
+      model,
+      system: "You are a connection probe. Reply with exactly: ok",
+      user: "ping",
+      temperature: 0,
+      maxTokens: 64,
+      requestId: id,
+    });
+    return "连接成功";
+  } finally {
+    if (keyDraft?.trim()) {
+      if (previousKey === null) localStorage.removeItem(MOCK_KEY);
+      else localStorage.setItem(MOCK_KEY, previousKey);
+    }
+  }
 }
 
 export async function aiChat(p: AiChatParams): Promise<string> {
@@ -99,25 +150,44 @@ export async function aiChat(p: AiChatParams): Promise<string> {
   const ctrl = new AbortController();
   abortMap.set(p.requestId, ctrl);
   try {
+    const anthropic = isAnthropicBase(base);
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+    };
+    if (anthropic) {
+      headers["x-api-key"] = key;
+      headers["anthropic-version"] = "2023-06-01";
+    }
+    const body = anthropic
+      ? {
+          model: p.model,
+          system: p.system,
+          messages: [{ role: "user", content: p.user }],
+          temperature: p.temperature,
+          max_tokens: p.maxTokens > 0 ? p.maxTokens : 2048,
+        }
+      : {
+          model: p.model,
+          messages: [
+            { role: "system", content: p.system },
+            { role: "user", content: p.user },
+          ],
+          temperature: p.temperature,
+          ...(p.maxTokens > 0 ? { max_tokens: p.maxTokens } : {}),
+        };
     const res = await fetch(chatUrl(base), {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify({
-        model: p.model,
-        messages: [
-          { role: "system", content: p.system },
-          { role: "user", content: p.user },
-        ],
-        temperature: p.temperature,
-        ...(p.maxTokens > 0 ? { max_tokens: p.maxTokens } : {}),
-      }),
+      headers,
+      body: JSON.stringify(body),
       signal: ctrl.signal,
     });
     const text = await res.text();
-    let json: { choices?: { message?: { content?: string } }[]; error?: { message?: string } };
+    let json: {
+      choices?: { message?: { content?: string } }[];
+      content?: { type?: string; text?: string }[];
+      error?: { message?: string };
+    };
     try {
       json = JSON.parse(text);
     } catch {
@@ -125,7 +195,13 @@ export async function aiChat(p: AiChatParams): Promise<string> {
     }
     if (json.error?.message) throw new Error(json.error.message);
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
-    const content = json.choices?.[0]?.message?.content?.trim() ?? "";
+    const content = anthropic
+      ? (json.content ?? [])
+          .filter((part) => !part.type || part.type === "text")
+          .map((part) => part.text ?? "")
+          .join("")
+          .trim()
+      : json.choices?.[0]?.message?.content?.trim() ?? "";
     if (!content) throw new Error("模型返回空内容");
     return content;
   } catch (e) {

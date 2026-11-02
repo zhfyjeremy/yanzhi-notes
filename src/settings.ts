@@ -132,6 +132,8 @@ export interface AppSettings {
   /** OpenAI 兼容 Base URL */
   aiBaseUrl: string;
   aiModel: string;
+  /** 最近一次配置是否通过测试连接;只记录状态,不保存 Key */
+  aiVerified: boolean;
   aiTemperature: number;
   /** 0 = 不传 max_tokens */
   aiMaxTokens: number;
@@ -162,6 +164,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   aiProvider: "custom",
   aiBaseUrl: "https://api.openai.com/v1",
   aiModel: "gpt-4o-mini",
+  aiVerified: false,
   aiTemperature: 0.7,
   aiMaxTokens: 2048,
 };
@@ -218,9 +221,15 @@ export function parseSettings(raw: string): AppSettings {
         typeof v?.aiModel === "string" && v.aiModel.trim()
           ? v.aiModel.trim()
           : DEFAULT_SETTINGS.aiModel,
+      aiVerified: typeof v?.aiVerified === "boolean" ? v.aiVerified : false,
       aiProvider: (() => {
         const raw = typeof v?.aiProvider === "string" ? v.aiProvider.trim() : "";
-        if (raw === "kimi" || raw === "zhipu" || raw === "deepseek" || raw === "custom") {
+        if (
+          raw === "kimi_coding" ||
+          raw === "zhipu" ||
+          raw === "deepseek" ||
+          raw === "custom"
+        ) {
           return raw;
         }
         // 旧配置无字段:按 Base URL 反推
@@ -228,7 +237,7 @@ export function parseSettings(raw: string): AppSettings {
           typeof v?.aiBaseUrl === "string" && v.aiBaseUrl.trim()
             ? v.aiBaseUrl.trim()
             : DEFAULT_SETTINGS.aiBaseUrl;
-        if (base.includes("moonshot.") || base.includes("kimi.")) return "kimi";
+        if (base.includes("api.kimi.com/coding")) return "kimi_coding";
         if (base.includes("bigmodel.") || base.includes("zhipuai")) return "zhipu";
         if (base.includes("deepseek.")) return "deepseek";
         return "custom";

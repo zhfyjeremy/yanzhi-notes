@@ -1,7 +1,18 @@
 import { useEffect, useState } from "react";
-import { Eye, EyeOff, Loader2, Shield } from "lucide-react";
+import {
+  CheckCircle2,
+  CircleSlash,
+  Eye,
+  EyeOff,
+  KeyRound,
+  ListChecks,
+  Loader2,
+  RefreshCw,
+  Shield,
+  ShieldCheck,
+} from "lucide-react";
 import type { AppSettings } from "../settings";
-import { clearAiKey, hasAiKey, setAiKey, testAiConnection } from "./client";
+import { clearAiKey, hasAiKey, hostOfBaseUrl, listAiModels, setAiKey, testAiConnection } from "./client";
 import {
   AI_PROVIDERS,
   aiProviderById,
@@ -44,21 +55,63 @@ function Row({
 function Field({
   label,
   hint,
+  step,
+  stepState,
   children,
 }: {
   label: string;
   hint?: string;
+  step?: string;
+  stepState?: "done" | "active" | "locked";
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-1.5 px-3.5 py-3">
-      <div>
-        <p className="text-[13px] font-medium">{label}</p>
-        {hint && <p className="text-muted-foreground mt-0.5 text-[11px] leading-4">{hint}</p>}
+    <div className="space-y-2 px-3.5 py-3.5">
+      <div className="flex min-w-0 items-start gap-2.5">
+        {step && (
+          <span
+            className={cn(
+              "mt-px flex size-5 shrink-0 items-center justify-center rounded-md border text-[10px] font-semibold tabular-nums",
+              stepState === "done"
+                ? "border-primary/35 bg-selection text-primary"
+                : stepState === "active"
+                  ? "border-primary/45 bg-primary/10 text-primary"
+                  : "border-border-subtle bg-raised/70 text-muted-foreground",
+            )}
+            aria-hidden
+          >
+            {stepState === "done" ? "✓" : step}
+          </span>
+        )}
+        <div className="min-w-0">
+          <p className="text-[13px] font-medium">{label}</p>
+          {hint && <p className="text-muted-foreground mt-0.5 text-[11px] leading-4">{hint}</p>}
+        </div>
       </div>
       {children}
     </div>
   );
+}
+
+type AiSetupPhase = "disabled" | "checking" | "connect" | "select" | "untested" | "ready";
+
+const PHASE_META: Record<AiSetupPhase, { title: string; detail: string; badge: string }> = {
+  disabled: { title: "AI 未开启", detail: "打开开关后开始三步配置", badge: "未开启" },
+  checking: { title: "正在检查本机 Key", detail: "读取系统安全存储，不会发起网络请求", badge: "检查中" },
+  connect: { title: "第 1 步 · 连接账号", detail: "粘贴 API Key，并连接获取模型", badge: "待连接" },
+  select: { title: "第 2 步 · 选择模型", detail: "点击加载出的模型，或手填模型名", badge: "待选模型" },
+  untested: { title: "配置完成 · 待测试", detail: "基础配置已保存，建议测试一次连接", badge: "待测试" },
+  ready: { title: "AI 配置成功", detail: "可在选区 AI、右键 AI 与 /ai 中使用", badge: "可用" },
+};
+
+function PhaseIcon({ phase }: { phase: AiSetupPhase }) {
+  const common = "size-4 shrink-0";
+  if (phase === "ready") return <CheckCircle2 className={cn(common, "text-primary")} />;
+  if (phase === "disabled") return <CircleSlash className={cn(common, "text-muted-foreground")} />;
+  if (phase === "connect") return <KeyRound className={cn(common, "text-primary")} />;
+  if (phase === "select") return <ListChecks className={cn(common, "text-primary")} />;
+  if (phase === "untested") return <ShieldCheck className={cn(common, "text-primary")} />;
+  return <Loader2 className={cn(common, "text-muted-foreground animate-spin")} />;
 }
 
 export function AiSettingsPanel({
@@ -71,46 +124,73 @@ export function AiSettingsPanel({
   const [keyDraft, setKeyDraft] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [configured, setConfigured] = useState(false);
+  const [keyChecked, setKeyChecked] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testMsg, setTestMsg] = useState<string | null>(null);
+  const [remoteModels, setRemoteModels] = useState<string[]>([]);
+  const [presetFallback, setPresetFallback] = useState(false);
+  const [manualModel, setManualModel] = useState(false);
+  const [loadingModels, setLoadingModels] = useState(false);
 
   const provider = aiProviderById(settings.aiProvider);
   const isCustom = provider.id === "custom";
+  const modelsReady = remoteModels.length > 0 || presetFallback;
+  const availableModels = remoteModels.length ? remoteModels : presetFallback ? provider.models : [];
+  const modelReady = Boolean(settings.aiModel.trim());
+  const interfaceReady = Boolean(settings.aiBaseUrl.trim());
+  const phase: AiSetupPhase = !settings.aiEnabled
+    ? "disabled"
+    : !keyChecked
+      ? "checking"
+      : !configured
+        ? "connect"
+        : !modelReady
+          ? "select"
+          : !settings.aiVerified
+            ? "untested"
+            : "ready";
+  const providerName = isCustom ? hostOfBaseUrl(settings.aiBaseUrl) : provider.label;
+  const status = PHASE_META[phase];
 
   const refreshHasKey = () => {
     void hasAiKey()
-      .then(setConfigured)
-      .catch(() => setConfigured(false));
+      .then((has) => {
+        setConfigured(has);
+        setKeyChecked(true);
+      })
+      .catch(() => {
+        setConfigured(false);
+        setKeyChecked(true);
+      });
   };
 
   useEffect(() => {
     refreshHasKey();
   }, []);
 
+  // Key 被系统存储清除/读取失败时，不能让“测试通过”残留为虚假可用状态。
+  useEffect(() => {
+    if (keyChecked && !configured && settings.aiVerified) {
+      onChange({ aiVerified: false });
+    }
+  }, [configured, keyChecked, settings.aiVerified]);
+
   const selectProvider = (id: AiProviderId) => {
     const next = aiProviderById(id);
     setTestMsg(null);
+    setRemoteModels([]);
+    setPresetFallback(false);
+    setManualModel(false);
     if (id === "custom") {
-      onChange({ aiProvider: id });
+      onChange({ aiProvider: id, aiVerified: false });
       return;
     }
     onChange({
       aiProvider: id,
       aiBaseUrl: next.baseUrl,
       aiModel: next.model,
+      aiVerified: false,
     });
-  };
-
-  const saveKey = async () => {
-    setTestMsg(null);
-    try {
-      if (keyDraft.trim()) await setAiKey(keyDraft.trim());
-      setKeyDraft("");
-      refreshHasKey();
-      setTestMsg(keyDraft.trim() ? "Key 已保存到本机安全存储" : null);
-    } catch (e) {
-      setTestMsg(e instanceof Error ? e.message : String(e));
-    }
   };
 
   const removeKey = async () => {
@@ -125,15 +205,48 @@ export function AiSettingsPanel({
     }
   };
 
+  const onFetchModels = async () => {
+    setLoadingModels(true);
+    setTestMsg(null);
+    setManualModel(false);
+    try {
+      if (keyDraft.trim()) await setAiKey(keyDraft.trim());
+      const models = await listAiModels(settings.aiBaseUrl, keyDraft);
+      setRemoteModels(models);
+      setPresetFallback(false);
+      refreshHasKey();
+      setTestMsg(`已获取 ${models.length} 个模型，请选择`);
+      if (!models.includes(settings.aiModel)) {
+        onChange({ aiModel: models[0], aiVerified: false });
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (provider.models.length) {
+        setRemoteModels([]);
+        setPresetFallback(true);
+        if (!provider.models.includes(settings.aiModel)) {
+          onChange({ aiModel: provider.model, aiVerified: false });
+        }
+        setTestMsg(`${message}；已展示内置常用模型`);
+      } else {
+        setTestMsg(message);
+      }
+      refreshHasKey();
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
   const onTest = async () => {
     setTesting(true);
     setTestMsg(null);
     try {
       if (keyDraft.trim()) await setAiKey(keyDraft.trim());
-      const msg = await testAiConnection(settings.aiBaseUrl, settings.aiModel);
+      const msg = await testAiConnection(settings.aiBaseUrl, settings.aiModel, keyDraft);
+      onChange({ aiVerified: true });
       refreshHasKey();
-      setKeyDraft("");
       setTestMsg(msg);
+      setKeyDraft("");
     } catch (e) {
       setTestMsg(e instanceof Error ? e.message : String(e));
     } finally {
@@ -150,11 +263,51 @@ export function AiSettingsPanel({
             <p className="text-foreground font-medium">本地钥匙 · 直连你的模型</p>
             <p className="text-muted-foreground">
               请求只在你点击生成时发往你填写的服务商;砚知不中转、不代扣费。Key
-              仅存本机安全存储,永不写入知识库或导出包。
+              仅保存在本机系统安全存储与 0600 权限缓存,永不写入知识库或导出包。
             </p>
           </div>
         </div>
       </aside>
+
+      <div className="border-border-subtle bg-raised/45 rounded-xl border px-3.5 py-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <PhaseIcon phase={phase} />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <p className="text-[13px] font-medium">{status.title}</p>
+              <span
+                className={cn(
+                  "border-border-subtle rounded-md border px-1.5 py-0.5 text-[10px]",
+                  phase === "ready" ? "bg-selection text-primary" : "text-muted-foreground",
+                )}
+              >
+                {status.badge}
+              </span>
+            </div>
+            <p className="text-muted-foreground mt-0.5 truncate text-[11px]">
+              {phase === "ready" ? `${providerName} · ${settings.aiModel}` : status.detail}
+            </p>
+          </div>
+        </div>
+        <ol className="mt-3 flex flex-wrap items-center gap-1.5 text-[10px]" aria-label="AI 配置进度">
+          {[
+            { label: "开启", done: settings.aiEnabled },
+            { label: "Key", done: configured },
+            { label: "模型", done: configured && modelReady },
+            { label: "测试", done: configured && modelReady && settings.aiVerified },
+          ].map((step, i) => (
+            <li
+              key={step.label}
+              className={cn(
+                "border-border-subtle rounded-md border px-1.5 py-0.5",
+                step.done ? "bg-selection text-primary" : "text-muted-foreground",
+              )}
+            >
+              {i + 1}. {step.label}
+            </li>
+          ))}
+        </ol>
+      </div>
 
       <section className="space-y-2">
         <h3 className="text-muted-foreground px-0.5 text-[11px] font-semibold tracking-wide">开关与连接</h3>
@@ -166,7 +319,14 @@ export function AiSettingsPanel({
             />
           </Row>
 
-          <Field label="服务商" hint={provider.hint}>
+          {settings.aiEnabled && (
+          <>
+          <Field
+            label="服务商与接口"
+            hint={provider.hint}
+            step="1"
+            stepState={interfaceReady ? "done" : "active"}
+          >
             <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
               {AI_PROVIDERS.map((p) => (
                 <button
@@ -174,7 +334,7 @@ export function AiSettingsPanel({
                   type="button"
                   onClick={() => selectProvider(p.id)}
                   className={cn(
-                    "border-border-subtle h-8 rounded-lg border text-[12px] font-medium transition-colors",
+                    "border-border-subtle h-9 rounded-lg border text-[12px] font-medium transition-colors",
                     settings.aiProvider === p.id
                       ? "bg-selection text-foreground ring-primary/25 ring-1"
                       : "bg-raised/60 text-muted-foreground hover:text-foreground hover:bg-hover",
@@ -184,66 +344,32 @@ export function AiSettingsPanel({
                 </button>
               ))}
             </div>
-          </Field>
-
-          <Field
-            label="API Base URL"
-            hint={
-              isCustom
-                ? "OpenAI 兼容;本地 Ollama 可用 http://127.0.0.1:11434/v1"
-                : "由服务商预设填充;改用其它地址请选「自定义」"
-            }
-          >
             <Input
               value={settings.aiBaseUrl}
               placeholder="https://api.openai.com/v1"
               readOnly={!isCustom}
-              onChange={(e) => onChange({ aiBaseUrl: e.target.value, aiProvider: "custom" })}
+              onChange={(e) => {
+                setRemoteModels([]);
+                setPresetFallback(false);
+                onChange({
+                  aiBaseUrl: e.target.value,
+                  aiProvider: "custom",
+                  aiVerified: false,
+                });
+              }}
               className={cn(!isCustom && "bg-muted/40 text-muted-foreground")}
             />
           </Field>
 
           <Field
-            label="模型"
-            hint={
-              !isCustom && provider.models.length
-                ? "可点选常用模型,也可直接改输入框"
-                : undefined
-            }
-          >
-            {!isCustom && provider.models.length > 0 && (
-              <div className="mb-2 flex flex-wrap gap-1.5">
-                {provider.models.map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => onChange({ aiModel: m })}
-                    className={cn(
-                      "border-border-subtle rounded-md border px-2 py-0.5 text-[11px] transition-colors",
-                      settings.aiModel === m
-                        ? "bg-selection text-foreground ring-primary/20 ring-1"
-                        : "text-muted-foreground hover:text-foreground hover:bg-hover",
-                    )}
-                  >
-                    {m}
-                  </button>
-                ))}
-              </div>
-            )}
-            <Input
-              value={settings.aiModel}
-              placeholder={provider.model}
-              onChange={(e) => onChange({ aiModel: e.target.value })}
-            />
-          </Field>
-
-          <Field
-            label="API Key"
+            label="连接账号"
             hint={
               configured
-                ? "已配置(掩码存储)。输入新值可覆盖;留空点保存不改动。"
-                : "尚未配置。保存后写入系统钥匙串 / 本机安全存储。"
+                ? "Key 已保存在本机安全存储。输入新 Key 后点击连接可覆盖。"
+                : "先粘贴 API Key，再连接并获取模型；Key 只写入本机安全存储。"
             }
+            step="2"
+            stepState={configured ? "done" : "active"}
           >
             <div className="flex gap-2">
               <div className="relative min-w-0 flex-1">
@@ -264,20 +390,97 @@ export function AiSettingsPanel({
                   {showKey ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
                 </button>
               </div>
-              <Button type="button" size="sm" variant="secondary" onClick={() => void saveKey()}>
-                保存 Key
+              <Button
+                type="button"
+                size="sm"
+                disabled={loadingModels || !settings.aiBaseUrl.trim() || (!keyDraft.trim() && !configured)}
+                onClick={() => void onFetchModels()}
+                className="h-9 shrink-0"
+              >
+                {loadingModels ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-3.5" />
+                )}
+                连接并获取
               </Button>
             </div>
             {configured && (
               <button
                 type="button"
-                className="text-muted-foreground hover:text-destructive mt-1.5 text-[11px]"
-                onClick={() => void removeKey()}
+                className="text-muted-foreground hover:text-destructive text-[11px]"
+                onClick={() => {
+                  void removeKey();
+                  setRemoteModels([]);
+                  setPresetFallback(false);
+                  onChange({ aiVerified: false });
+                }}
               >
                 清除已存 Key
               </button>
             )}
           </Field>
+
+          <Field
+            label="选择模型"
+            hint={
+              modelsReady
+                ? remoteModels.length
+                  ? "已从服务商加载，点击选择后可测试连接"
+                  : "该接口未返回模型列表，已展示内置常用模型"
+                : "完成上一步后自动加载；自定义接口不支持列表时可手填"
+            }
+            step="3"
+            stepState={!configured ? "locked" : modelReady ? "done" : "active"}
+          >
+            <div className="border-border-subtle bg-muted/25 max-h-44 overflow-y-auto rounded-lg border p-2">
+              {availableModels.length ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {availableModels.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => {
+                        setManualModel(false);
+                        onChange({ aiModel: m, aiVerified: false });
+                      }}
+                      className={cn(
+                        "border-border-subtle rounded-md border px-2.5 py-1 text-[11px] transition-colors",
+                        !manualModel && settings.aiModel === m
+                          ? "bg-selection text-foreground ring-primary/25 ring-1"
+                          : "text-muted-foreground hover:text-foreground hover:bg-hover",
+                      )}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-muted-foreground px-1 py-3 text-center text-[11px]">
+                  连接成功后，模型会在这里加载
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                value={settings.aiModel}
+                placeholder={provider.model}
+                readOnly={!manualModel}
+                onChange={(e) => onChange({ aiModel: e.target.value, aiVerified: false })}
+                className={cn(!manualModel && "bg-muted/40 text-muted-foreground")}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setManualModel((v) => !v)}
+                className="h-9 shrink-0"
+              >
+                {manualModel ? "选择模型" : "手填模型"}
+              </Button>
+            </div>
+          </Field>
+
           <div className="flex items-center gap-2 px-3.5 py-3">
             <Button
               type="button"
@@ -291,7 +494,7 @@ export function AiSettingsPanel({
             {testMsg && (
               <p
                 className={`min-w-0 flex-1 text-[11px] leading-4 ${
-                  testMsg.includes("成功") || testMsg.includes("已保存") || testMsg.includes("已清除")
+                  testMsg.includes("成功") || testMsg.includes("已获取") || testMsg.includes("已清除")
                     ? "text-muted-foreground"
                     : "text-destructive"
                 }`}
@@ -300,36 +503,11 @@ export function AiSettingsPanel({
               </p>
             )}
           </div>
+          </>
+          )}
         </Group>
       </section>
 
-      <section className="space-y-2">
-        <h3 className="text-muted-foreground px-0.5 text-[11px] font-semibold tracking-wide">生成参数</h3>
-        <Group>
-          <Field label="温度" hint="0 更稳,2 更发散;默认 0.7">
-            <Input
-              type="number"
-              min={0}
-              max={2}
-              step={0.1}
-              value={settings.aiTemperature}
-              onChange={(e) => onChange({ aiTemperature: Number(e.target.value) || 0 })}
-              className="w-28"
-            />
-          </Field>
-          <Field label="最大输出长度" hint="0 表示不限制(由服务商决定)">
-            <Input
-              type="number"
-              min={0}
-              max={128000}
-              step={256}
-              value={settings.aiMaxTokens}
-              onChange={(e) => onChange({ aiMaxTokens: Math.round(Number(e.target.value) || 0) })}
-              className="w-28"
-            />
-          </Field>
-        </Group>
-      </section>
     </div>
   );
 }

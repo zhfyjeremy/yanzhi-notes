@@ -4,7 +4,6 @@ import {
   Check,
   ClipboardCopy,
   Languages,
-  Loader2,
   Sparkles,
   X,
 } from "lucide-react";
@@ -15,6 +14,7 @@ import {
   type AiActionId,
 } from "./actions";
 import type { AiSession } from "./useAiSession";
+import { selectionText } from "./apply";
 import { Hint } from "@/components/hint";
 import { cn } from "@/lib/utils";
 
@@ -34,44 +34,147 @@ interface AiChromeProps {
 }
 
 type PendingOption = { id: AiActionId; kind: "tone" | "lang" };
+type FloatingPoint = { top: number; left: number; placement: "top" | "bottom" };
+
+function LoadingDots() {
+  return (
+    <span className="inline-flex items-end gap-0.5 pb-0.5" aria-hidden>
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="bg-primary/70 size-1.5 rounded-full"
+          style={{
+            animation: "yz-ai-dot 1s infinite",
+            animationDelay: `${i * 0.16}s`,
+          }}
+        />
+      ))}
+    </span>
+  );
+}
 
 export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeProps) {
-  const [bar, setBar] = useState<{ top: number; left: number } | null>(null);
+  const [bar, setBar] = useState<FloatingPoint | null>(null);
+  const [panel, setPanel] = useState<FloatingPoint | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; hasSel: boolean } | null>(null);
   const [pending, setPending] = useState<PendingOption | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const pointerDownRef = useRef(false);
+  const toolbarSelectionRef = useRef<{ from: number; to: number } | null>(null);
 
-  // 选区浮动条定位
+  // 选区浮动条定位:鼠标拖拽期间始终隐藏;松开且选区含文本后再出现。
   useLayoutEffect(() => {
-    const sync = () => {
-      if (!enabled || session.state.phase === "running" || session.state.phase === "result") {
+    let timer = 0;
+    const parent = wrapRef.current?.offsetParent as HTMLElement | null;
+    const hide = () => {
+      window.clearTimeout(timer);
+      setBar(null);
+    };
+    const position = () => {
+      if (!enabled || session.state.phase !== "idle" || editor.isDestroyed) {
         setBar(null);
         return;
       }
       const { empty, from, to } = editor.state.selection;
-      if (empty) {
+      const hasText = !empty && selectionText(editor).trim().length > 0;
+      if (!hasText) {
+        toolbarSelectionRef.current = null;
         setBar(null);
         return;
       }
+      toolbarSelectionRef.current = { from, to };
       const start = editor.view.coordsAtPos(from);
       const end = editor.view.coordsAtPos(to);
       const left = Math.min(start.left, end.left);
-      const top = Math.min(start.top, end.top) - 44;
-      const parent = wrapRef.current?.offsetParent as HTMLElement | null;
+      const right = Math.max(start.right, end.right);
+      const top = Math.min(start.top, end.top);
+      const bottom = Math.max(start.bottom, end.bottom);
       const pref = parent?.getBoundingClientRect();
+      const x = (left + right) / 2 - (pref?.left ?? 0) + (parent?.scrollLeft ?? 0);
+      const width = parent?.clientWidth ?? 0;
+      const clampedX = Math.max(170, Math.min(x, Math.max(170, width - 170)));
+      const aboveViewport = top >= 180;
       setBar({
-        top: top - (pref?.top ?? 0) + (parent?.scrollTop ?? 0),
-        left: left - (pref?.left ?? 0) + (parent?.scrollLeft ?? 0),
+        top:
+          (aboveViewport ? top : bottom) -
+          (pref?.top ?? 0) +
+          (parent?.scrollTop ?? 0) +
+          (aboveViewport ? -44 : 10),
+        left: clampedX,
+        placement: aboveViewport ? "top" : "bottom",
       });
     };
-    sync();
-    editor.on("selectionUpdate", sync);
-    editor.on("transaction", sync);
+    const schedule = (delay = 220) => {
+      hide();
+      if (pointerDownRef.current) return;
+      timer = window.setTimeout(position, delay);
+    };
+    const onPointerDown = () => {
+      pointerDownRef.current = true;
+      hide();
+    };
+    const onPointerUp = () => {
+      if (!pointerDownRef.current) return;
+      pointerDownRef.current = false;
+      schedule(120);
+    };
+    const onEditorChange = () => schedule();
+    editor.on("selectionUpdate", onEditorChange);
+    editor.on("transaction", onEditorChange);
+    editor.view.dom.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointerup", onPointerUp);
     return () => {
-      editor.off("selectionUpdate", sync);
-      editor.off("transaction", sync);
+      hide();
+      editor.off("selectionUpdate", onEditorChange);
+      editor.off("transaction", onEditorChange);
+      editor.view.dom.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointerup", onPointerUp);
     };
   }, [editor, enabled, session.state.phase]);
+
+  // 请求/结果面板锚定选区:优先上方，视口不足放下方，并按选区中心水平居中。
+  useLayoutEffect(() => {
+    const phase = session.state.phase;
+    if (phase !== "running" && phase !== "result" && phase !== "error") {
+      setPanel(null);
+      return;
+    }
+    const parent = wrapRef.current?.offsetParent as HTMLElement | null;
+    const position = () => {
+      if (editor.isDestroyed) return;
+      const range = session.state.range;
+      const from = range?.from ?? editor.state.selection.from;
+      const to = range?.to ?? editor.state.selection.to;
+      const start = editor.view.coordsAtPos(from);
+      const end = editor.view.coordsAtPos(to);
+      const left = Math.min(start.left, end.left);
+      const right = Math.max(start.right, end.right);
+      const top = Math.min(start.top, end.top);
+      const bottom = Math.max(start.bottom, end.bottom);
+      const pref = parent?.getBoundingClientRect();
+      const width = parent?.clientWidth ?? 0;
+      const halfWidth = phase === "running" ? 24 : 192;
+      const anchorX = phase === "running" ? end.right : (left + right) / 2;
+      const x = anchorX - (pref?.left ?? 0) + (parent?.scrollLeft ?? 0);
+      const aboveViewport = top >= 250;
+      setPanel({
+        top:
+          (aboveViewport ? top : bottom) -
+          (pref?.top ?? 0) +
+          (parent?.scrollTop ?? 0) +
+          (aboveViewport ? -12 : 12),
+        left: Math.max(halfWidth, Math.min(x, Math.max(halfWidth, width - halfWidth))),
+        placement: aboveViewport ? "top" : "bottom",
+      });
+    };
+    position();
+    window.addEventListener("scroll", position, true);
+    window.addEventListener("resize", position);
+    return () => {
+      window.removeEventListener("scroll", position, true);
+      window.removeEventListener("resize", position);
+    };
+  }, [editor, session.state.phase, session.state.range]);
 
   // 右键菜单
   useEffect(() => {
@@ -109,7 +212,7 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
       setPending({ id, kind: def.option });
       return;
     }
-    void session.run(editor, id, option, id === "continue");
+    void session.run(editor, id, option, toolbarSelectionRef.current ?? undefined);
   };
 
   const pickAction = (id: AiActionId) => {
@@ -118,13 +221,8 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
       return;
     }
     const def = AI_ACTIONS.find((a) => a.id === id)!;
-    if (!def.allowEmptySelection && editor.state.selection.empty && id !== "continue") {
-      // 允许对当前段:二次由 run(allowBlockFallback) — 续写除外
-      if (window.confirm("未选中文字,是否对当前段落使用 AI?")) {
-        void session.run(editor, id, undefined, true);
-        setMenu(null);
-        return;
-      }
+    if (!def.allowEmptySelection && editor.state.selection.empty && !toolbarSelectionRef.current) {
+      setMenu(null);
       return;
     }
     trigger(id);
@@ -136,7 +234,11 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
       {bar && session.state.phase === "idle" && (
         <div
           className="pointer-events-auto absolute flex items-center gap-0.5 rounded-lg border border-border-subtle bg-raised px-1 py-0.5 shadow-[0_8px_24px_-12px_color-mix(in_oklab,var(--foreground)_28%,transparent)]"
-          style={{ top: bar.top, left: bar.left }}
+          style={{
+            top: bar.top,
+            left: bar.left,
+            transform: "translateX(-50%)",
+          }}
           onMouseDown={(e) => e.preventDefault()}
         >
           {!enabled ? (
@@ -244,29 +346,30 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
         </div>
       )}
 
-      {/* 请求中 / 结果条 — 贴编辑列底 */}
+      {/* 请求中 / 结果条 — 跟随选区，上方优先/下方兜底并水平居中 */}
       {(session.state.phase === "running" ||
         session.state.phase === "result" ||
-        session.state.phase === "error") && (
-        <div className="pointer-events-auto absolute inset-x-0 bottom-3 z-30 flex justify-center px-4">
+        session.state.phase === "error") &&
+        panel && (
+        <div
+          className="pointer-events-auto absolute z-30"
+          style={{
+            top: panel.top,
+            left: panel.left,
+            transform:
+              panel.placement === "top" ? "translate(-50%, -100%)" : "translateX(-50%)",
+          }}
+        >
           <div
             className={cn(
-              "border-border-subtle bg-raised flex max-w-xl flex-col gap-2 rounded-xl border px-3 py-2.5 shadow-[0_12px_32px_-16px_color-mix(in_oklab,var(--foreground)_30%,transparent)]",
+              session.state.phase === "running"
+                ? "flex items-center justify-center"
+                : "border-border-subtle bg-raised flex w-[min(24rem,calc(100vw-2rem))] max-w-full flex-col gap-2 rounded-xl border px-3 py-2.5 shadow-[0_10px_28px_-18px_color-mix(in_oklab,var(--foreground)_28%,transparent)]",
             )}
           >
             {session.state.phase === "running" && (
-              <div className="flex items-center gap-2 text-[12px]">
-                <Loader2 className="text-primary size-3.5 animate-spin" />
-                <span className="text-foreground/80">
-                  正在请求：<span className="font-medium tabular-nums">{session.state.host}</span>
-                </span>
-                <button
-                  type="button"
-                  className="text-muted-foreground hover:text-foreground ml-auto text-[11px]"
-                  onClick={() => void session.cancel()}
-                >
-                  取消
-                </button>
+              <div className="flex h-6 items-center justify-center">
+                <LoadingDots />
               </div>
             )}
             {session.state.phase === "error" && (
@@ -286,7 +389,7 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
                     <X className="text-muted-foreground size-3.5" />
                   </button>
                 </div>
-                <pre className="text-muted-foreground max-h-28 overflow-auto whitespace-pre-wrap text-[11px] leading-5">
+                <pre className="text-muted-foreground max-h-40 overflow-auto whitespace-pre-wrap text-[11px] leading-5">
                   {session.state.result.slice(0, 800)}
                   {session.state.result.length > 800 ? "…" : ""}
                 </pre>

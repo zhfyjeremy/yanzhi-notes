@@ -270,12 +270,12 @@
 
 | 子项 | 状态 | 说明 |
 | --- | --- | --- |
-| 设置「AI 助手」 | ✅ | 总开关/Base URL/模型/温度/max tokens;契约条(左侧主色描边);Key 进系统钥匙串(`keyring`),不进 settings.json |
-| 请求层 | ✅ | Rust `ai_chat`/`ai_test_connection`/`ai_cancel`(reqwest+可取消);仅 https 或本机 http;浏览器 mock=localStorage+fetch |
-| 选区浮动条 | ✅ | 选中文字出现轻量 AI 条;未开启时「去设置开启」 |
+| 设置「AI 助手」 | ✅ | 总开关/Base URL/模型(温度与 max tokens 保留内部默认值,设置页不展示);三步配置流(服务商→Key 连接→选择模型),`GET /models` 拉取列表,失败回落内置模型/手填;顶部按未开启/检查 Key/连接/选模型/待测试/配置成功展示阶段进度,关闭总开关时收起配置;Kimi Coding 走 Anthropic Messages;契约条(左侧主色描边);Key 进系统钥匙串(`keyring`)+App Data 0600 本机缓存,不进 settings.json/知识库 |
+| 请求层 | ✅ | Rust `ai_chat`/`ai_test_connection`/`ai_cancel`/`ai_list_models`(reqwest+可取消);仅 https 或本机 http;浏览器 mock=localStorage+fetch |
+| 选区浮动条 | ✅ | 仅总开关开 + Key/模型配置存在 + 测试通过后出现;未完成配置时不打扰选区 |/ai 会引导回设置 |
 | 右键 AI 子菜单 | ✅ | 选区右键;无选区可续写 |
 | 斜杠 `/ai` | ✅ | 斜杠菜单 AI 分组,关键词含 ai |
-| 结果三按钮 | ✅ | 插入/替换/仅复制;状态栏显示「正在请求：{host}」可取消 |
+| 结果三按钮 | ✅ | 插入/替换/仅复制;仅选区含文本且鼠标松开后出现(拖拽/双击空选区不打扰),点击动作携带锁定选区避免按钮抢焦点导致空请求;loading 三点贴选区终点;结果卡片收窄为 24rem 并按选区上下居中 |
 | AI-1 动作 | ✅ | 润色/续写/扩写/缩写/改语气/翻译/解释/纠错/总结为要点 |
 
 未做(按 PRD 分期):右侧 AI 面板、AI-2 结构、AI-3 卡片、AI-4 库级。真机:配真实 Endpoint 测连接与润色闭环。

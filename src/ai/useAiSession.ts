@@ -2,10 +2,15 @@ import { useCallback, useRef, useState } from "react";
 import type { Editor } from "@tiptap/core";
 import type { AppSettings } from "../settings";
 import { aiActionById, type AiActionId } from "./actions";
-import { applyAiMarkdown, copyAiText, currentBlockText, prefixContext, selectionText } from "./apply";
+import { applyAiMarkdown, copyAiText, prefixContext, selectionText } from "./apply";
 import { aiChat, cancelAi, hostOfBaseUrl } from "./client";
 
 export type AiPhase = "idle" | "running" | "result" | "error";
+
+export interface LockedAiSelection {
+  from: number;
+  to: number;
+}
 
 export interface AiSessionState {
   phase: AiPhase;
@@ -38,7 +43,8 @@ export function useAiSession(
   const [state, setState] = useState<AiSessionState>(IDLE);
   const reqRef = useRef<string | null>(null);
 
-  const ready = settings.aiEnabled; // Key 在 run 时再查
+  // 测试通过才暴露编辑器入口;Key 仍在真正请求时读取。
+  const ready = settings.aiEnabled && settings.aiVerified;
 
   const cancel = useCallback(async () => {
     const id = reqRef.current;
@@ -54,17 +60,24 @@ export function useAiSession(
       editor: Editor,
       actionId: AiActionId,
       option?: string,
-      /** 无选区时:continue 用上文;其它可对当前段(已确认) */
-      allowBlockFallback?: boolean,
+      lockedSelection?: LockedAiSelection,
     ) => {
-      if (!settings.aiEnabled) {
+      if (!ready) {
         onNeedSettings();
+        onToast?.("请先完成 AI 配置并通过测试");
         return;
       }
       const action = aiActionById(actionId);
-      const { from, to, empty } = editor.state.selection;
-      let ctx = selectionText(editor);
-      let range: { from: number; to: number } | null = empty ? null : { from, to };
+      const locked = lockedSelection?.from != null && lockedSelection.to > lockedSelection.from
+        ? lockedSelection
+        : undefined;
+      const selection = locked ?? editor.state.selection;
+      const empty = locked !== undefined ? false : editor.state.selection.empty;
+      const { from, to } = selection;
+      let ctx = locked
+        ? editor.state.doc.textBetween(locked.from, locked.to, "\n")
+        : selectionText(editor);
+      let range: { from: number; to: number } | null = locked ?? (empty ? null : { from, to });
 
       if (!ctx) {
         if (action.id === "continue") {
@@ -74,21 +87,8 @@ export function useAiSession(
             return;
           }
           range = null;
-        } else if (allowBlockFallback) {
-          ctx = currentBlockText(editor);
-          if (!ctx.trim()) {
-            onToast?.("请先选中文字");
-            return;
-          }
-          // 当前段:用选中整段近似 — 取 $from 块范围
-          const $from = editor.state.selection.$from;
-          let depth = $from.depth;
-          while (depth > 0 && !$from.node(depth).type.isBlock) depth -= 1;
-          const start = $from.start(depth);
-          const end = $from.end(depth);
-          range = { from: start, to: end };
         } else {
-          onToast?.("请先选中文字");
+          onToast?.(`请先选中要${action.label}的文字`);
           return;
         }
       }
@@ -150,7 +150,7 @@ export function useAiSession(
         if (msg === "已取消") setState(IDLE);
       }
     },
-    [settings, onNeedSettings, onToast],
+    [ready, settings, onNeedSettings, onToast],
   );
 
   const apply = useCallback(
