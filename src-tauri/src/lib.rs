@@ -15,6 +15,10 @@ struct ViewFlagsInner {
     backlinks: bool,
     tags: bool,
     history: bool,
+    /// 单文件轻编辑模式:保存/另存为/关闭/存入知识库仅此态可用(知识库有自动保存)
+    single_file: bool,
+    /// 单文件左侧大纲显隐(与知识库右栏 showOutline 独立,菜单「大纲」按模式镜像其一)
+    single_outline: bool,
 }
 
 impl Default for ViewFlagsInner {
@@ -27,12 +31,19 @@ impl Default for ViewFlagsInner {
             backlinks: true,
             tags: true,
             history: true,
+            single_file: false,
+            single_outline: true,
         }
     }
 }
 
 #[derive(Default)]
 struct ViewFlags(std::sync::Mutex<ViewFlagsInner>);
+
+/// 辅助窗创建互斥:async 命令下并发 invoke 会在 get_webview_window 未登记前
+/// 同时 build 同 label,Windows 上出现多原生窗 / "failed to acquire webview reference"。
+#[derive(Default)]
+struct AuxWindowLock(std::sync::Mutex<()>);
 
 /// 系统「打开方式」/启动参数带来的待打开 Markdown;前端就绪后 take
 #[derive(Default)]
@@ -124,20 +135,23 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .items(&recent_file_refs)
         .submenu_native_icon(NativeIcon::MultipleDocuments)
         .build()?;
-    let save_single = MenuItem::with_id(app, "yz_save_single", "保存", true, Some("CmdOrCtrl+S"))?;
+    // 保存/另存为/关闭/存入知识库 = 单文件专用;知识库页灰掉避免「点了没反应」
+    let flags = *app.state::<ViewFlags>().0.lock().unwrap();
+    let single = flags.single_file;
+    let save_single = MenuItem::with_id(app, "yz_save_single", "保存", single, Some("CmdOrCtrl+S"))?;
     let save_single_as = MenuItem::with_id(
         app,
         "yz_save_single_as",
         "另存为…",
-        true,
+        single,
         Some("CmdOrCtrl+Shift+S"),
     )?;
-    let close_single = MenuItem::with_id(app, "yz_close_single", "关闭文件", true, None::<&str>)?;
+    let close_single = MenuItem::with_id(app, "yz_close_single", "关闭文件", single, None::<&str>)?;
     let save_single_to_kb = IconMenuItem::with_id_and_native_icon(
         app,
         "yz_save_single_to_kb",
         "存入知识库…",
-        true,
+        single,
         Some(NativeIcon::Folder),
         None::<&str>,
     )?;
@@ -145,7 +159,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         app,
         "yz_import_md",
         "导入 Markdown…",
-        true,
+        !single,
         Some(NativeIcon::RevealFreestanding),
         None::<&str>,
     )?;
@@ -181,16 +195,8 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .item(&export_html)
         .build()?;
 
-    // macOS 第一个子菜单即「应用」菜单(系统自动加粗与角色);
-    // 设置在应用菜单下(macOS 惯例位置,⌘,)——用户 2026-10-31 反馈从「文件」移入
-    let about = IconMenuItem::with_id_and_native_icon(
-        app,
-        "yz_about",
-        format!("关于{app_name}"),
-        true,
-        Some(NativeIcon::Info),
-        None::<&str>,
-    )?;
+    // 设置在应用菜单下(macOS 惯例位置,⌘,)——用户 2026-10-31 反馈从「文件」移入。
+    // 「关于」:macOS 只放应用菜单;Windows 只放「帮助」(见下方 help_menu),避免双入口。
     let settings = IconMenuItem::with_id_and_native_icon(
         app,
         "yz_settings",
@@ -199,14 +205,33 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         Some(NativeIcon::Advanced),
         Some("CmdOrCtrl+,"),
     )?;
+    #[cfg(target_os = "macos")]
+    let app_submenu = {
+        let about = IconMenuItem::with_id_and_native_icon(
+            app,
+            "yz_about",
+            format!("关于{app_name}"),
+            true,
+            Some(NativeIcon::Info),
+            None::<&str>,
+        )?;
+        // macOS 第一个子菜单即「应用」菜单(系统自动加粗与角色)
+        SubmenuBuilder::new(app, &app_name)
+            .item(&about)
+            .item(&settings)
+            .separator()
+            .services()
+            .separator()
+            .hide()
+            .hide_others()
+            .separator()
+            .quit()
+            .build()?
+    };
+    // Windows:不塞 Services/隐藏等 mac 专用项(灰掉无意义);关于改走帮助菜单
+    #[cfg(not(target_os = "macos"))]
     let app_submenu = SubmenuBuilder::new(app, &app_name)
-        .item(&about)
         .item(&settings)
-        .separator()
-        .services()
-        .separator()
-        .hide()
-        .hide_others()
         .separator()
         .quit()
         .build()?;
@@ -223,21 +248,22 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
 
     // 显示勾选项:右侧面板(总开关)/ 四个分区(总开关关时置灰)/ 工具栏 / 专注模式。
     // 专注模式不加菜单快捷键:⌘⇧F 已由前端接管,菜单加速键会与 webview 双触发
-    let flags = *app.state::<ViewFlags>().0.lock().unwrap();
     let graph = IconMenuItem::with_id_and_native_icon(
         app,
         "yz_graph",
         "文档图谱",
-        true,
+        !single,
         Some(NativeIcon::Network),
         None::<&str>,
     )?;
+    // 单文件:右侧面板/反链/标签/历史无意义 → 灰掉;
+    // 「大纲」保留并可勾选,镜像左侧单文件大纲(与知识库右栏 outline 独立)。
     let view = SubmenuBuilder::new(app, "显示")
         .item(&CheckMenuItem::with_id(
             app,
             "yz_view_panel",
             "右侧面板",
-            true,
+            !single,
             flags.panel,
             None::<&str>,
         )?)
@@ -246,15 +272,15 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
             app,
             "yz_view_outline",
             "大纲",
-            flags.panel,
-            flags.outline,
+            if single { true } else { flags.panel },
+            if single { flags.single_outline } else { flags.outline },
             None::<&str>,
         )?)
         .item(&CheckMenuItem::with_id(
             app,
             "yz_view_backlinks",
             "反向链接",
-            flags.panel,
+            !single && flags.panel,
             flags.backlinks,
             None::<&str>,
         )?)
@@ -262,7 +288,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
             app,
             "yz_view_tags",
             "标签",
-            flags.panel,
+            !single && flags.panel,
             flags.tags,
             None::<&str>,
         )?)
@@ -270,7 +296,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
             app,
             "yz_view_history",
             "历史版本",
-            flags.panel,
+            !single && flags.panel,
             flags.history,
             None::<&str>,
         )?)
@@ -359,18 +385,37 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// 打开辅助独立窗口(label = settings / shortcuts):已开则聚焦。
+/// 打开辅助独立窗口(label = settings / shortcuts / help / graph):已开则聚焦。
 /// settings 的 tab 用于直落分类(如「关于砚知」)。浏览器 dev 无多窗,
 /// 前端回落 Dialog,不走此命令。
+///
+/// **必须 async**:Windows 上在同步 command / 事件回调里
+/// `WebviewWindowBuilder::build` 会与 WebView2 死锁 → 白屏且标题栏关闭无效
+/// (见 Tauri `WebviewWindowBuilder::new` Known issues)。
+/// 并发创建用 `AuxWindowLock` 双检锁串行化,避免同 label 竞态炸出多窗。
 #[tauri::command]
-fn open_aux_window(app: tauri::AppHandle, label: String, tab: Option<String>) -> Result<(), String> {
-    if let Some(w) = app.get_webview_window(&label) {
+async fn open_aux_window(app: tauri::AppHandle, label: String, tab: Option<String>) -> Result<(), String> {
+    let focus_existing = |app: &tauri::AppHandle, label: &str, tab: &Option<String>| -> bool {
+        let Some(w) = app.get_webview_window(label) else {
+            return false;
+        };
         let _ = w.set_focus();
         if label == "settings" && tab.is_some() {
-            let _ = app.emit("yz-settings-tab", tab.unwrap_or_default());
+            let _ = w.emit("yz-settings-tab", tab.clone().unwrap_or_default());
         } else if label == "help" && tab.is_some() {
-            let _ = app.emit("yz-help-doc", tab.unwrap_or_default());
+            let _ = w.emit("yz-help-doc", tab.clone().unwrap_or_default());
         }
+        true
+    };
+    if focus_existing(&app, &label, &tab) {
+        return Ok(());
+    }
+    let lock = app.state::<AuxWindowLock>();
+    let _guard = lock
+        .0
+        .lock()
+        .map_err(|_| "辅助窗创建锁异常".to_string())?;
+    if focus_existing(&app, &label, &tab) {
         return Ok(());
     }
     let (title, w, h, resizable) = match label.as_str() {
@@ -387,14 +432,24 @@ fn open_aux_window(app: tauri::AppHandle, label: String, tab: Option<String>) ->
         .title(title)
         .inner_size(w, h)
         .center()
-        .resizable(resizable);
+        .resizable(resizable)
+        // Windows/Linux:先隐藏,去掉从 app 菜单继承的菜单栏后再 show
+        // (设置/帮助/图谱不需要「文件/编辑…」);macOS 菜单在系统栏,remove_menu 无效可跳过
+        .visible(false);
     if resizable {
         builder = builder.min_inner_size(680.0, 500.0);
     }
-    builder.build().map(|_| ()).map_err(|e| e.to_string())
+    let win = builder.build().map_err(|e| e.to_string())?;
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = win.remove_menu();
+    }
+    win.show().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
-/// 前端状态变化后回写显示菜单勾选态(菜单点击 → 前端应用 → 回写 → 重建勾)
+/// 前端状态变化后回写显示菜单勾选态(菜单点击 → 前端应用 → 回写 → 重建勾);
+/// `single_file` 同步启用/禁用单文件专用菜单项。
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 fn set_view_state(
@@ -406,6 +461,8 @@ fn set_view_state(
     backlinks: Option<bool>,
     tags: Option<bool>,
     history: Option<bool>,
+    single_file: Option<bool>,
+    single_outline: Option<bool>,
 ) {
     {
         let state = app.state::<ViewFlags>();
@@ -431,6 +488,12 @@ fn set_view_state(
         if let Some(v) = history {
             flags.history = v;
         }
+        if let Some(v) = single_file {
+            flags.single_file = v;
+        }
+        if let Some(v) = single_outline {
+            flags.single_outline = v;
+        }
     }
     let _ = build_app_menu(&app);
 }
@@ -442,15 +505,18 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         // 窗口记忆(6.4-3):主窗大小/位置自动保存恢复(关闭时落盘 app_config_dir);
-        // 辅助窗跳过恢复——设置窗有最小尺寸约束、快捷键窗固定尺寸,恢复旧状态会破坏布局
+        // 辅助窗跳过恢复——设置/图谱等有固定或最小尺寸,恢复旧状态会破坏布局
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .skip_initial_state("settings")
                 .skip_initial_state("shortcuts")
+                .skip_initial_state("help")
+                .skip_initial_state("graph")
                 .build(),
         )
         .manage(kb::WatchState(std::sync::Mutex::new(None)))
         .manage(ViewFlags::default())
+        .manage(AuxWindowLock::default())
         .manage(StartupSingleFile::default())
         .setup(|app| {
             let pending = std::env::args()
@@ -509,12 +575,20 @@ pub fn run() {
                 || id == "yz_view_tags"
                 || id == "yz_view_history"
             {
-                // 勾选项:发出「目标值 = !当前镜像」;前端应用后回写 set_view_state 翻勾
+                // 勾选项:发出「目标值 = !当前镜像」;前端应用后回写 set_view_state 翻勾。
+                // 单文件时「大纲」镜像 single_outline,不碰知识库右栏 outline。
                 let flags = *app.state::<ViewFlags>().0.lock().unwrap();
                 match id {
                     "yz_view_panel" => serde_json::json!({ "action": "view", "key": "panel", "value": !flags.panel }),
                     "yz_view_toolbar" => serde_json::json!({ "action": "view", "key": "toolbar", "value": !flags.toolbar }),
-                    "yz_view_outline" => serde_json::json!({ "action": "view", "key": "outline", "value": !flags.outline }),
+                    "yz_view_outline" => {
+                        let next = if flags.single_file {
+                            !flags.single_outline
+                        } else {
+                            !flags.outline
+                        };
+                        serde_json::json!({ "action": "view", "key": "outline", "value": next })
+                    }
                     "yz_view_backlinks" => serde_json::json!({ "action": "view", "key": "backlinks", "value": !flags.backlinks }),
                     "yz_view_tags" => serde_json::json!({ "action": "view", "key": "tags", "value": !flags.tags }),
                     "yz_view_history" => serde_json::json!({ "action": "view", "key": "history", "value": !flags.history }),
@@ -533,7 +607,12 @@ pub fn run() {
             } else {
                 return;
             };
-            let _ = app.emit("kb-menu", payload);
+            // 只发给主窗:辅助窗若误挂 App 也会听 kb-menu,广播会一对多放大成多窗
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.emit("kb-menu", payload);
+            } else {
+                let _ = app.emit("kb-menu", payload);
+            }
         })
         .invoke_handler(tauri::generate_handler![
             open_aux_window,

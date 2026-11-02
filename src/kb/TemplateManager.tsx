@@ -95,20 +95,27 @@ export function TemplateWorkbench({
   }, [refresh]);
 
   // 主窗响应“从当前文档创建模板”后通知设置窗刷新;浏览器 mock 用 CustomEvent。
+  // refresh 用 ref,避免依赖变动时 async listen 清理抢不到句柄而泄漏。
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
   useEffect(() => {
-    const handler = () => void refresh();
+    const handler = () => void refreshRef.current();
     window.addEventListener("yz-templates-changed", handler);
+    let disposed = false;
     let unListen: (() => void) | undefined;
     if (isTauriEnv()) {
       void import("@tauri-apps/api/event").then(async ({ listen }) => {
-        unListen = await listen("yz-templates-changed", handler);
+        const fn = await listen("yz-templates-changed", handler);
+        if (disposed) fn();
+        else unListen = fn;
       });
     }
     return () => {
+      disposed = true;
       window.removeEventListener("yz-templates-changed", handler);
       unListen?.();
     };
-  }, [refresh]);
+  }, []);
 
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleTemplates = useMemo(

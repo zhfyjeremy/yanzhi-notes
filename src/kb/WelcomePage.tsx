@@ -14,10 +14,13 @@ interface WelcomePageProps {
   recentFiles?: string[];
   bootError: string | null;
   onPickCreate: () => Promise<
-    null | { kind: "not-empty" | "is-yanzhi"; root: string } | { kind: "error"; message: string }
+    | null
+    | { kind: "cancelled" }
+    | { kind: "not-empty" | "is-yanzhi"; root: string }
+    | { kind: "error"; message: string }
   >;
   onForceCreate: (root: string) => Promise<string | null>;
-  onPickOpen: () => Promise<string | null>;
+  onPickOpen: () => Promise<"cancelled" | string | null>;
   onOpenRecent: (root: string) => Promise<string | null>;
   onPickSingleFile: () => Promise<string | null>;
   onOpenRecentFile?: (path: string) => Promise<string | null>;
@@ -60,16 +63,17 @@ export function WelcomePage({
     setError(null);
     setPending(null);
     const result = await onPickCreate();
-    if (result?.kind === "not-empty") setPending({ root: result.root, yanzhi: false });
-    else if (result?.kind === "is-yanzhi") setPending({ root: result.root, yanzhi: true });
-    else if (result?.kind === "error") setError(result.message);
+    if (!result || result.kind === "cancelled") return;
+    if (result.kind === "not-empty") setPending({ root: result.root, yanzhi: false });
+    else if (result.kind === "is-yanzhi") setPending({ root: result.root, yanzhi: true });
+    else if (result.kind === "error") setError(result.message);
   };
 
   const handleOpen = async () => {
     setError(null);
     setPending(null);
     const err = await onPickOpen();
-    if (err) setError(err);
+    if (err && err !== "cancelled") setError(err);
   };
 
   const openRecent = async (root: string) => {

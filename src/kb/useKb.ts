@@ -608,12 +608,15 @@ export function useKb(settings: AppSettings) {
     [enterKb],
   );
 
-  /** 新建流程结果:非空/已是砚知库把 root 带回来,供确认或引导改用「打开」 */
+  /** 新建流程结果:取消 / 成功(null) / 非空或已是砚知库(带 root) / 其它错误 */
   const pickAndCreate = useCallback(async (): Promise<
-    null | { kind: "not-empty" | "is-yanzhi"; root: string } | { kind: "error"; message: string }
+    | null
+    | { kind: "cancelled" }
+    | { kind: "not-empty" | "is-yanzhi"; root: string }
+    | { kind: "error"; message: string }
   > => {
     const dir = await kbBackend.pickFolder();
-    if (!dir) return null;
+    if (!dir) return { kind: "cancelled" };
     const result = await createKbAt(dir);
     if (result === "NOT_EMPTY") return { kind: "not-empty", root: dir };
     if (result === "IS_YANZHI") return { kind: "is-yanzhi", root: dir };
@@ -621,9 +624,10 @@ export function useKb(settings: AppSettings) {
     return null;
   }, [createKbAt]);
 
-  const pickAndOpen = useCallback(async () => {
+  /** 打开库:取消返回 "cancelled";成功 null;失败错误文案。勿把取消当成功。 */
+  const pickAndOpen = useCallback(async (): Promise<"cancelled" | string | null> => {
     const dir = await kbBackend.pickFolder();
-    if (!dir) return null;
+    if (!dir) return "cancelled";
     return openKbAt(dir);
   }, [openKbAt]);
 

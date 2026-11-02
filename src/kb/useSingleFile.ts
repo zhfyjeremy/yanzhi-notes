@@ -113,9 +113,11 @@ export function useSingleFile() {
 
   const getMarkdownNow = useCallback(() => dirtyRef.current ?? savedMdRef.current, []);
 
+  const savingRef = useRef(false);
   const save = useCallback(async (): Promise<boolean> => {
     const path = pathRef.current;
-    if (!path) return false;
+    if (!path || savingRef.current) return false;
+    savingRef.current = true;
     const content = getMarkdownNow();
     setSaveState("saving");
     try {
@@ -148,12 +150,16 @@ export function useSingleFile() {
       if (message.includes("不存在") || message.includes("移动")) setMissing(true);
       setSaveState("error");
       return false;
+    } finally {
+      savingRef.current = false;
     }
   }, [externalChange, getMarkdownNow]);
 
+  const savingAsRef = useRef(false);
   const saveAs = useCallback(async (): Promise<boolean> => {
     const path = pathRef.current;
-    if (!path) return false;
+    if (!path || savingAsRef.current) return false;
+    savingAsRef.current = true;
     const content = getMarkdownNow();
     setSaveState("saving");
     try {
@@ -185,6 +191,8 @@ export function useSingleFile() {
       console.error("[single] 另存失败:", e);
       setSaveState("error");
       return false;
+    } finally {
+      savingAsRef.current = false;
     }
   }, [getMarkdownNow, refreshRecent]);
 

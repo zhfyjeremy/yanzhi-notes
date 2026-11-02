@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowRightLeft,
   ChevronDown,
   ChevronRight,
   CircleAlert,
@@ -25,6 +26,9 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -37,15 +41,25 @@ import {
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/hint";
 import { BatchDocActions } from "./BatchDocActions";
-import type { BatchRenameItem, BatchResult } from "./batch";
+import { foldersOf, type BatchRenameItem, type BatchResult } from "./batch";
 
 /**
  * 左栏目录树(M3 / PRD 5.1):递归渲染、点击切换文档、当前文档高亮、拖拽排序。
  * 行操作走语雀式两级:文件夹 hover 仅一个「+」下拉(新建文档/子文件夹),
- * 重命名/删除进右键菜单(删除直接执行,移入回收站可恢复);
+ * 重命名/移动到/删除进右键菜单(删除直接执行,移入回收站可恢复);
  * 重命名 = 行内编辑(Enter 确认 Esc 取消失焦提交)。
  * 排序 = meta.sortIndex(拖拽落点重写整组兄弟序);折叠状态持久化进 meta。
  */
+
+const parentOf = (rel: string): string =>
+  rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+
+/** 当前父目录 / 自身及子树不可作为移动目标 */
+function isInvalidMoveDest(src: string, isDir: boolean, dest: string): boolean {
+  if (dest === parentOf(src)) return true;
+  if (isDir && (dest === src || dest.startsWith(src + "/"))) return true;
+  return false;
+}
 
 interface DocTreeProps {
   root: string;
@@ -116,8 +130,6 @@ function countDocs(node: TreeNode): number {
   return node.isDir ? node.children.reduce((n, c) => n + countDocs(c), 0) : 1;
 }
 
-const parentOf = (rel: string): string => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "");
-
 /** lucide 1.x 唯一垃圾桶图形(Trash=Trash2)带两根桶内竖线,小尺寸细线下轮廓碎;
  *  自绘桶形剪影(盖沿+提手+锥形桶身)辨识度更高 */
 function TrashGlyph({ className }: { className?: string }) {
@@ -167,6 +179,8 @@ function TreeRow({
   onCreateFolder,
   onRenameEntry,
   onRemoveEntry,
+  onMoveEntry,
+  moveFolders,
   onTogglePin,
   selected,
   onToggleSelect,
@@ -192,6 +206,8 @@ function TreeRow({
   onCreateFolder: (folderRel: string, name: string) => void;
   onRenameEntry: (rel: string, name: string) => void;
   onRemoveEntry: (rel: string) => void;
+  onMoveEntry: (srcRel: string, destFolderRel: string) => void;
+  moveFolders: { path: string; label: string }[];
   onTogglePin: (rel: string, pinned: boolean) => void;
   selected: boolean;
   onToggleSelect: (rel: string, shift: boolean) => void;
@@ -454,6 +470,26 @@ function TreeRow({
           <ContextMenuItem onClick={() => setRenaming(true)}>
             <PenLine /> 重命名
           </ContextMenuItem>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              <ArrowRightLeft /> 移动到
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="max-h-72 min-w-40 overflow-y-auto">
+              {moveFolders.map((f) => {
+                const disabled = isInvalidMoveDest(node.path, node.isDir, f.path);
+                return (
+                  <ContextMenuItem
+                    key={f.path || "__root"}
+                    disabled={disabled}
+                    title={disabled ? "已在此位置或不能移入自身子树" : undefined}
+                    onClick={() => onMoveEntry(node.path, f.path)}
+                  >
+                    {f.label}
+                  </ContextMenuItem>
+                );
+              })}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
           <ContextMenuItem
             variant="destructive"
             // 有内容的文件夹加原生 title 兜底(空文件夹/文档不加)
@@ -492,6 +528,8 @@ function TreeRow({
               onCreateFolder={onCreateFolder}
               onRenameEntry={onRenameEntry}
               onRemoveEntry={onRemoveEntry}
+              onMoveEntry={onMoveEntry}
+              moveFolders={moveFolders}
               dragPath={dragPath}
               dropHint={dropHint}
               onDragOverRow={onDragOverRow}
@@ -543,7 +581,17 @@ export function DocTree({
 }: DocTreeProps) {
   const dragPath = useRef<string | null>(null);
   const [dropHint, setDropHint] = useState<{ path: string; zone: DropZone } | null>(null);
-  const rootName = useMemo(() => root.split("/").filter(Boolean).pop() ?? root, [root]);
+  // Windows 路径是 `\`,不能只按 `/` 切——否则标题会变成整段 `C:\Users\…`
+  const rootName = useMemo(() => {
+    const parts = root.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean);
+    return parts[parts.length - 1] ?? root;
+  }, [root]);
+  const rootParent = useMemo(() => {
+    const parts = root.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean);
+    if (parts.length < 2) return "";
+    return parts.slice(0, -1).join("/");
+  }, [root]);
+  const moveFolders = useMemo(() => foldersOf(tree), [tree]);
   const navRef = useRef<HTMLElement>(null);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
@@ -673,29 +721,30 @@ export function DocTree({
           />
         ) : (
           <>
-            <div className="border-border-subtle bg-raised/60 flex h-11 items-center gap-2 rounded-xl border px-2 shadow-[0_1px_2px_color-mix(in_oklab,var(--workspace)_35%,transparent)]">
+            <div className="flex items-start gap-1 px-0.5 pt-0.5 pb-1">
+              {/* 身份 = 文件夹名;完整路径只做 title。工作区切换与「新建/批量」拆开,不再挤成一坨卡 */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    className="hover:bg-hover/60 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg py-1 pr-1 pl-1 text-left transition-colors outline-none"
+                    className="hover:bg-hover/70 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-xl px-1.5 py-1.5 text-left transition-colors outline-none"
                     title={root}
                   >
-                    <span className="bg-selection text-primary flex size-7 shrink-0 items-center justify-center rounded-lg">
+                    <span className="bg-selection text-primary flex size-8 shrink-0 items-center justify-center rounded-lg">
                       <FolderOpen className="size-4" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="text-foreground truncate block text-xs leading-4 font-semibold">
-                        {rootName}
+                      <span className="text-foreground flex min-w-0 items-center gap-0.5">
+                        <span className="truncate text-[13px] leading-4 font-semibold">{rootName}</span>
+                        <ChevronDown className="text-muted-foreground size-3.5 shrink-0" />
                       </span>
-                      <span className="text-muted-foreground/70 flex items-center gap-0.5 text-[10px] leading-3">
-                        知识库
-                        <ChevronDown className="size-3" />
+                      <span className="text-muted-foreground/75 mt-0.5 block truncate text-[10px] leading-3">
+                        {rootParent ? `知识库 · ${rootParent}` : "知识库"}
                       </span>
                     </span>
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" alignOffset={-6} className="w-52">
+                <DropdownMenuContent align="start" alignOffset={-4} className="w-52">
                   <DropdownMenuItem onClick={onBackHome}>
                     <House /> 返回欢迎页
                   </DropdownMenuItem>
@@ -711,7 +760,7 @@ export function DocTree({
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              <span className="flex shrink-0 gap-0.5">
+              <span className="mt-1 flex shrink-0 gap-0.5">
                 <Hint label="进入批量选择">
                   <button
                     type="button"
@@ -793,6 +842,8 @@ export function DocTree({
               onCreateFolder={onCreateFolder}
               onRenameEntry={onRenameEntry}
               onRemoveEntry={onRemoveEntry}
+              onMoveEntry={(src, dest) => onMoveEntry(src, dest)}
+              moveFolders={moveFolders}
               dragPath={dragPath}
               dropHint={dropHint}
               onDragOverRow={(path, zone) => {
