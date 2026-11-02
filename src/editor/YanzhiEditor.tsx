@@ -6,6 +6,7 @@ import { mdToHtml } from "./markdown/md-instance";
 import { docToMarkdown } from "./markdown/serialize";
 import {
   SlashMenuExtension,
+  setSlashAiHandler,
   setSlashAttachmentPicker,
   setSlashImagePicker,
 } from "./slash-command";
@@ -21,6 +22,9 @@ import { ImageToolbar } from "./toolbar/ImageToolbar";
 import { TableToolbar } from "./toolbar/TableToolbar";
 import { WikiLinkSuggestExtension, type WikiDocRef } from "./wiki-link-command";
 import { DEFAULT_SHORTCUTS, shortcutMatches, type ShortcutBindings } from "../shortcuts";
+import { scrollCaretToTypewriterLine } from "./typewriter";
+import { AiChrome } from "../ai/AiChrome";
+import type { AiSession } from "../ai/useAiSession";
 import "./editor.css";
 
 /**
@@ -60,8 +64,17 @@ interface YanzhiEditorProps {
   cardBorder?: boolean;
   /** 显示菜单「工具栏」:编辑器顶部格式条,默认显示 */
   showToolbar?: boolean;
+  /**
+   * 打字机滚动(专注模式子项):输入/键盘移光标时保持光标在视口中线附近。
+   * 由应用层在 focusMode && settings.typewriterMode 时打开。
+   */
+  typewriter?: boolean;
   /** V3 可自定义全局快捷键 */
   shortcuts?: ShortcutBindings;
+  /** AI BYOK(§7.8):总开关开时挂浮动条/右键;/ai 经 session */
+  aiEnabled?: boolean;
+  aiSession?: AiSession | null;
+  onNeedAiSettings?: () => void;
 }
 
 export function YanzhiEditor({
@@ -78,7 +91,11 @@ export function YanzhiEditor({
   locateSignal,
   cardBorder = true,
   showToolbar = true,
+  typewriter = false,
   shortcuts = DEFAULT_SHORTCUTS,
+  aiEnabled = false,
+  aiSession = null,
+  onNeedAiSettings,
 }: YanzhiEditorProps) {
   // 回调走 ref:onUpdate 闭包不随父组件重渲染重建
   const onChangeRef = useRef(onMarkdownChange);
@@ -95,6 +112,14 @@ export function YanzhiEditor({
   pickAttachmentRef.current = onPickAttachment;
   const openAttachmentRef = useRef(onOpenAttachment);
   openAttachmentRef.current = onOpenAttachment;
+  // editorProps 只在创建时定型,打字机开关/滚动容器用 ref 读最新值
+  const typewriterRef = useRef(typewriter);
+  typewriterRef.current = typewriter;
+  const scrollElRef = useRef<HTMLDivElement | null>(null);
+  const bindScrollRef = (el: HTMLDivElement | null) => {
+    scrollElRef.current = el;
+    scrollContainerRef?.(el);
+  };
   const timerRef = useRef<number | undefined>(undefined);
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
   const [findBar, setFindBar] = useState(false);
@@ -130,6 +155,14 @@ export function YanzhiEditor({
     content: mdToHtml(markdown),
     editorProps: {
       attributes: { class: "yz-editor-doc" },
+      // 打字机:接管 PM 默认 scrollIntoView(键入/多数键盘命令会请求),鼠标拖选不走此路径
+      handleScrollToSelection: (view) => {
+        if (!typewriterRef.current) return false;
+        const el = scrollElRef.current;
+        if (!el) return false;
+        scrollCaretToTypewriterLine(view, el);
+        return true;
+      },
       // 外部文件拖拽必须先取消 dragover,目标才是合法落点;否则松手时
       // WebKit 走默认动作「打开文件」= 整窗导航到图片(PM 不替你取消,只管内部节点拖动)
       handleDOMEvents: {
@@ -235,6 +268,22 @@ export function YanzhiEditor({
     };
   }, []);
 
+  // 斜杠 AI:未开开关 → 引导设置;续写允许空选区
+  useEffect(() => {
+    if (!aiSession) {
+      setSlashAiHandler(null);
+      return;
+    }
+    setSlashAiHandler((ed, actionId) => {
+      if (!aiEnabled) {
+        onNeedAiSettings?.();
+        return;
+      }
+      void aiSession.run(ed, actionId, undefined, actionId === "continue");
+    });
+    return () => setSlashAiHandler(null);
+  }, [aiSession, aiEnabled, onNeedAiSettings]);
+
   // 全局搜索定位:文档载入完成后跳首个命中 + 高亮 + 打开查找条
   const lastLocateSeq = useRef(-1);
   useEffect(() => {
@@ -244,6 +293,16 @@ export function YanzhiEditor({
     setReplaceRow(false);
     setSearch(editor, locateSignal.term);
   }, [editor, locateSignal]);
+
+  // 开启打字机(含专注切入)后补一次居中;等 padding 类生效后再滚
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !typewriter) return;
+    const id = window.requestAnimationFrame(() => {
+      const el = scrollElRef.current;
+      if (el && !editor.isDestroyed) scrollCaretToTypewriterLine(editor.view, el);
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [editor, typewriter]);
 
   // 外部内容切换(知识库 openDoc):markdown prop 变化 → 重载编辑器。
   // setContent 默认 emitUpdate:false,不会回灌 onMarkdownChange;同时收起查找条。
@@ -273,17 +332,28 @@ export function YanzhiEditor({
         />
       )}
       <div
-        ref={scrollContainerRef}
-        className="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable]"
+        ref={bindScrollRef}
+        className="relative flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable]"
       >
-        {/* relative 是 TableToolbar/ImageToolbar 浮层的定位锚 */}
+        {/* relative 是 TableToolbar/ImageToolbar/AiChrome 浮层的定位锚;
+            打字机加大上下留白,首行/文末也能滚到视口中线 */}
         <div
-          className="relative mx-auto flex w-full max-w-3xl flex-1 flex-col px-16 pt-10 pb-24"
+          className={`relative mx-auto flex w-full max-w-3xl flex-1 flex-col px-16 ${
+            typewriter ? "pt-[42vh] pb-[58vh]" : "pt-10 pb-24"
+          }`}
           onMouseDown={focusEditorFromBlankArea}
         >
           <EditorContent editor={editor} className="flex flex-1 flex-col" />
           {editor && <TableToolbar editor={editor} />}
           {editor && <ImageToolbar editor={editor} onPreview={setPreviewSrc} />}
+          {editor && aiSession && (
+            <AiChrome
+              editor={editor}
+              session={aiSession}
+              enabled={aiEnabled}
+              onNeedSettings={() => onNeedAiSettings?.()}
+            />
+          )}
         </div>
       </div>
       <ImageLightbox src={previewSrc} onClose={() => setPreviewSrc(null)} />

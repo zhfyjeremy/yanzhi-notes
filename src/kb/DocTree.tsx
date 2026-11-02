@@ -266,10 +266,12 @@ function TreeRow({
             role="button"
             tabIndex={0}
             data-path={node.path}
+            aria-current={active ? "page" : undefined}
             className={cn(
               "group relative flex w-full items-center gap-1.5 rounded-lg py-1 pr-2 text-left text-[13px] transition-colors",
+              // 当前文档用 raised 白底+主色描边:selection 混色叠在 sidebar 上几乎看不出
               active
-                ? "bg-raised text-foreground ring-primary/15 shadow-[0_1px_2px_color-mix(in_oklab,var(--workspace)_45%,transparent)] ring-1"
+                ? "bg-raised text-foreground ring-primary/35 shadow-[0_1px_2px_color-mix(in_oklab,var(--workspace)_45%,transparent)] ring-1"
                 : selected
                   ? "bg-selection text-foreground"
                   : node.isDir

@@ -8,12 +8,6 @@ import {
   ChevronDown,
   ClipboardCopy,
   Code,
-  Heading1,
-  Heading2,
-  Heading3,
-  Heading4,
-  Heading5,
-  Heading6,
   Highlighter,
   Italic,
   Link2,
@@ -25,7 +19,6 @@ import {
   Redo2,
   Strikethrough,
   Table,
-  Text,
   TextQuote,
   Underline,
   Undo2,
@@ -51,17 +44,21 @@ import { cn } from "@/lib/utils";
 
 /**
  * M1 顶部格式工具栏(语雀式):标题下拉 + 行内格式 + 链接 + 块类型 + 撤销重做。
- * 全部命令 chain().focus() 回焦编辑器;除链接弹层外按钮 onMouseDown preventDefault 防闪失焦。
+ * 操作后必须回焦编辑器并保留选区:
+ * - 普通按钮:onMouseDown preventDefault 防抢焦 + chain().focus()
+ * - radix 下拉:打开时快照选区;Content onCloseAutoFocus 拦回焦到触发器,改回编辑器
+ * - 链接弹层需输入,关闭/确定后再回焦
  */
 
+/** 只用中文层级名;不用 H1/H2 图标(字形与「标题 N」重复) */
 const HEADING_ITEMS = [
-  { level: 0, label: "正文", icon: Text },
-  { level: 1, label: "标题 1", icon: Heading1 },
-  { level: 2, label: "标题 2", icon: Heading2 },
-  { level: 3, label: "标题 3", icon: Heading3 },
-  { level: 4, label: "标题 4", icon: Heading4 },
-  { level: 5, label: "标题 5", icon: Heading5 },
-  { level: 6, label: "标题 6", icon: Heading6 },
+  { level: 0, label: "正文", className: "text-sm font-normal" },
+  { level: 1, label: "标题 1", className: "text-[15px] font-semibold" },
+  { level: 2, label: "标题 2", className: "text-sm font-semibold" },
+  { level: 3, label: "标题 3", className: "text-[13px] font-semibold" },
+  { level: 4, label: "标题 4", className: "text-xs font-semibold" },
+  { level: 5, label: "标题 5", className: "text-xs font-medium" },
+  { level: 6, label: "标题 6", className: "text-[11px] font-medium" },
 ] as const;
 
 function Divider() {
@@ -108,9 +105,9 @@ function ToolButton({
 export function EditorToolbar({ editor }: { editor: Editor }) {
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
-  // 色卡打开瞬间的选区快照:radix 菜单会移动焦点,PM 失焦期间不同步 DOM 选区,
-  // chain().focus() 会用旧选区覆盖;命令前显式恢复快照,不依赖焦点时序
-  const [colorSelection, setColorSelection] = useState<Selection | null>(null);
+  // 下拉打开瞬间的选区快照:radix 会挪走焦点,PM 失焦期间不同步 DOM 选区;
+  // 命令前显式恢复,关闭时再拦 onCloseAutoFocus 以免焦点落回触发按钮
+  const [menuSelection, setMenuSelection] = useState<Selection | null>(null);
 
   const state = useEditorState({
     editor,
@@ -136,16 +133,33 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
     }),
   });
 
+  const snapshotMenuSelection = (open: boolean) => {
+    if (open) setMenuSelection(editor.state.selection);
+  };
+
+  const restoreEditorFocus = (e: Event) => {
+    e.preventDefault();
+    editor.commands.focus();
+  };
+
+  const withMenuSelection = () =>
+    editor
+      .chain()
+      .focus()
+      .setTextSelection(menuSelection ?? editor.state.selection);
+
   const applyHeading = (level: number) => {
+    const chain = withMenuSelection();
     if (level === 0) {
-      editor.chain().focus().setParagraph().run();
+      chain.setParagraph().run();
     } else {
-      editor.chain().focus().toggleHeading({ level: level as 1|2|3|4|5|6 }).run();
+      chain.toggleHeading({ level: level as 1 | 2 | 3 | 4 | 5 | 6 }).run();
     }
   };
 
   const openLinkPopover = (open: boolean) => {
     if (open) {
+      setMenuSelection(editor.state.selection);
       setLinkUrl((editor.getAttributes("link").href as string) ?? "");
     }
     setLinkOpen(open);
@@ -153,10 +167,11 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
 
   const applyLink = () => {
     const href = linkUrl.trim();
+    const chain = withMenuSelection().extendMarkRange("link");
     if (href) {
-      editor.chain().focus().extendMarkRange("link").setLink({ href }).run();
+      chain.setLink({ href }).run();
     } else {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run();
+      chain.unsetLink().run();
     }
     setLinkOpen(false);
   };
@@ -168,23 +183,27 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
     <div role="toolbar" aria-label="格式工具栏" className="yz-toolbar bg-editor flex h-14 shrink-0 items-center justify-center px-4">
       <div className="border-border-subtle bg-raised flex h-9 w-full max-w-[640px] min-w-0 items-center gap-0.5 overflow-x-auto rounded-[10px] border px-1.5 shadow-sm">
       {/* 标题下拉 */}
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={snapshotMenuSelection}>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" className="text-muted-foreground hover:text-foreground h-7 w-20 justify-between rounded-md px-2 font-normal">
-            <span className="flex items-center gap-1.5">
-              <currentHeading.icon className="size-4" />
-              {currentHeading.label}
-            </span>
-            <ChevronDown className="size-3.5 opacity-60" />
+          <Button
+            variant="ghost"
+            className="text-muted-foreground hover:text-foreground h-7 min-w-[4.5rem] justify-between gap-1 rounded-md px-2 font-normal"
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            <span className="truncate">{currentHeading.label}</span>
+            <ChevronDown className="size-3.5 shrink-0 opacity-60" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-32">
+        <DropdownMenuContent
+          align="start"
+          className="w-36"
+          onCloseAutoFocus={restoreEditorFocus}
+        >
           {HEADING_ITEMS.map((item) => (
             <DropdownMenuItem key={item.level} onClick={() => applyHeading(item.level)}>
-              <item.icon className="size-4" />
-              {item.label}
+              <span className={cn("flex-1", item.className)}>{item.label}</span>
               {state.heading === item.level && (
-                <Check className="ml-auto size-3.5" />
+                <Check className="ml-auto size-3.5 shrink-0" />
               )}
             </DropdownMenuItem>
           ))}
@@ -214,11 +233,7 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
       </ToolButton>
 
       {/* 文字颜色(色卡下拉,§10 方言预设色) */}
-      <DropdownMenu
-        onOpenChange={(open) => {
-          if (open) setColorSelection(editor.state.selection);
-        }}
-      >
+      <DropdownMenu onOpenChange={snapshotMenuSelection}>
         <Hint label="文字颜色">
           <DropdownMenuTrigger asChild>
             <Button
@@ -234,7 +249,11 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
             </Button>
           </DropdownMenuTrigger>
         </Hint>
-        <DropdownMenuContent align="start" className="w-40 p-2">
+        <DropdownMenuContent
+          align="start"
+          className="w-40 p-2"
+          onCloseAutoFocus={restoreEditorFocus}
+        >
           <div className="grid grid-cols-4 gap-1">
             {FONT_COLORS.map((c) => (
               <DropdownMenuItem
@@ -242,9 +261,7 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
                 title={c.label}
                 className="justify-center px-1"
                 onClick={() =>
-                  editor.chain()
-                    .focus()
-                    .setTextSelection(colorSelection ?? editor.state.selection)
+                  withMenuSelection()
                     .setMark("fontColor", { color: c.value })
                     .run()
                 }
@@ -262,13 +279,7 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
           </div>
           <DropdownMenuSeparator className="my-1.5" />
           <DropdownMenuItem
-            onClick={() =>
-              editor.chain()
-                .focus()
-                .setTextSelection(colorSelection ?? editor.state.selection)
-                .unsetMark("fontColor")
-                .run()
-            }
+            onClick={() => withMenuSelection().unsetMark("fontColor").run()}
           >
             <span className="flex size-6 items-center justify-center rounded-md border border-dashed border-border text-xs text-muted-foreground">
               A
@@ -280,7 +291,7 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
 
       <Divider />
 
-      {/* 链接(需输入,不 preventDefault) */}
+      {/* 链接(需输入,打开时允许抢焦;关闭回编辑器) */}
       <Popover open={linkOpen} onOpenChange={openLinkPopover}>
         <Hint label="链接">
           <PopoverTrigger asChild>
@@ -296,7 +307,11 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
             </Button>
           </PopoverTrigger>
         </Hint>
-        <PopoverContent align="start" className="w-72 p-2.5">
+        <PopoverContent
+          align="start"
+          className="w-72 p-2.5"
+          onCloseAutoFocus={restoreEditorFocus}
+        >
           <Input
             autoFocus
             value={linkUrl}
@@ -313,7 +328,7 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  editor.chain().focus().extendMarkRange("link").unsetLink().run();
+                  withMenuSelection().extendMarkRange("link").unsetLink().run();
                   setLinkOpen(false);
                 }}
               >
@@ -370,7 +385,11 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
             </Button>
           </DropdownMenuTrigger>
         </Hint>
-        <DropdownMenuContent align="start" className="w-36">
+        <DropdownMenuContent
+          align="start"
+          className="w-36"
+          onCloseAutoFocus={restoreEditorFocus}
+        >
           <DropdownMenuItem
             onClick={() => void copyPlainText(editor.state.doc.textContent)}
           >

@@ -1,3 +1,4 @@
+mod ai;
 mod kb;
 
 use tauri::menu::{CheckMenuItem, IconMenuItem, Menu, MenuItem, NativeIcon, SubmenuBuilder};
@@ -179,6 +180,16 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         Some(NativeIcon::Share),
         None::<&str>,
     )?;
+    // 设置:mac 在应用菜单(惯例 + ⌘,);Win 放「文件」末尾,避免标题栏「砚知」旁再挂一级「砚知」菜单
+    // 「关于」:macOS 只放应用菜单;Windows 只放「帮助」(见下方 help_menu),避免双入口。
+    let settings = IconMenuItem::with_id_and_native_icon(
+        app,
+        "yz_settings",
+        "设置…",
+        true,
+        Some(NativeIcon::Advanced),
+        Some("CmdOrCtrl+,"),
+    )?;
     let file = file
         .item(&open_single)
         .separator()
@@ -192,19 +203,11 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .separator()
         .item(&import_md)
         .item(&export_md)
-        .item(&export_html)
-        .build()?;
+        .item(&export_html);
+    #[cfg(not(target_os = "macos"))]
+    let file = file.separator().item(&settings).separator().quit();
+    let file = file.build()?;
 
-    // 设置在应用菜单下(macOS 惯例位置,⌘,)——用户 2026-10-31 反馈从「文件」移入。
-    // 「关于」:macOS 只放应用菜单;Windows 只放「帮助」(见下方 help_menu),避免双入口。
-    let settings = IconMenuItem::with_id_and_native_icon(
-        app,
-        "yz_settings",
-        "设置…",
-        true,
-        Some(NativeIcon::Advanced),
-        Some("CmdOrCtrl+,"),
-    )?;
     #[cfg(target_os = "macos")]
     let app_submenu = {
         let about = IconMenuItem::with_id_and_native_icon(
@@ -228,13 +231,6 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
             .quit()
             .build()?
     };
-    // Windows:不塞 Services/隐藏等 mac 专用项(灰掉无意义);关于改走帮助菜单
-    #[cfg(not(target_os = "macos"))]
-    let app_submenu = SubmenuBuilder::new(app, &app_name)
-        .item(&settings)
-        .separator()
-        .quit()
-        .build()?;
 
     let edit = SubmenuBuilder::new(app, "编辑")
         .undo()
@@ -380,7 +376,11 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .item(&help_docs)
         .build()?;
 
+    #[cfg(target_os = "macos")]
     let menu = Menu::with_items(app, &[&app_submenu, &file, &edit, &view, &window, &help_menu])?;
+    // Windows:菜单从「文件」起,顶栏不再重复产品名(标题栏图标+名已承担品牌)
+    #[cfg(not(target_os = "macos"))]
+    let menu = Menu::with_items(app, &[&file, &edit, &view, &window, &help_menu])?;
     app.set_menu(menu)?;
     Ok(())
 }
@@ -424,6 +424,9 @@ async fn open_aux_window(app: tauri::AppHandle, label: String, tab: Option<Strin
         "graph" => ("文档图谱", 1080.0, 760.0, true),
         _ => ("设置", 780.0, 560.0, true),
     };
+    // 设置/快捷键 = 偏好窗:挂主窗 owner/parent,始终压在主窗之上,随主窗最小化;
+    // 帮助/图谱 = 工作窗:可与主窗并排,不强制父子层级。
+    let owned_by_main = matches!(label.as_str(), "settings" | "shortcuts");
     let mut url = format!("index.html#/{label}");
     if let Some(t) = &tab {
         url.push_str(&format!("?tab={t}"));
@@ -439,12 +442,18 @@ async fn open_aux_window(app: tauri::AppHandle, label: String, tab: Option<Strin
     if resizable {
         builder = builder.min_inner_size(680.0, 500.0);
     }
+    if owned_by_main {
+        if let Some(main) = app.get_webview_window("main") {
+            builder = builder.parent(&main).map_err(|e| e.to_string())?;
+        }
+    }
     let win = builder.build().map_err(|e| e.to_string())?;
     #[cfg(not(target_os = "macos"))]
     {
         let _ = win.remove_menu();
     }
     win.show().map_err(|e| e.to_string())?;
+    let _ = win.set_focus();
     Ok(())
 }
 
@@ -515,6 +524,7 @@ pub fn run() {
                 .build(),
         )
         .manage(kb::WatchState(std::sync::Mutex::new(None)))
+        .manage(ai::AiCancelMap::default())
         .manage(ViewFlags::default())
         .manage(AuxWindowLock::default())
         .manage(StartupSingleFile::default())
@@ -672,6 +682,13 @@ pub fn run() {
             kb::list_history,
             kb::read_history,
             kb::save_snapshot,
+            kb::prune_history,
+            ai::set_ai_key,
+            ai::clear_ai_key,
+            ai::has_ai_key,
+            ai::ai_test_connection,
+            ai::ai_chat,
+            ai::ai_cancel,
             kb::import_docs,
             kb::export_text,
         ])

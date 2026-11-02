@@ -14,9 +14,15 @@ interface StatusBarProps {
   saveLabel: string;
   focusMode: boolean;
   onToggleFocus: () => void;
+  /** 打字机偏好(专注子项);专注态下显示快捷开关 */
+  typewriterMode?: boolean;
+  onToggleTypewriter?: () => void;
   /** 失联 meta 条数(5.2.1 轻提示);0 不显示 */
   orphanCount?: number;
   onOpenOrphans?: () => void;
+  /** AI 请求中显示目标 host(§7.8);null = 无请求 */
+  aiHost?: string | null;
+  onCancelAi?: () => void;
 }
 
 function WordCount({ editor }: { editor: Editor }) {
@@ -46,8 +52,12 @@ export function StatusBar({
   saveLabel,
   focusMode,
   onToggleFocus,
+  typewriterMode = false,
+  onToggleTypewriter,
   orphanCount = 0,
   onOpenOrphans,
+  aiHost = null,
+  onCancelAi,
 }: StatusBarProps) {
   return (
     <footer className="border-border-subtle bg-sidebar/80 text-muted-foreground mx-3 mb-3 flex h-9 shrink-0 items-center justify-between gap-4 rounded-xl border px-3 text-[11px] shadow-[0_6px_18px_-14px_color-mix(in_oklab,var(--foreground)_18%,transparent)]">
@@ -70,6 +80,29 @@ export function StatusBar({
             专注
           </button>
         </Hint>
+        {focusMode && onToggleTypewriter && (
+          <Hint label="打字机滚动：输入时保持光标在视口中线附近">
+            <button
+              className={`hover:bg-hover flex items-center gap-1 rounded-md px-1.5 py-1 ${
+                typewriterMode ? "text-primary" : "hover:text-foreground"
+              }`}
+              onClick={onToggleTypewriter}
+              aria-pressed={typewriterMode}
+            >
+              打字机
+            </button>
+          </Hint>
+        )}
+        {aiHost && (
+          <span className="text-primary flex items-center gap-1.5">
+            正在请求：{aiHost}
+            {onCancelAi && (
+              <button type="button" className="hover:bg-hover rounded px-1 text-[11px]" onClick={onCancelAi}>
+                取消
+              </button>
+            )}
+          </span>
+        )}
       </div>
       <div className="flex min-w-0 items-center gap-2.5">
         <span className="text-foreground/60 flex shrink-0 items-center gap-1.5 tabular-nums">

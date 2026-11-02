@@ -23,6 +23,7 @@ import { TemplateManager } from "./kb/TemplateManager";
 import { templateToContent, uniqueTemplateName } from "./kb/templates";
 import { compressImageFile, isImageFile } from "./kb/image-compress";
 import { useSettings } from "./settings";
+import { useAiSession } from "./ai/useAiSession";
 import { WelcomePage } from "./kb/WelcomePage";
 import { SingleFileWorkspace } from "./kb/SingleFileWorkspace";
 import { useKb } from "./kb/useKb";
@@ -46,13 +47,13 @@ import {
 
 /**
  * M3 主布局:无库 → 欢迎页;有库 → 三栏(目录树 / 编辑器+标题 / TOC)。
- * 标题 ↔ 文件名(PRD 9.2):标题输入框 = 文件名去 .md,改名落盘 debounce 800ms。
+ * 标题 ↔ 文件名(PRD 9.2):标题输入框 = 文件名去 .md,失焦/Enter 立即改名落盘。
  */
 
 const ILLEGAL_TITLE_CHARS = /[\\/:*?"<>|]/g;
 
 const stripTitle = (raw: string): string =>
-  raw.replace(ILLEGAL_TITLE_CHARS, "").trimStart().replace(/\.+$/, "");
+  raw.replace(ILLEGAL_TITLE_CHARS, "").trim().replace(/\.+$/, "");
 
 const docBasename = (rel: string): string =>
   rel.split("/").pop()?.replace(/\.md$/i, "") ?? "";
@@ -106,10 +107,13 @@ function App() {
   const [locateSignal, setLocateSignal] = useState<{ term: string; seq: number } | null>(null);
   const locateSeq = useRef(0);
   const pendingLocate = useRef<string | null>(null);
-  const renameTimer = useRef<number | undefined>(undefined);
+  // 标题改名串行链:上一次 rename await 完再读最新路径,避免连续改名打到已失效的旧 rel
+  const renameChain = useRef(Promise.resolve());
   const toastTimer = useRef<number | undefined>(undefined);
   const titleRef = useRef("");
   titleRef.current = title;
+  const currentPathRef = useRef<string | null>(null);
+  const prevTitlePathRef = useRef<string | null>(null);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -118,8 +122,10 @@ function App() {
   }, []);
 
   // 设置入口:浏览器 dev/E2E 用 Dialog;Tauri 独立窗口(open_aux_window 建窗/聚焦)。
-  // tab 供菜单「关于砚知」直落关于分类
+  // tab 供菜单「关于砚知」/AI 引导直落分类
+  const [settingsTab, setSettingsTab] = useState("general");
   const openSettings = useCallback((tab?: string) => {
+    if (tab) setSettingsTab(tab);
     if (isTauriEnv()) {
       void import("@tauri-apps/api/core").then(({ invoke }) =>
         invoke("open_aux_window", { label: "settings", tab: tab ?? null }).catch((e) => console.error(e)),
@@ -128,6 +134,8 @@ function App() {
       setSettingsOpen(true);
     }
   }, []);
+
+  const aiSession = useAiSession(settings, () => openSettings("ai"), showToast);
 
   const confirmSingleAssets = useCallback(() => {
     if (singleAssetsAllowedRef.current) return Promise.resolve(true);
@@ -730,11 +738,52 @@ function App() {
 
   // 打开/切换文档 → 标题跟随文件名(9.2)
   const currentPath = kb.currentPath;
+  currentPathRef.current = currentPath;
   const kbEditor = editorScope === "kb" ? editor : null;
   const singleEditor = editorScope === "single" ? editor : null;
   useEffect(() => {
-    setTitle(single.active ? single.fileStem : currentPath ? docBasename(currentPath) : "");
+    if (single.active) {
+      setTitle(single.fileStem);
+      prevTitlePathRef.current = null;
+      return;
+    }
+    if (!currentPath) {
+      setTitle("");
+      prevTitlePathRef.current = null;
+      return;
+    }
+    const stem = docBasename(currentPath);
+    const prev = prevTitlePathRef.current;
+    prevTitlePathRef.current = currentPath;
+    // 同目录文档改名落地:不覆盖用户已继续键入的内容(否则 debounce 期间的输入会被打回)
+    const parentOf = (rel: string) => rel.slice(0, rel.lastIndexOf("/") + 1);
+    const isSelfRename =
+      prev != null &&
+      prev !== currentPath &&
+      parentOf(prev) === parentOf(currentPath) &&
+      prev.endsWith(".md") &&
+      currentPath.endsWith(".md");
+    if (isSelfRename) {
+      setTitle((prevTitle) => {
+        const cleaned = stripTitle(prevTitle);
+        const oldStem = docBasename(prev);
+        if (!cleaned || cleaned === oldStem || cleaned === stem) return stem;
+        return prevTitle;
+      });
+      return;
+    }
+    setTitle(stem);
   }, [single.active, single.fileStem, currentPath]);
+
+  // 窗口标题随文档走:标题栏显示「文档名 - 砚知」,减少顶栏只有产品名的单调感
+  useEffect(() => {
+    if (!isTauriEnv()) return;
+    const docLabel = stripTitle(title).trim() || (single.active ? single.fileStem : currentPath ? docBasename(currentPath) : "");
+    const winTitle = docLabel ? `${docLabel} - 砚知` : "砚知";
+    void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+      void getCurrentWindow().setTitle(winTitle);
+    });
+  }, [title, currentPath, single.active, single.fileStem]);
 
   // 打开失败(文件被外部删除/权限):明确反馈,不静默(M4 异常恢复)
   useEffect(() => {
@@ -758,6 +807,7 @@ function App() {
     async (rel: string, name: string) => {
       const r = await kb.renameEntry(rel, name);
       if (r?.refCount) showToast(`已更新 ${r.refCount} 处双链引用`);
+      return r;
     },
     [kb.renameEntry, showToast],
   );
@@ -873,16 +923,32 @@ function App() {
     [tplPicker, kb.kbRoot, kb.createDoc],
   );
 
-  // 标题编辑 → 重命名文件(debounce;文件名与标题始终同步)
-  const onTitleChange = (raw: string) => {
-    setTitle(raw);
-    window.clearTimeout(renameTimer.current);
-    renameTimer.current = window.setTimeout(() => {
-      const cleaned = stripTitle(titleRef.current);
-      if (!cleaned || !currentPath || cleaned === docBasename(currentPath)) return;
-      void renameWithToast(currentPath, cleaned);
-    }, 800);
-  };
+  // 标题编辑:输入只改本地;失焦/Enter 立即落盘改名(切文档前也会先冲刷)
+  const commitTitleRename = useCallback(() => {
+    renameChain.current = renameChain.current
+      .then(async () => {
+        if (single.active) return;
+        const cleaned = stripTitle(titleRef.current).trim();
+        const path = currentPathRef.current;
+        if (!cleaned || !path || cleaned === docBasename(path)) return;
+        const r = await renameWithToast(path, cleaned);
+        if (r?.newPath && currentPathRef.current === path) {
+          currentPathRef.current = r.newPath;
+          // 与磁盘最终名对齐(含同名去重后缀),并驱动左侧树名/高亮
+          setTitle(docBasename(r.newPath));
+        }
+      })
+      .catch((e) => console.error("[title-rename]", e));
+    return renameChain.current;
+  }, [renameWithToast, single.active]);
+
+  const openDocAfterTitle = useCallback(
+    async (rel: string) => {
+      await commitTitleRename();
+      await kb.openDoc(rel);
+    },
+    [commitTitleRename, kb.openDoc],
+  );
 
   // `[[` 检索列表:树平铺 + 重名文档算好路径写法目标(PRD §517)
   const wikiDocRefs = useMemo<WikiDocRef[]>(() => {
@@ -1042,7 +1108,12 @@ function App() {
         scrollEl={scrollEl}
         showToolbar={settings.showToolbar}
         cardBorder={settings.cardBorder}
+        typewriterMode={settings.typewriterMode}
+        onToggleTypewriter={() => updateSettings({ typewriterMode: !settings.typewriterMode })}
         shortcuts={settings.shortcuts}
+        aiEnabled={settings.aiEnabled}
+        aiSession={aiSession}
+        onNeedAiSettings={() => openSettings("ai")}
         focusMode={focusMode}
         onToggleFocus={() => setFocusMode((v) => !v)}
         outlineOpen={singleOutlineOpen}
@@ -1105,7 +1176,8 @@ function App() {
 
   return (
     <main className="app-shell bg-workspace text-foreground flex h-screen flex-col">
-      <div className="flex min-h-0 flex-1 gap-3 p-3">
+      {/* 顶距略收:紧贴系统菜单栏,两侧/底保留呼吸 */}
+      <div className="flex min-h-0 flex-1 gap-3 px-3 pt-2 pb-3">
         {!focusMode && (
           <DocTree
             root={kb.kbRoot}
@@ -1114,7 +1186,7 @@ function App() {
             collapsed={kb.collapsed}
             indexReady={kb.indexReady}
             onToggleCollapse={kb.toggleCollapse}
-            onOpenDoc={(rel) => void kb.openDoc(rel)}
+            onOpenDoc={(rel) => void openDocAfterTitle(rel)}
             onCreateDoc={(folder, name) => void handleCreateDoc(folder, name)}
             onCreateFolder={(folder, name) => void kb.createFolder(folder, name)}
             onRenameEntry={(rel, name) => void renameWithToast(rel, name)}
@@ -1156,18 +1228,18 @@ function App() {
             onToast={showToast}
           />
         )}
-        <div className="border-border-subtle bg-editor flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-[0_10px_32px_-20px_color-mix(in_oklab,var(--foreground)_25%,transparent)]">
+        <div className="border-border-subtle bg-editor flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-[0_14px_40px_-22px_color-mix(in_oklab,var(--foreground)_32%,transparent)]">
           {currentPath ? (
             /* 专注模式:导航按钮收起(纯 chrome,⌘[ ⌘] 仍可用),标题与正文同列对齐
              * (mx-auto max-w-3xl px-16,同 EditorContent 容器);常态:导航胶囊放在
              * 正文列左边界内侧,避免窄卡片时贴到纸张左缘 */
-            <div className="w-full shrink-0 px-6 pt-7 pb-3">
+            <div className="w-full shrink-0 px-6 pt-5 pb-2">
               <div className="relative mx-auto max-w-3xl px-16">
                 {!focusMode && (
                   <div
                     role="group"
                     aria-label="文档导航"
-                    className="border-border-subtle bg-raised/55 absolute -left-1 top-1.5 flex items-center gap-0.5 rounded-lg border p-0.5 shadow-[0_1px_2px_color-mix(in_oklab,var(--workspace)_25%,transparent)]"
+                    className="border-border-subtle bg-raised/55 absolute -left-1 top-1 flex items-center gap-0.5 rounded-lg border p-0.5 shadow-[0_1px_2px_color-mix(in_oklab,var(--workspace)_25%,transparent)]"
                   >
                     <Hint label={`后退 (${formatShortcut(settings.shortcuts.navBack)})`}>
                       <Button
@@ -1196,7 +1268,14 @@ function App() {
                 <input
                   className="w-full bg-transparent pb-1 text-[2rem] leading-tight font-semibold tracking-[-0.035em] outline-none placeholder:text-muted-foreground/45"
                   value={title}
-                  onChange={(e) => onTitleChange(e.target.value)}
+                  onChange={(e) => setTitle(e.target.value)}
+                  onBlur={() => void commitTitleRename()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      e.currentTarget.blur();
+                    }
+                  }}
                   placeholder="未命名文档"
                 />
               </div>
@@ -1218,7 +1297,11 @@ function App() {
             locateSignal={locateSignal}
             cardBorder={settings.cardBorder}
             showToolbar={settings.showToolbar && !focusMode}
+            typewriter={focusMode && settings.typewriterMode}
             shortcuts={settings.shortcuts}
+            aiEnabled={settings.aiEnabled}
+            aiSession={aiSession}
+            onNeedAiSettings={() => openSettings("ai")}
           />
         </div>
         {!focusMode && settings.showRightPanel && kbEditor && (
@@ -1279,8 +1362,12 @@ function App() {
         saveLabel={saveLabel}
         focusMode={focusMode}
         onToggleFocus={() => setFocusMode((v) => !v)}
+        typewriterMode={settings.typewriterMode}
+        onToggleTypewriter={() => updateSettings({ typewriterMode: !settings.typewriterMode })}
         orphanCount={kb.orphanMeta.length}
         onOpenOrphans={() => setOrphansOpen(true)}
+        aiHost={aiSession.state.phase === "running" ? aiSession.state.host : null}
+        onCancelAi={() => void aiSession.cancel()}
       />
       {toast &&
         createPortal(
@@ -1346,6 +1433,7 @@ function App() {
         onOpenChange={setSettingsOpen}
         settings={settings}
         onChange={updateSettings}
+        initialTab={settingsTab}
         onRebuildIndex={() => {
           void kb.rebuildIndex().then(() => showToast("索引已重建"));
         }}

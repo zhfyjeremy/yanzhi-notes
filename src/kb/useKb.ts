@@ -15,8 +15,10 @@ import {
   moveMetaToTail,
   nextSortIndex,
   parseMeta,
+  preserveOrderAfterRename,
   removeMetaKeys,
   renameMetaKeys,
+  rewriteTreePaths,
   serializeMeta,
   setCollapsed as metaSetCollapsed,
   setDocPinned,
@@ -51,6 +53,17 @@ function findFolder(nodes: TreeNode[], rel: string): TreeNode[] {
     }
   }
   return [];
+}
+
+/** 后端 rename 偶发返回绝对路径时,用旧 rel 的父目录 + 新文件名重拼相对路径 */
+function coerceRelPath(oldRel: string, newPath: string): string {
+  const norm = newPath.replace(/\\/g, "/");
+  const looksAbsolute =
+    /^[a-zA-Z]:\//.test(norm) || norm.startsWith("/") || norm.startsWith("//");
+  if (!looksAbsolute && !norm.includes(":/")) return norm;
+  const base = norm.split("/").pop() || norm;
+  const slash = oldRel.lastIndexOf("/");
+  return slash >= 0 ? `${oldRel.slice(0, slash)}/${base}` : base;
 }
 
 function firstDoc(nodes: TreeNode[]): string | null {
@@ -288,6 +301,30 @@ export function useKb(settings: AppSettings) {
     return kbBackend.readHistory(root, rel, id);
   }, []);
 
+  /** 按 keep 立刻裁全库历史;开库兜底 / 设置调小上限时调用 */
+  const pruneHistoryKeep = useCallback(async (keep: number) => {
+    const root = rootRef.current;
+    if (!root) return 0;
+    try {
+      markSelfWrite();
+      const removed = await kbBackend.pruneHistory(root, keep);
+      if (removed > 0) bumpHistory();
+      return removed;
+    } catch (e) {
+      console.error("[kb] 裁剪历史失败:", e);
+      return 0;
+    }
+  }, []);
+
+  // 设置「每篇保留上限」调小 → 立刻裁,不必等下次打快照(历史面板同步刷新)
+  const keepRef = useRef(settings.snapshotKeep);
+  useEffect(() => {
+    const prev = keepRef.current;
+    const next = settings.snapshotKeep;
+    keepRef.current = next;
+    if (next < prev && rootRef.current) void pruneHistoryKeep(next);
+  }, [settings.snapshotKeep, pruneHistoryKeep]);
+
   /** 快照节流状态 key 跟随改名/移动(前缀改写,文档与文件夹通用) */
   const rewriteSnapKeys = useCallback((oldRel: string, newRel: string) => {
     const next = new Map<string, { time: number; content: string }>();
@@ -306,6 +343,7 @@ export function useKb(settings: AppSettings) {
     try {
       const content = await kbBackend.readDoc(root, rel);
       dirtyRef.current = null;
+      pathRef.current = rel; // 同步写 ref:await 后立刻可读,不等重渲染
       setCurrentPath(rel);
       setMarkdown(content);
       savedMdRef.current = content;
@@ -538,6 +576,10 @@ export function useKb(settings: AppSettings) {
       setRecent(await kbBackend.getRecent());
       setKbRoot(root);
       rootRef.current = root;
+      // 开库兜底:欢迎页期间调小 keep 也能在进库时裁到合规
+      void kbBackend.pruneHistory(root, settingsRef.current.snapshotKeep).catch((e) => {
+        console.error("[kb] 开库裁剪历史失败:", e);
+      });
       void refreshTrashCount();
       // meta 先于树加载:排序/折叠要参与首帧渲染
       metaRef.current = parseMeta(await kbBackend.readMeta(root).catch(() => ""));
@@ -745,29 +787,59 @@ export function useKb(settings: AppSettings) {
       try {
         markSelfWrite();
         const result = await kbBackend.renameEntry(root, rel, newTitle);
-        metaRef.current = renameMetaKeys(metaRef.current, rel, result.newPath, !rel.endsWith(".md"));
-        persistMeta();
-        rewriteSnapKeys(rel, result.newPath); // 快照节流状态跟随新路径
+        // 兜底:若后端仍返回绝对路径,按旧 rel 重拼相对路径(Win canonicalize strip 失败实录)
+        const newPath = coerceRelPath(rel, result.newPath);
+        const resultNorm = { ...result, newPath };
+        const isDir = !rel.endsWith(".md");
+        metaRef.current = renameMetaKeys(metaRef.current, rel, newPath, isDir);
+        // 冻结同级视觉序:无 sortIndex 时按名排序,改名会跳位
+        const parentRel = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+        metaRef.current = preserveOrderAfterRename(
+          metaRef.current,
+          findFolder(treeRef.current, parentRel),
+          rel,
+          newPath,
+        );
+        // 改名后的排序偏好立刻落盘(不去抖),避免随后 FS 事件重扫时丢序
+        window.clearTimeout(metaWriteTimer.current);
+        void kbBackend.writeMeta(root, serializeMeta(metaRef.current)).catch(() => {});
+        rewriteSnapKeys(rel, newPath); // 快照节流状态跟随新路径
         // 索引 key 迁移:旧路径条目挪到新路径(内容从索引外重读太贵,直接重建该条)
         const affected = flattenDocs(treeRef.current)
           .map((d) => d.path)
-          .filter((p) => p === rel || (!rel.endsWith(".md") && p.startsWith(rel + "/")));
+          .filter((p) => p === rel || (isDir && p.startsWith(rel + "/")));
         for (const p of affected) searchRef.current.remove(p);
         scheduleIndexRebuild();
         // 路径前缀重写:自身改名,或所在文件夹(含祖先)改名
         const rewrite = (p: string) =>
           p === rel
-            ? result.newPath
+            ? newPath
             : p.startsWith(rel + "/")
-              ? result.newPath + p.slice(rel.length)
+              ? newPath + p.slice(rel.length)
               : p;
         const cur = pathRef.current;
         const newCur = cur ? rewrite(cur) : null;
-        if (newCur && newCur !== cur) setCurrentPath(newCur);
+        // 乐观改树 + 当前路径同帧更新,避免 refresh 前高亮空窗、顺序闪跳
+        const nextTree = sortTree(
+          rewriteTreePaths(treeRef.current, rel, newPath),
+          metaRef.current,
+        );
+        treeRef.current = nextTree;
+        setTree(nextTree);
+        if (newCur) {
+          pathRef.current = newCur; // 串行连续改名必须立刻可见,不能等 setState 重渲染
+          setCurrentPath(newCur);
+          if (newCur !== rel) kbBackend.setLastDoc(newCur).catch(() => {});
+        }
         backRef.current = backRef.current.map(rewrite);
         frontRef.current = frontRef.current.map(rewrite);
+        markSelfWrite(); // 拉长静默窗,挡住 rename 触发的 FS 重扫抢在乐观树之前
         await refreshTree();
-        if (newCur && result.updatedFiles.includes(newCur)) {
+        // refresh 后 dual-check:确保高亮仍钉在新路径(防中途被旧 lastDoc/监听冲掉)
+        if (newCur && pathRef.current === newCur) {
+          setCurrentPath(newCur);
+        }
+        if (newCur && resultNorm.updatedFiles.includes(newCur)) {
           const content = await kbBackend.readDoc(root, newCur).catch(() => null);
           if (content != null) {
             dirtyRef.current = null;
@@ -776,7 +848,7 @@ export function useKb(settings: AppSettings) {
             setSaveState("saved");
           }
         }
-        return result;
+        return resultNorm;
       } catch (e) {
         console.error("[kb] 重命名失败:", e);
         return null;
@@ -833,7 +905,10 @@ export function useKb(settings: AppSettings) {
               : p;
         const cur = pathRef.current;
         const newCur = cur ? rewrite(cur) : null;
-        if (newCur && newCur !== cur) setCurrentPath(newCur);
+        if (newCur && newCur !== cur) {
+          pathRef.current = newCur;
+          setCurrentPath(newCur);
+        }
         backRef.current = backRef.current.map(rewrite);
         frontRef.current = frontRef.current.map(rewrite);
         await refreshTree();

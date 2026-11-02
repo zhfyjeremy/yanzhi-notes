@@ -53,12 +53,28 @@ fn resolve_new(root: &str, rel: &str) -> Result<PathBuf, String> {
     Ok(canon_parent.join(name))
 }
 
-/// 相对路径(库根下,POSIX 风格)
+/// 相对路径(库根下,POSIX 风格)。
+/// Windows 上 canonicalize 会加 `\\?\` 前缀,raw root 与 canon abs 直接 strip 会失败,
+/// 失败时若直接返回 abs 会把绝对路径漏给前端 → 改名后 currentPath 对不上树、sortIndex 全失效。
 fn rel_posix(root: &Path, abs: &Path) -> String {
-    abs.strip_prefix(root)
-        .unwrap_or(abs)
-        .to_string_lossy()
-        .replace(std::path::MAIN_SEPARATOR, "/")
+    let to_posix = |p: &Path| p.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/");
+    if let Ok(rel) = abs.strip_prefix(root) {
+        return to_posix(rel);
+    }
+    if let (Ok(rc), Ok(ac)) = (root.canonicalize(), abs.canonicalize()) {
+        if let Ok(rel) = ac.strip_prefix(&rc) {
+            return to_posix(rel);
+        }
+    }
+    to_posix(abs)
+}
+
+/// 同目录改名:用旧相对路径拼新文件名,不依赖 abs strip(见 rel_posix 注释)
+fn rel_after_rename(old_rel: &str, new_filename: &str) -> String {
+    match old_rel.rsplit_once('/') {
+        Some((parent, _)) => format!("{parent}/{new_filename}"),
+        None => new_filename.to_string(),
+    }
 }
 
 /// 递归扫描;跳过隐藏目录、`.yanzhi`、`assets`、`node_modules`(它们不是文档)
@@ -742,7 +758,7 @@ pub fn rename_entry(root: &str, rel: &str, new_title: &str) -> Result<RenameResu
     let filename = dedupe(dir, &title, ext, Some(&abs));
     let new_abs = dir.join(&filename);
     fs::rename(&abs, &new_abs).map_err(err)?;
-    let new_rel = rel_posix(Path::new(root), &new_abs);
+    let new_rel = rel_after_rename(rel, &filename);
     let root_path = Path::new(root);
 
     let mut patterns: Vec<(String, String)> = Vec::new();
@@ -829,7 +845,12 @@ pub fn move_entry(root: &str, src: &str, dest_folder: &str) -> Result<RenameResu
         None
     };
     fs::rename(&src_abs, &new_abs).map_err(err)?;
-    let new_rel = rel_posix(Path::new(root), &new_abs);
+    let name_str = name.to_string_lossy();
+    let new_rel = if dest_folder.is_empty() {
+        name_str.to_string()
+    } else {
+        format!("{dest_folder}/{name_str}")
+    };
     if let Some((content, changed)) = &migrated_content {
         if *changed {
             write_atomic(&new_abs, content)?;
@@ -1772,6 +1793,54 @@ pub fn read_history(root: &str, rel: &str, id: &str) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
+/// 单目录按 keep 裁最旧快照;返回删除份数。杂物文件不计入、不删除。
+fn prune_history_dir(dir: &Path, keep: usize) -> u32 {
+    let keep = keep.max(1);
+    let mut ids: Vec<(u64, String)> = Vec::new();
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if let Some((time, _)) = parse_history_id(&name) {
+                ids.push((time, name));
+            }
+        }
+    }
+    ids.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+    let mut removed = 0u32;
+    for (_, name) in ids.iter().skip(keep) {
+        if fs::remove_file(dir.join(name)).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
+/// 递归遍历 `.yanzhi/history`:先下子目录,再裁当前目录内快照文件。
+fn walk_prune_history(dir: &Path, keep: usize, removed: &mut u32) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk_prune_history(&path, keep, removed);
+            }
+        }
+    }
+    *removed += prune_history_dir(dir, keep);
+}
+
+/// 按当前 keep 立刻裁剪全库历史(6.2-5):设置调小上限 / 开库兜底时调用;
+/// 目录缺失 = 0;返回删除的快照文件数。
+#[tauri::command]
+pub fn prune_history(root: &str, keep: u32) -> Result<u32, String> {
+    let base = Path::new(root).join(".yanzhi/history");
+    if !base.is_dir() {
+        return Ok(0);
+    }
+    let mut removed = 0u32;
+    walk_prune_history(&base, keep.max(1) as usize, &mut removed);
+    Ok(removed)
+}
+
 /// 写入快照并自动清理(6.2-5):超出 keep 的最旧删除;keep 至少保留本次写入。
 /// 节流(≥间隔 + 有实质差异)与手动入口都在前端,后端只管存储与上限。
 #[tauri::command]
@@ -1791,21 +1860,7 @@ pub fn save_snapshot(
         fnv1a_hex(content.as_bytes())
     );
     write_atomic(&dir.join(&id), content)?;
-    // 超上限清最旧(含外部手工放进来的合法命名文件,同一口径)
-    let keep = keep.max(1) as usize;
-    let mut ids: Vec<(u64, String)> = Vec::new();
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if let Some((time, _)) = parse_history_id(&name) {
-                ids.push((time, name));
-            }
-        }
-    }
-    ids.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
-    for (_, name) in ids.iter().skip(keep) {
-        let _ = fs::remove_file(dir.join(name));
-    }
+    prune_history_dir(&dir, keep.max(1) as usize);
     Ok(HistoryEntry { id, time, auto, chars: content.chars().count() as u32 })
 }
 
@@ -2023,6 +2078,33 @@ mod tests {
         let oldest = read_history(&root, "随笔/a.md", &list[2].id).unwrap();
         assert_eq!(oldest, "v1");
         assert!(list.iter().all(|e| e.auto));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// 调小 keep 立刻全库裁剪(不必等下次写入);多文档各自独立上限
+    #[test]
+    fn prune_history_trims_immediately() {
+        let root = hist_test_root("prune");
+        for i in 0..5 {
+            save_snapshot(&root, "随笔/a.md", &format!("a{i}"), true, 10).unwrap();
+            save_snapshot(&root, "b.md", &format!("b{i}"), false, 10).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert_eq!(list_history(&root, "随笔/a.md").unwrap().len(), 5);
+        assert_eq!(list_history(&root, "b.md").unwrap().len(), 5);
+        let removed = prune_history(&root, 2).unwrap();
+        assert_eq!(removed, 6, "两篇各删 3 份: {removed}");
+        let a = list_history(&root, "随笔/a.md").unwrap();
+        let b = list_history(&root, "b.md").unwrap();
+        assert_eq!(a.len(), 2);
+        assert_eq!(b.len(), 2);
+        assert_eq!(read_history(&root, "随笔/a.md", &a[0].id).unwrap(), "a4");
+        assert_eq!(read_history(&root, "b.md", &b[1].id).unwrap(), "b3");
+        assert_eq!(prune_history(&root, 2).unwrap(), 0, "已合规再裁为零");
+        // keep=0 与设置钳制同口径 → 至少留 1,两篇各再删 1
+        assert_eq!(prune_history(&root, 0).unwrap(), 2);
+        assert_eq!(list_history(&root, "随笔/a.md").unwrap().len(), 1);
+        assert_eq!(prune_history(&root, 1).unwrap(), 0);
         std::fs::remove_dir_all(&root).unwrap();
     }
 

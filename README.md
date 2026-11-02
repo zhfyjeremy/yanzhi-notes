@@ -1,12 +1,12 @@
 # 砚知 · Yanzhi Notes
 
-本地离线知识库编辑器。Tauri 2 桌面端(Windows / macOS),默认语雀式流畅文档体验 + 可选块编辑整理能力,标准 Markdown 存储,AI 为 BYOK 可选增强。
+本地离线知识库编辑器。Tauri 2 桌面端(Windows / macOS),语雀式流畅文档体验,标准 Markdown 存储,AI 为 BYOK 可选增强。
 
 ## 技术栈
 
 - Tauri 2(Rust)+ React 18 + TypeScript + Vite
 - Tailwind CSS v4 + shadcn/ui(radix 底座)
-- 编辑器内核:Tiptap / ProseMirror(单一 Schema 双模式)
+- 编辑器内核:Tiptap / ProseMirror(单一 Schema)
 - md 解析:markdown-it(GFM);检索:FlexSearch(CJK bigram)
 
 ## 开发
@@ -21,4 +21,4 @@ pnpm tauri build    # 打包安装程序
 
 > 国内网络:`src-tauri/.cargo/config.toml` 已配置 crates.io 镜像,代理可用时可删除。
 
-产品文档见 [PRD](./PRD-本地离线知识库编辑器.md)。
+产品与工程文档见 [docs/](./docs/)（[PRD](./docs/PRD-本地离线知识库编辑器.md) · [STATUS](./docs/STATUS.md)）。

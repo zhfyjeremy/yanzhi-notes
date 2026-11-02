@@ -270,6 +270,9 @@ const tauriBackend: KbBackend = {
   async saveSnapshot(root, rel, content, auto, keep) {
     return invoke<HistoryEntry>("save_snapshot", { root, rel, content, auto, keep });
   },
+  async pruneHistory(root, keep) {
+    return invoke<number>("prune_history", { root, keep });
+  },
   async listenFsEvent(cb) {
     const { listen } = await import("@tauri-apps/api/event");
     const un = await listen<string[]>("kb-fs-event", (e) => cb(e.payload));
@@ -1073,6 +1076,22 @@ const browserBackend: KbBackend = {
     }
     saveMock(fs);
     return { id, time, auto, chars: [...content].length };
+  },
+  async pruneHistory(_root, keep) {
+    const fs = loadMock();
+    const n = Math.max(1, keep);
+    let removed = 0;
+    for (const rel of Object.keys(fs.history)) {
+      const h = fs.history[rel];
+      const drop = Object.keys(h).filter((k) => parseHistId(k)).sort(histSortDesc).slice(n);
+      for (const k of drop) {
+        delete h[k];
+        removed++;
+      }
+      if (Object.keys(h).length === 0) delete fs.history[rel];
+    }
+    saveMock(fs);
+    return removed;
   },
   async listenFsEvent() {
     return () => {}; // mock 无外部改动

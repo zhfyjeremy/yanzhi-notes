@@ -17,6 +17,7 @@ const VALID_TABS: SettingsTab[] = [
   "storage",
   "image",
   "search",
+  "ai",
   "about",
 ];
 
