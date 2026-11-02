@@ -1,5 +1,17 @@
 import { createPortal } from "react-dom";
-import { FileText, FolderInput, PanelRight, Save, X } from "lucide-react";
+import {
+  ChevronDown,
+  Ellipsis,
+  FileText,
+  FolderInput,
+  FolderOpen,
+  FolderPlus,
+  House,
+  PanelLeft,
+  Save,
+  SaveAll,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/hint";
 import {
@@ -10,6 +22,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { Editor } from "@tiptap/react";
 import { YanzhiEditor } from "../editor/YanzhiEditor";
 import { TocPanel } from "../editor/panel/TocPanel";
@@ -17,6 +36,12 @@ import { StatusBar } from "./StatusBar";
 import type { ShortcutBindings } from "../shortcuts";
 import { kbBackend } from "./backend";
 import type { SingleFileWorkspace as SingleFileState } from "./useSingleFile";
+import { cn } from "@/lib/utils";
+
+const folderName = (root: string) => {
+  const parts = root.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? root;
+};
 
 interface SingleFileWorkspaceProps {
   single: SingleFileState;
@@ -26,7 +51,12 @@ interface SingleFileWorkspaceProps {
   scrollEl: HTMLDivElement | null;
   showToolbar: boolean;
   cardBorder: boolean;
+  typewriterMode: boolean;
+  onToggleTypewriter: () => void;
   shortcuts: ShortcutBindings;
+  aiEnabled: boolean;
+  aiSession: import("../ai/useAiSession").AiSession;
+  onNeedAiSettings: () => void;
   focusMode: boolean;
   onToggleFocus: () => void;
   outlineOpen: boolean;
@@ -34,6 +64,11 @@ interface SingleFileWorkspaceProps {
   onOpenFile: () => void;
   onCloseFile: () => void;
   onOpenKb: () => void;
+  /** 返回欢迎页(关闭当前单文件,走未保存确认) */
+  onBackHome: () => void;
+  onNewKb: () => void;
+  /** 打开最近知识库(路径已知,不走选文件夹) */
+  onOpenRecentKb: (root: string) => void;
   onImageFiles: (files: File[]) => Promise<string[]>;
   onPickImage: () => Promise<string[] | null>;
   onPickAttachment: () => Promise<{ name: string; href: string }[] | null>;
@@ -73,63 +108,160 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
   return (
     <>
       <main className="app-shell bg-workspace text-foreground flex h-screen flex-col">
-        <div className="flex min-h-0 flex-1 gap-3 p-3">
-          <section className="border-border-subtle bg-editor flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-[0_10px_32px_-20px_color-mix(in_oklab,var(--foreground)_25%,transparent)]">
+        <div className="flex min-h-0 flex-1 gap-3 px-3 pt-2 pb-3">
+          {/* 单文件无目录树:大纲放左侧占导航位,比右栏更贴「先结构后正文」 */}
+          {!props.focusMode && props.outlineOpen && props.editor && (
+            <aside
+              aria-label="单文件大纲"
+              className="border-border-subtle bg-sidebar flex w-[240px] shrink-0 flex-col overflow-hidden rounded-2xl border shadow-[0_10px_28px_-20px_color-mix(in_oklab,var(--foreground)_18%,transparent)]"
+            >
+              <TocPanel editor={props.editor} scrollContainer={props.scrollEl} />
+            </aside>
+          )}
+
+          <section className="border-border-subtle bg-editor flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-[0_14px_40px_-22px_color-mix(in_oklab,var(--foreground)_32%,transparent)]">
             {!props.focusMode && (
               <header className="w-full shrink-0 px-6 pt-6 pb-3">
-                <div className="mx-auto flex max-w-3xl flex-col gap-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="border-border-subtle bg-raised/60 text-muted-foreground flex min-w-0 items-center gap-2 rounded-full border px-2.5 py-1 text-[11px]">
-                      <FileText className="text-primary size-3.5 shrink-0" />
-                      <span className="text-foreground/75 shrink-0 font-medium">单文件</span>
-                      <span className="max-w-[420px] truncate" title={single.filePath ?? undefined}>
-                        {single.fileDir}
-                      </span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <Hint label="打开 Markdown 文件">
-                        <Button variant="ghost" size="icon" className="size-7" onClick={props.onOpenFile}>
+                {/* 两行即可:身份条 + 标题/主操作;低频动作收进「更多」 */}
+                <div className="mx-auto flex max-w-3xl flex-col gap-2.5">
+                  <div className="flex min-w-0 items-center gap-2 text-[11px]">
+                    {/* 工作区切换:对齐知识库左栏身份卡,首页/开库不再埋进「更多」 */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="bg-selection text-primary hover:bg-selection/80 inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 font-medium transition-colors outline-none"
+                        >
+                          <FileText className="size-3" />
+                          单文件
+                          <ChevronDown className="size-3 opacity-70" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="min-w-48">
+                        <DropdownMenuItem onClick={props.onBackHome}>
+                          <House className="size-4" />
+                          返回欢迎页
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={props.onOpenKb}>
+                          <FolderOpen className="size-4" />
+                          打开知识库…
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={props.onNewKb}>
+                          <FolderPlus className="size-4" />
+                          新建知识库…
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={props.onOpenFile}>
                           <FileText className="size-4" />
-                        </Button>
-                      </Hint>
-                      <Hint label="打开知识库">
-                        <Button variant="ghost" size="icon" className="size-7" onClick={props.onOpenKb}>
-                          <FolderInput className="size-4" />
-                        </Button>
-                      </Hint>
+                          打开其它文件…
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    <span
+                      className="text-muted-foreground min-w-0 flex-1 truncate"
+                      title={single.filePath ?? undefined}
+                    >
+                      {single.filePath}
+                    </span>
+                    {/* 不直接弹选文件夹:先选「打开已有 / 新建 / 最近」 */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="text-muted-foreground hover:text-foreground inline-flex shrink-0 cursor-pointer items-center gap-0.5 transition-colors outline-none"
+                        >
+                          打开知识库
+                          <ChevronDown className="size-3 opacity-70" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="min-w-52">
+                        {props.recentRoots.length > 0 ? (
+                          <>
+                            {props.recentRoots.slice(0, 5).map((root) => (
+                              <DropdownMenuItem
+                                key={root}
+                                title={root}
+                                onClick={() => props.onOpenRecentKb(root)}
+                              >
+                                <FolderOpen className="size-4" />
+                                <span className="min-w-0 truncate">{folderName(root)}</span>
+                              </DropdownMenuItem>
+                            ))}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={props.onOpenKb}>
+                              <FolderOpen className="size-4" />
+                              浏览其它位置…
+                            </DropdownMenuItem>
+                          </>
+                        ) : (
+                          <DropdownMenuItem onClick={props.onOpenKb}>
+                            <FolderOpen className="size-4" />
+                            打开知识库…
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem onClick={props.onNewKb}>
+                          <FolderPlus className="size-4" />
+                          新建知识库…
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+
+                  <div className="flex items-end gap-3">
+                    <h1 className="min-w-0 flex-1 truncate text-[2rem] leading-tight font-semibold tracking-[-0.035em]">
+                      {single.fileStem || "未命名文档"}
+                    </h1>
+                    <div className="mb-1 flex shrink-0 items-center gap-1">
                       <Hint label={props.outlineOpen ? "隐藏大纲" : "显示大纲"}>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className={props.outlineOpen ? "bg-selection text-foreground size-7" : "size-7"}
+                          aria-pressed={props.outlineOpen}
+                          className={cn(
+                            "size-8",
+                            props.outlineOpen && "bg-selection text-foreground",
+                          )}
                           onClick={props.onToggleOutline}
                         >
-                          <PanelRight className="size-4" />
+                          <PanelLeft className="size-4" />
                         </Button>
                       </Hint>
-                    </div>
-                  </div>
-
-                  <div className="flex items-end justify-between gap-3">
-                    <h1 className="min-w-0 truncate text-[2rem] leading-tight font-semibold tracking-[-0.035em]">
-                      {single.fileStem || "未命名文档"}
-                    </h1>
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      <Button variant="outline" size="sm" className="h-8" onClick={() => props.onSaveToKbOpenChange(true)}>
-                        <FolderInput className="size-4" />
-                        存入知识库
+                      <Button
+                        size="sm"
+                        className="h-8 px-3"
+                        disabled={single.saveState === "saving"}
+                        onClick={() => void single.save()}
+                      >
+                        <Save className="size-3.5" />
+                        {single.saveState === "dirty" ? "保存*" : "保存"}
                       </Button>
-                      <Button size="sm" className="h-8" disabled={single.saveState === "saving"} onClick={() => void single.save()}>
-                        <Save className="size-4" />
-                        保存
-                      </Button>
-                      <Button variant="outline" size="sm" className="h-8" onClick={() => void single.saveAs()}>
-                        另存为
-                      </Button>
-                      <Button variant="ghost" size="sm" className="h-8" onClick={props.onCloseFile}>
-                        <X className="size-4" />
-                        关闭
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="size-8"
+                            aria-label="更多操作"
+                          >
+                            <Ellipsis className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="min-w-44">
+                          <DropdownMenuItem onClick={() => void single.saveAs()}>
+                            <SaveAll className="size-4" />
+                            另存为…
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => props.onSaveToKbOpenChange(true)}>
+                            <FolderInput className="size-4" />
+                            存入知识库…
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={props.onCloseFile}>
+                            <X className="size-4" />
+                            关闭文件
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
                 </div>
@@ -147,18 +279,13 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
               onOpenAttachment={props.onOpenAttachment}
               cardBorder={props.cardBorder}
               showToolbar={props.showToolbar && !props.focusMode}
+              typewriter={props.focusMode && props.typewriterMode}
               shortcuts={props.shortcuts}
+              aiEnabled={props.aiEnabled}
+              aiSession={props.aiSession}
+              onNeedAiSettings={props.onNeedAiSettings}
             />
           </section>
-
-          {!props.focusMode && props.outlineOpen && props.editor && (
-            <aside
-              aria-label="单文件大纲"
-              className="border-border-subtle bg-sidebar flex w-[272px] shrink-0 flex-col overflow-hidden rounded-2xl border shadow-[0_10px_28px_-20px_color-mix(in_oklab,var(--foreground)_18%,transparent)]"
-            >
-              <TocPanel editor={props.editor} scrollContainer={props.scrollEl} />
-            </aside>
-          )}
         </div>
         <StatusBar
           editor={props.editor}
@@ -166,6 +293,10 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
           saveLabel={saveLabel}
           focusMode={props.focusMode}
           onToggleFocus={props.onToggleFocus}
+          typewriterMode={props.typewriterMode}
+          onToggleTypewriter={props.onToggleTypewriter}
+          aiHost={props.aiSession.state.phase === "running" ? props.aiSession.state.host : null}
+          onCancelAi={() => void props.aiSession.cancel()}
         />
       </main>
 

@@ -103,6 +103,8 @@ export interface AppSettings {
   readerParagraphSpacing: number;
   /** §8 编辑器设置:特殊卡片(代码块/表格/图片)显示边框,默认开 */
   cardBorder: boolean;
+  /** §8 编辑器:打字机滚动(专注模式子项),默认关;仅专注模式下生效 */
+  typewriterMode: boolean;
   /** §8 图片:粘贴自动压缩(WebP 质量 85),默认开 */
   imageCompress: boolean;
   /** §8 通用:启动时直开上次库(默认,5.0.4-1)或显示欢迎页 */
@@ -122,6 +124,17 @@ export interface AppSettings {
   snapshotIntervalMin: number;
   /** V3 全局快捷键(KeyboardEvent.code 存储,跨平台显示) */
   shortcuts: ShortcutBindings;
+  /* ---- AI 助手 BYOK(§7.8);Key 不进本结构,走安全存储 ---- */
+  /** 总开关,默认关;关则隐藏编辑器 AI 入口 */
+  aiEnabled: boolean;
+  /** 服务商预设:kimi / zhipu / deepseek / custom */
+  aiProvider: string;
+  /** OpenAI 兼容 Base URL */
+  aiBaseUrl: string;
+  aiModel: string;
+  aiTemperature: number;
+  /** 0 = 不传 max_tokens */
+  aiMaxTokens: number;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -133,6 +146,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   readerLineHeight: 1.75,
   readerParagraphSpacing: 0.75,
   cardBorder: true,
+  typewriterMode: false,
   imageCompress: true,
   launch: "last",
   showRightPanel: true,
@@ -144,6 +158,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   snapshotKeep: 30,
   snapshotIntervalMin: 5,
   shortcuts: { ...DEFAULT_SHORTCUTS },
+  aiEnabled: false,
+  aiProvider: "custom",
+  aiBaseUrl: "https://api.openai.com/v1",
+  aiModel: "gpt-4o-mini",
+  aiTemperature: 0.7,
+  aiMaxTokens: 2048,
 };
 
 const clampInt = (v: unknown, dflt: number, min: number, max: number): number => {
@@ -177,6 +197,7 @@ export function parseSettings(raw: string): AppSettings {
       readerLineHeight: clampNumber(v?.readerLineHeight, 1.75, 1.3, 2.2),
       readerParagraphSpacing: clampNumber(v?.readerParagraphSpacing, 0.75, 0.2, 1.6),
       cardBorder: typeof v?.cardBorder === "boolean" ? v.cardBorder : true,
+      typewriterMode: typeof v?.typewriterMode === "boolean" ? v.typewriterMode : false,
       imageCompress: typeof v?.imageCompress === "boolean" ? v.imageCompress : true,
       launch: v?.launch === "welcome" ? "welcome" : "last",
       showRightPanel: typeof v?.showRightPanel === "boolean" ? v.showRightPanel : true,
@@ -188,6 +209,32 @@ export function parseSettings(raw: string): AppSettings {
       snapshotKeep: clampInt(v?.snapshotKeep, 30, 1, 200),
       snapshotIntervalMin: clampInt(v?.snapshotIntervalMin, 5, 0, 120),
       shortcuts: normalizeShortcutBindings(v?.shortcuts),
+      aiEnabled: typeof v?.aiEnabled === "boolean" ? v.aiEnabled : false,
+      aiBaseUrl:
+        typeof v?.aiBaseUrl === "string" && v.aiBaseUrl.trim()
+          ? v.aiBaseUrl.trim()
+          : DEFAULT_SETTINGS.aiBaseUrl,
+      aiModel:
+        typeof v?.aiModel === "string" && v.aiModel.trim()
+          ? v.aiModel.trim()
+          : DEFAULT_SETTINGS.aiModel,
+      aiProvider: (() => {
+        const raw = typeof v?.aiProvider === "string" ? v.aiProvider.trim() : "";
+        if (raw === "kimi" || raw === "zhipu" || raw === "deepseek" || raw === "custom") {
+          return raw;
+        }
+        // 旧配置无字段:按 Base URL 反推
+        const base =
+          typeof v?.aiBaseUrl === "string" && v.aiBaseUrl.trim()
+            ? v.aiBaseUrl.trim()
+            : DEFAULT_SETTINGS.aiBaseUrl;
+        if (base.includes("moonshot.") || base.includes("kimi.")) return "kimi";
+        if (base.includes("bigmodel.") || base.includes("zhipuai")) return "zhipu";
+        if (base.includes("deepseek.")) return "deepseek";
+        return "custom";
+      })(),
+      aiTemperature: clampNumber(v?.aiTemperature, 0.7, 0, 2),
+      aiMaxTokens: clampInt(v?.aiMaxTokens, 2048, 0, 128000),
     };
   } catch {
     return DEFAULT_SETTINGS;

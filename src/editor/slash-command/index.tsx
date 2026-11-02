@@ -29,9 +29,11 @@ import {
   Text,
   TextQuote,
   TriangleAlert,
+  Sparkles,
   Workflow,
 } from "lucide-react";
 import type { CalloutType } from "../extensions/callout";
+import { AI_ACTIONS, type AiActionId } from "../../ai/actions";
 import { SlashMenu, flattenSlashItems, type SlashCommandDef } from "./SlashMenu";
 
 /**
@@ -57,6 +59,14 @@ let attachmentPicker: SlashAttachmentPicker | null = null;
 /** 同上:附件(6.1.5)的文件选择 → assets 落盘 → 插入附件卡 */
 export function setSlashAttachmentPicker(fn: SlashAttachmentPicker | null): void {
   attachmentPicker = fn;
+}
+
+type SlashAiHandler = (editor: Editor, actionId: AiActionId) => void;
+let aiHandler: SlashAiHandler | null = null;
+
+/** AI `/ai` 动作:由 App 注入 session.run;未注入时 no-op */
+export function setSlashAiHandler(fn: SlashAiHandler | null): void {
+  aiHandler = fn;
 }
 
 /** 斜杠插入的默认流程图模板:小而全(节点/菱形判断/带标签边),中文节点直接可见 */
@@ -243,6 +253,19 @@ const COMMANDS: SlashCommandDef[] = [
     action: (editor, range) =>
       editor.chain().focus().deleteRange(range).setHorizontalRule().run(),
   },
+  // AI(§7.8):关键词含 ai,输入 /ai 即可筛出;动作由 setSlashAiHandler 注入
+  ...AI_ACTIONS.map(
+    (a): SlashCommandDef => ({
+      group: "AI",
+      label: a.label,
+      icon: Sparkles,
+      keywords: a.keywords,
+      action: (editor, range) => {
+        editor.chain().focus().deleteRange(range).run();
+        aiHandler?.(editor, a.id);
+      },
+    }),
+  ),
 ];
 
 /** 大小写不敏感的包含匹配(label + keywords) */

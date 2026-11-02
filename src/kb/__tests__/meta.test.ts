@@ -13,7 +13,9 @@ import {
   nextSortIndex,
   parseMeta,
   removeMetaKeys,
+  preserveOrderAfterRename,
   renameMetaKeys,
+  rewriteTreePaths,
   serializeMeta,
   setCollapsed,
   setDocPinned,
@@ -151,6 +153,19 @@ describe("rename/remove keys", () => {
     const next = renameMetaKeys(meta, "a.md", "b.md", false);
     expect(next.docs["b.md"]?.sortIndex).toBe(2);
     expect(next.docs["a.md"]).toBeUndefined();
+  });
+  it("改名后保持同级视觉序(即使原先无 sortIndex)", () => {
+    const siblings = [doc("c.md"), doc("a.md"), doc("b.md")];
+    const next = preserveOrderAfterRename(EMPTY_META, siblings, "a.md", "z.md");
+    const tree = sortTree(siblings.map((n) => (n.path === "a.md" ? doc("z.md") : n)), next);
+    expect(tree.map((n) => n.path)).toEqual(["c.md", "z.md", "b.md"]);
+  });
+  it("rewriteTreePaths 同步 path/name", () => {
+    const tree = [dir("f", [doc("f/a.md")]), doc("b.md")];
+    const next = rewriteTreePaths(tree, "f/a.md", "f/z.md");
+    expect(next[0].children[0]).toMatchObject({ path: "f/z.md", name: "z" });
+    expect(rewriteTreePaths(tree, "f", "g")[0]).toMatchObject({ path: "g", name: "g" });
+    expect(rewriteTreePaths(tree, "f", "g")[0].children[0].path).toBe("g/a.md");
   });
   it("删除文件夹清整棵子树 key", () => {
     const meta = parseMeta(

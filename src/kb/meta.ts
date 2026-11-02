@@ -130,6 +130,48 @@ export function renameMetaKeys(meta: KbMeta, oldRel: string, newRel: string, isD
   return next;
 }
 
+/**
+ * 改名后保持同级视觉位置:按改名前兄弟树序重写 sortIndex。
+ * 无 sortIndex 时 sortTree 会回落名称序,改名会跳位;此处冻结原槽。
+ */
+export function preserveOrderAfterRename(
+  meta: KbMeta,
+  siblings: TreeNode[],
+  oldRel: string,
+  newRel: string,
+): KbMeta {
+  if (!siblings.some((n) => n.path === oldRel)) return meta;
+  const parentRel = oldRel.includes("/") ? oldRel.slice(0, oldRel.lastIndexOf("/")) : "";
+  return applySiblingOrder(
+    meta,
+    parentRel,
+    siblings.map((n) => (n.path === oldRel ? newRel : n.path)),
+  );
+}
+
+/** 乐观改写树节点 path/name(改名后、scan 回来前),避免 currentPath 已新、树仍旧 → 高亮空窗 */
+export function rewriteTreePaths(nodes: TreeNode[], oldRel: string, newRel: string): TreeNode[] {
+  const mapPath = (path: string) =>
+    path === oldRel
+      ? newRel
+      : path.startsWith(oldRel + "/")
+        ? newRel + path.slice(oldRel.length)
+        : path;
+  const displayName = (path: string, isDir: boolean) => {
+    const base = path.split("/").pop() ?? path;
+    return isDir ? base : base.replace(/\.md$/i, "");
+  };
+  return nodes.map((n) => {
+    const path = mapPath(n.path);
+    return {
+      ...n,
+      path,
+      name: path === n.path ? n.name : displayName(path, n.isDir),
+      children: n.isDir ? rewriteTreePaths(n.children, oldRel, newRel) : n.children,
+    };
+  });
+}
+
 /** 删除(移入回收站)清 key:文档单键;文件夹前缀清 */
 export function removeMetaKeys(meta: KbMeta, rel: string, isDir: boolean): KbMeta {
   const next: KbMeta = { version: meta.version, docs: { ...meta.docs }, folders: { ...meta.folders } };

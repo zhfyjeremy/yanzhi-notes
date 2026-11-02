@@ -12,6 +12,7 @@ import {
   Plus,
   Search,
   SlidersHorizontal,
+  Sparkles,
   Sun,
   Trash2,
   Vault,
@@ -20,6 +21,7 @@ import { Minus, RotateCcw } from "lucide-react";
 import { kbBackend } from "./backend";
 import { TemplateWorkbench } from "./TemplateManager";
 import { AssetCleanupDialog } from "./AssetCleanupDialog";
+import { AiSettingsPanel } from "../ai/AiSettingsPanel";
 import type { AppSettings, LaunchMode, ReaderFont, ThemeMode } from "../settings";
 import { ACCENT_PRESETS } from "../settings";
 import { APP_VERSION } from "../version";
@@ -41,6 +43,7 @@ export type SettingsTab =
   | "storage"
   | "image"
   | "search"
+  | "ai"
   | "about";
 
 const TABS: { id: SettingsTab; label: string; icon: typeof Palette }[] = [
@@ -51,12 +54,14 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Palette }[] = [
   { id: "storage", label: "存储", icon: Database },
   { id: "image", label: "图片", icon: ImageIcon },
   { id: "search", label: "搜索", icon: Search },
+  { id: "ai", label: "AI 助手", icon: Sparkles },
   { id: "about", label: "关于", icon: Info },
 ];
 
 const NAV_GROUPS: { title: string; tabs: SettingsTab[] }[] = [
   { title: "偏好", tabs: ["general", "appearance", "editor"] },
   { title: "内容", tabs: ["templates", "storage", "image", "search"] },
+  { title: "智能", tabs: ["ai"] },
   { title: "软件", tabs: ["about"] },
 ];
 
@@ -64,10 +69,14 @@ const PAGE_META: Record<SettingsTab, { title: string; description: string }> = {
   general: { title: "通用", description: "控制砚知启动方式,并查看应用数据的存放边界。" },
   templates: { title: "模板", description: "管理当前知识库的文档模板,模板仍是标准 Markdown 文件。" },
   appearance: { title: "外观", description: "调整主题、主色与正文排版,所有变化即时预览。" },
-  editor: { title: "编辑器", description: "控制编辑器中的卡片视觉细节。" },
+  editor: { title: "编辑器", description: "控制卡片视觉与专注写作相关偏好。" },
   storage: { title: "存储", description: "管理历史快照与冗余资源,保持知识库可备份、可迁移。" },
   image: { title: "图片", description: "控制图片进入知识库时的处理方式。" },
   search: { title: "搜索", description: "查看索引策略,并在异常时手动恢复搜索能力。" },
+  ai: {
+    title: "AI 助手",
+    description: "自备钥匙(BYOK)。默认关闭;开启后在选区浮动条、右键与 /ai 中使用。",
+  },
   about: { title: "关于", description: "了解砚知的产品原则与本地优先存储方式。" },
 };
 
@@ -687,15 +696,29 @@ export function SettingsPage({
           )}
 
           {tab === "editor" && (
-            <SettingsSection title="卡片视觉" hint="关闭后保留占位与底色,避免内容布局跳动">
-              <Group>
-                <SwitchRow
-                  label="特殊卡片显示边框"
-                  checked={settings.cardBorder}
-                  onCheckedChange={(v) => onChange({ cardBorder: v })}
-                />
-              </Group>
-            </SettingsSection>
+            <>
+              <SettingsSection title="卡片视觉" hint="关闭后保留占位与底色,避免内容布局跳动">
+                <Group>
+                  <SwitchRow
+                    label="特殊卡片显示边框"
+                    checked={settings.cardBorder}
+                    onCheckedChange={(v) => onChange({ cardBorder: v })}
+                  />
+                </Group>
+              </SettingsSection>
+              <SettingsSection
+                title="专注写作"
+                hint="打字机仅在专注模式生效;输入时将光标保持在视口中线附近"
+              >
+                <Group>
+                  <SwitchRow
+                    label="打字机滚动"
+                    checked={settings.typewriterMode}
+                    onCheckedChange={(v) => onChange({ typewriterMode: v })}
+                  />
+                </Group>
+              </SettingsSection>
+            </>
           )}
 
           {tab === "storage" && (
@@ -777,6 +800,8 @@ export function SettingsPage({
               </Group>
             </SettingsSection>
           )}
+
+          {tab === "ai" && <AiSettingsPanel settings={settings} onChange={onChange} />}
 
           {tab === "about" && <AboutPane />}
         </div>

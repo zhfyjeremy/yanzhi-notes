@@ -154,6 +154,8 @@ export interface KbBackend {
   readHistory(root: string, rel: string, id: string): Promise<string>;
   /** 写入快照并按 keep 自动清理最旧(keep 至少保留本次);返回新条目 */
   saveSnapshot(root: string, rel: string, content: string, auto: boolean, keep: number): Promise<HistoryEntry>;
+  /** 按 keep 立刻裁剪全库历史;返回删除份数(设置调小 / 开库兜底) */
+  pruneHistory(root: string, keep: number): Promise<number>;
   /** 订阅库内文件外部变动(notify 去抖后);返回退订函数 */
   listenFsEvent(cb: (paths: string[]) => void): Promise<() => void>;
 }

@@ -17,6 +17,7 @@ const VALID_TABS: SettingsTab[] = [
   "storage",
   "image",
   "search",
+  "ai",
   "about",
 ];
 
@@ -29,14 +30,20 @@ export function SettingsWindow({ initialTab }: { initialTab: string }) {
   // 已开窗口时菜单「关于砚知」直落分类:Rust 侧广播 tab 切换
   useEffect(() => {
     if (!isTauriEnv()) return;
+    let disposed = false;
     let un: (() => void) | undefined;
     void (async () => {
       const { listen } = await import("@tauri-apps/api/event");
-      un = await listen<string>("yz-settings-tab", (e) => {
+      const fn = await listen<string>("yz-settings-tab", (e) => {
         if (VALID_TABS.includes(e.payload as SettingsTab)) setTab(e.payload as SettingsTab);
       });
+      if (disposed) fn();
+      else un = fn;
     })();
-    return () => un?.();
+    return () => {
+      disposed = true;
+      un?.();
+    };
   }, []);
 
   const onRebuildIndex = () => {

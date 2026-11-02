@@ -1,0 +1,129 @@
+/**
+ * AI-1 动作注册表(PRD §7.8):同一套上下文 → prompt → 回写 Schema。
+ * 浮动条 / 右键 / 斜杠共用,避免一动作一套 UI。
+ */
+
+export type AiActionId =
+  | "polish"
+  | "continue"
+  | "expand"
+  | "shorten"
+  | "tone"
+  | "translate"
+  | "explain"
+  | "fix"
+  | "summarize";
+
+export type AiResultBias = "replace" | "insert";
+
+export interface AiActionDef {
+  id: AiActionId;
+  label: string;
+  /** 斜杠/搜索关键词 */
+  keywords: string[];
+  /** 无选区是否可用(仅续写) */
+  allowEmptySelection: boolean;
+  /** 默认结果倾向 */
+  bias: AiResultBias;
+  /** 需要二次选项(语气/目标语言) */
+  option?: "tone" | "lang";
+  system: string;
+  /** 把用户上下文拼进 user 消息 */
+  userPrompt: (ctx: string, option?: string) => string;
+}
+
+const OUTPUT_MD =
+  "只输出可用的 Markdown 正文,不要解释过程,不要用代码围栏包裹全文,不要加前后客套话。";
+
+export const AI_ACTIONS: AiActionDef[] = [
+  {
+    id: "polish",
+    label: "润色",
+    keywords: ["ai", "polish", "runse", "润色"],
+    allowEmptySelection: false,
+    bias: "replace",
+    system: `你是中文写作润色助手。改通顺、去口语赘余,保留原意与事实。${OUTPUT_MD}`,
+    userPrompt: (ctx) => `请润色以下文字:\n\n${ctx}`,
+  },
+  {
+    id: "continue",
+    label: "续写",
+    keywords: ["ai", "continue", "xuxie", "续写"],
+    allowEmptySelection: true,
+    bias: "insert",
+    system: `你是中文续写助手。紧接上文自然续写,文风一致,不要重复上文已有句子。${OUTPUT_MD}`,
+    userPrompt: (ctx) => `请根据上文续写:\n\n${ctx}`,
+  },
+  {
+    id: "expand",
+    label: "扩写",
+    keywords: ["ai", "expand", "kuoxie", "扩写"],
+    allowEmptySelection: false,
+    bias: "replace",
+    system: `你是中文扩写助手。把短句或提纲写丰满,不编造与原文冲突的事实。${OUTPUT_MD}`,
+    userPrompt: (ctx) => `请扩写:\n\n${ctx}`,
+  },
+  {
+    id: "shorten",
+    label: "缩写",
+    keywords: ["ai", "shorten", "suoxie", "精简", "缩写"],
+    allowEmptySelection: false,
+    bias: "replace",
+    system: `你是中文精简助手。压缩篇幅、去重复,保留关键信息。${OUTPUT_MD}`,
+    userPrompt: (ctx) => `请精简:\n\n${ctx}`,
+  },
+  {
+    id: "tone",
+    label: "改语气",
+    keywords: ["ai", "tone", "yuqi", "语气"],
+    allowEmptySelection: false,
+    bias: "replace",
+    option: "tone",
+    system: `你是中文改写助手。按指定语气改写,保留原意。${OUTPUT_MD}`,
+    userPrompt: (ctx, opt) => `请改写成「${opt ?? "正式"}」语气:\n\n${ctx}`,
+  },
+  {
+    id: "translate",
+    label: "翻译",
+    keywords: ["ai", "translate", "fanyi", "翻译"],
+    allowEmptySelection: false,
+    bias: "replace",
+    option: "lang",
+    system: `你是翻译助手。只输出译文。${OUTPUT_MD}`,
+    userPrompt: (ctx, opt) => `请翻译为${opt ?? "英文"}:\n\n${ctx}`,
+  },
+  {
+    id: "explain",
+    label: "解释",
+    keywords: ["ai", "explain", "jieshi", "解释"],
+    allowEmptySelection: false,
+    bias: "insert",
+    system: `你是讲解助手。用简洁中文说明选区含义,可分点。不要改写原文本身。${OUTPUT_MD}`,
+    userPrompt: (ctx) => `请解释以下内容:\n\n${ctx}`,
+  },
+  {
+    id: "fix",
+    label: "纠错",
+    keywords: ["ai", "fix", "jiucuo", "纠错"],
+    allowEmptySelection: false,
+    bias: "replace",
+    system: `你是中文校对助手。修正错别字、标点与明显病句,尽量少改措辞。${OUTPUT_MD}`,
+    userPrompt: (ctx) => `请纠错:\n\n${ctx}`,
+  },
+  {
+    id: "summarize",
+    label: "总结为要点",
+    keywords: ["ai", "summarize", "zongjie", "总结", "要点"],
+    allowEmptySelection: false,
+    bias: "insert",
+    system: `你是总结助手。把内容整理为 Markdown 无序列表要点;必要时可用 > [!INFO] 要点 形式的 Callout 包一层。${OUTPUT_MD}`,
+    userPrompt: (ctx) => `请总结为要点:\n\n${ctx}`,
+  },
+];
+
+export const TONE_OPTIONS = ["正式", "口语", "技术文档"] as const;
+export const LANG_OPTIONS = ["英文", "中文"] as const;
+
+export function aiActionById(id: AiActionId): AiActionDef {
+  return AI_ACTIONS.find((a) => a.id === id)!;
+}

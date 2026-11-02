@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, FileText } from "lucide-react";
 import katex from "katex";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,12 @@ import "./editor/editor.css";
 import "katex/dist/katex.min.css";
 
 type HelpDocId = "quick-start" | "markdown";
+
+interface HelpHeading {
+  id: string;
+  level: number;
+  text: string;
+}
 
 const ARTICLES: {
   id: HelpDocId;
@@ -33,6 +39,8 @@ const ARTICLES: {
   },
 ];
 
+const SCROLL_TOP_THRESHOLD = 40;
+
 function initialDoc(): HelpDocId {
   const match = window.location.hash.match(/^#\/help(?:\?(.*))?$/);
   const params = new URLSearchParams(match?.[1] ?? "");
@@ -40,7 +48,22 @@ function initialDoc(): HelpDocId {
   return doc === "markdown" ? "markdown" : "quick-start";
 }
 
-function renderHelpMarkdown(markdown: string): string {
+function slugifyHeading(text: string, used: Map<string, number>): string {
+  const base =
+    text
+      .trim()
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s-]+/gu, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "") || "section";
+  const n = used.get(base) ?? 0;
+  used.set(base, n + 1);
+  return n === 0 ? base : `${base}-${n}`;
+}
+
+/** 渲染帮助 Markdown,并为 h1~h3 注入稳定 id,供大纲跳转 */
+function renderHelpMarkdown(markdown: string): { html: string; headings: HelpHeading[] } {
   const wrapper = document.createElement("div");
   wrapper.innerHTML = mdToHtml(markdown);
 
@@ -69,16 +92,39 @@ function renderHelpMarkdown(markdown: string): string {
     el.replaceWith(details);
   }
 
-  return wrapper.innerHTML;
+  const used = new Map<string, number>();
+  const headings: HelpHeading[] = [];
+  for (const el of Array.from(wrapper.querySelectorAll("h1, h2, h3"))) {
+    const text = (el.textContent ?? "").trim();
+    if (!text) continue;
+    const level = Number(el.tagName.slice(1));
+    const id = slugifyHeading(text, used);
+    el.id = id;
+    // 大纲以章节为主:跳过文首 H1 标题(与左侧文章名重复)
+    if (level >= 2) headings.push({ id, level, text });
+  }
+
+  return { html: wrapper.innerHTML, headings };
 }
 
 export function HelpDocsWindow() {
   useSettings();
   const [docId, setDocId] = useState<HelpDocId>(initialDoc);
   const [sourceView, setSourceView] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLElement | null>(null);
   const article = ARTICLES.find((item) => item.id === docId) ?? ARTICLES[0];
-  const html = useMemo(() => renderHelpMarkdown(article.content), [article.content]);
+  const { html, headings } = useMemo(() => renderHelpMarkdown(article.content), [article.content]);
   const [diagramNonce, setDiagramNonce] = useState(0);
+
+  const scrollToHeading = useCallback((id: string) => {
+    const main = scrollRef.current;
+    const target = main?.querySelector<HTMLElement>(`#${CSS.escape(id)}`);
+    if (!main || !target) return;
+    const top = main.scrollTop + (target.getBoundingClientRect().top - main.getBoundingClientRect().top) - 16;
+    main.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    setActiveId(id);
+  }, []);
 
   useEffect(() => {
     const observer = new MutationObserver(() => setDiagramNonce((n) => n + 1));
@@ -119,6 +165,7 @@ export function HelpDocsWindow() {
 
   useEffect(() => {
     if (!isTauriEnv()) return;
+    let disposed = false;
     let un: (() => void) | undefined;
     void import("@tauri-apps/api/event").then(({ listen }) => {
       void listen<string>("yz-help-doc", (event) => {
@@ -126,11 +173,49 @@ export function HelpDocsWindow() {
           setDocId(event.payload);
         }
       }).then((fn) => {
-        un = fn;
+        if (disposed) fn();
+        else un = fn;
       });
     });
-    return () => un?.();
+    return () => {
+      disposed = true;
+      un?.();
+    };
   }, []);
+
+  // 切文/源码视图时滚回顶部并清高亮
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+    setActiveId(null);
+  }, [docId, sourceView]);
+
+  // 滚动高亮当前章节(与主窗 TocPanel 同语义)
+  useEffect(() => {
+    if (sourceView) return;
+    const main = scrollRef.current;
+    if (!main || headings.length === 0) return;
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const top = main.getBoundingClientRect().top;
+      let current: string | null = null;
+      for (const h of headings) {
+        const el = main.querySelector<HTMLElement>(`#${CSS.escape(h.id)}`);
+        if (!el) continue;
+        if (el.getBoundingClientRect().top - top <= SCROLL_TOP_THRESHOLD) current = h.id;
+      }
+      setActiveId(current);
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    };
+    main.addEventListener("scroll", onScroll, { passive: true });
+    update();
+    return () => {
+      main.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [docId, headings, html, sourceView]);
 
   return (
     <div className="bg-background text-foreground flex h-screen flex-col overflow-hidden">
@@ -164,28 +249,55 @@ export function HelpDocsWindow() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <nav className="border-border-subtle bg-sidebar w-52 shrink-0 space-y-1 overflow-y-auto border-r p-3">
-          {ARTICLES.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={cn(
-                "hover:bg-hover w-full cursor-pointer rounded-lg px-2.5 py-2 text-left transition-colors",
-                item.id === article.id
-                  ? "bg-raised text-foreground ring-primary/15 ring-1"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setDocId(item.id)}
-            >
-              <span className="block text-xs font-medium">{item.title}</span>
-              <span className="text-muted-foreground/70 mt-0.5 block text-[10px] leading-4">
-                {item.description}
-              </span>
-            </button>
-          ))}
+        <nav className="border-border-subtle bg-sidebar flex w-56 shrink-0 flex-col overflow-hidden border-r">
+          <div className="space-y-1 p-3">
+            {ARTICLES.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={cn(
+                  "hover:bg-hover w-full cursor-pointer rounded-lg px-2.5 py-2 text-left transition-colors",
+                  item.id === article.id
+                    ? "bg-raised text-foreground ring-primary/15 ring-1"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setDocId(item.id)}
+              >
+                <span className="block text-xs font-medium">{item.title}</span>
+                <span className="text-muted-foreground/70 mt-0.5 block text-[10px] leading-4">
+                  {item.description}
+                </span>
+              </button>
+            ))}
+          </div>
+          {!sourceView && headings.length > 0 && (
+            <div className="border-border-subtle flex min-h-0 flex-1 flex-col border-t">
+              <div className="text-muted-foreground px-3.5 py-2 text-[10px] font-medium tracking-wide uppercase">
+                大纲
+              </div>
+              <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
+                {headings.map((h) => (
+                  <button
+                    key={h.id}
+                    type="button"
+                    className={cn(
+                      "hover:bg-hover w-full cursor-pointer rounded-md py-1.5 text-left text-[11px] leading-4 transition-colors",
+                      h.level >= 3 ? "pl-5" : "pl-2.5",
+                      h.id === activeId
+                        ? "bg-selection text-foreground font-medium"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                    onClick={() => scrollToHeading(h.id)}
+                  >
+                    {h.text}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </nav>
 
-        <main className="bg-editor min-h-0 flex-1 overflow-y-auto">
+        <main ref={scrollRef} className="bg-editor min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-3xl px-10 py-10">
             {sourceView ? (
               <pre className="bg-raised/45 border-border-subtle overflow-x-auto rounded-xl border p-4 text-xs leading-5">

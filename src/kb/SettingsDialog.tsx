@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AppSettings } from "../settings";
 import { SettingsPage, type SettingsTab } from "./SettingsPage";
 import {
@@ -21,7 +21,21 @@ interface SettingsDialogProps {
   onChange: (patch: Partial<AppSettings>) => void;
   onRebuildIndex: () => void;
   onCreateTemplateFromCurrent?: () => void;
+  /** 打开时直落分类(如 AI 引导 → ai) */
+  initialTab?: string;
 }
+
+const VALID: SettingsTab[] = [
+  "general",
+  "templates",
+  "appearance",
+  "editor",
+  "storage",
+  "image",
+  "search",
+  "ai",
+  "about",
+];
 
 export function SettingsDialog({
   open,
@@ -30,8 +44,16 @@ export function SettingsDialog({
   onChange,
   onRebuildIndex,
   onCreateTemplateFromCurrent,
+  initialTab = "general",
 }: SettingsDialogProps) {
-  const [tab, setTab] = useState<SettingsTab>("general");
+  const [tab, setTab] = useState<SettingsTab>(
+    VALID.includes(initialTab as SettingsTab) ? (initialTab as SettingsTab) : "general",
+  );
+  useEffect(() => {
+    if (open && VALID.includes(initialTab as SettingsTab)) {
+      setTab(initialTab as SettingsTab);
+    }
+  }, [open, initialTab]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="h-[540px] max-w-[720px] gap-0 overflow-hidden p-0">

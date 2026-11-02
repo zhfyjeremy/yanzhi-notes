@@ -4,7 +4,7 @@ This file provides guidance to Codex (claude.ai/code) when working with code in 
 
 ## 项目
 
-砚知(Yanzhi Notes):Tauri 2 桌面端本地离线知识库编辑器,仅 Windows/macOS。**产品事实源是 `PRD-本地离线知识库编辑器.md`**,功能范围、方言规范(§10)、禁止清单(§11)、视觉规范(§12)以 PRD 为准,冲突时先停下来问。**开工前先读根目录 `STATUS.md`**(当前进度、待办、踩坑清单),每阶段收尾时更新它。
+砚知(Yanzhi Notes):Tauri 2 桌面端本地离线知识库编辑器,仅 Windows/macOS。**产品事实源是 `docs/PRD-本地离线知识库编辑器.md`**,功能范围、方言规范(§10)、禁止清单(§11)、视觉规范(§12)以 PRD 为准,冲突时先停下来问。**开工前先读 `docs/STATUS.md`**(当前进度、待办、踩坑清单),每阶段收尾时更新它。文档索引见 `docs/README.md`。
 
 ## 常用命令
 
@@ -37,11 +37,11 @@ pnpm vitest run -t "lists"                                         # 按名过�
 
 ## 存储/网络约束(PRD 红线,摘要)
 
-- 本地优先默认离线:未开 AI 时不得有业务网络请求;AI 仅 BYOK 且 V3 再做
+- 本地优先默认离线:未开 AI 时不得有业务网络请求;AI 仅 BYOK,见 PRD §7.8(AI-0 管道 + AI-1 写作首期)
 - 文档 = 标准 Markdown + assets 相对路径(禁 base64);元数据只进 `.yanzhi/`
 - 不做:协同、云同步、分享发布、单元格合并、Linux/Electron
 
 ## 环境备注
 
-- Rust 走清华镜像(`src-tauri/.cargo/config.toml`);npm 网络慢,安装超时重试即可
+- Rust 走镜像(`src-tauri/.cargo/config.toml`);npm 网络慢,安装超时重试即可
 - `pnpm tauri dev` 常驻后台;改 Rust 代码需重启 dev,前端改动走 HMR

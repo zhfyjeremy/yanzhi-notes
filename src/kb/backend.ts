@@ -24,6 +24,7 @@ import { movePatternsFor, refPatternsFor, updateWikiRefs } from "./wiki-refs";
 import { assetRelPosix, isExternalSrc } from "./asset-src";
 import { migrateMarkdownAssetRefs } from "./assets";
 import { STARTER_MD } from "./help-docs";
+import { withNativeDialog } from "./dialog-gate";
 
 export class KbNotEmptyError extends Error {
   constructor() {
@@ -60,7 +61,7 @@ const singleBase = (path: string): string => path.split(/[\\/]/).pop() ?? path;
 const tauriBackend: KbBackend = {
   kind: "tauri",
   async pickFolder() {
-    return invoke<string | null>("pick_folder");
+    return (await withNativeDialog(() => invoke<string | null>("pick_folder"))) ?? null;
   },
   async createKb(root) {
     try {
@@ -129,7 +130,7 @@ const tauriBackend: KbBackend = {
     await invoke("set_recent", { root });
   },
   async pickSingleFile() {
-    return invoke<string | null>("pick_single_file");
+    return (await withNativeDialog(() => invoke<string | null>("pick_single_file"))) ?? null;
   },
   async readSingleFile(path) {
     return invoke<string>("read_single_file", { path });
@@ -138,7 +139,11 @@ const tauriBackend: KbBackend = {
     await invoke("write_single_file", { path, content });
   },
   async saveSingleFileAs(defaultName, content) {
-    return invoke<string | null>("save_single_file_as", { defaultName, content });
+    return (
+      (await withNativeDialog(() =>
+        invoke<string | null>("save_single_file_as", { defaultName, content }),
+      )) ?? null
+    );
   },
   async watchSingleFile(path) {
     await invoke("watch_single_file", { path });
@@ -175,7 +180,8 @@ const tauriBackend: KbBackend = {
     return r.src;
   },
   async importImagesFromPicker(root, docRel) {
-    const paths = await invoke<string[] | null>("pick_images");
+    const paths =
+      (await withNativeDialog(() => invoke<string[] | null>("pick_images"))) ?? null;
     if (!paths?.length) return null;
     const srcs: string[] = [];
     for (const p of paths) {
@@ -185,7 +191,8 @@ const tauriBackend: KbBackend = {
     return srcs;
   },
   async importAttachmentsFromPicker(root, docRel): Promise<AttachmentInfo[] | null> {
-    const paths = await invoke<string[] | null>("pick_files");
+    const paths =
+      (await withNativeDialog(() => invoke<string[] | null>("pick_files"))) ?? null;
     if (!paths?.length) return null;
     const out: AttachmentInfo[] = [];
     for (const p of paths) {
@@ -233,12 +240,17 @@ const tauriBackend: KbBackend = {
     return invoke<DocContent[]>("read_all_trash_docs", { root });
   },
   async importDocsFromPicker(root, folderRel) {
-    const paths = await invoke<string[] | null>("pick_docs");
+    const paths =
+      (await withNativeDialog(() => invoke<string[] | null>("pick_docs"))) ?? null;
     if (!paths?.length) return null;
     return invoke<string[]>("import_docs", { root, folderRel, srcPaths: paths });
   },
   async exportText(defaultName, filterExt, content) {
-    return invoke<string | null>("export_text", { defaultName, filterExt, content });
+    return (
+      (await withNativeDialog(() =>
+        invoke<string | null>("export_text", { defaultName, filterExt, content }),
+      )) ?? null
+    );
   },
   async readAssetBase64(root, rel) {
     return invoke<{ data: string; mime: string } | null>("read_asset_base64", { root, rel });
@@ -257,6 +269,9 @@ const tauriBackend: KbBackend = {
   },
   async saveSnapshot(root, rel, content, auto, keep) {
     return invoke<HistoryEntry>("save_snapshot", { root, rel, content, auto, keep });
+  },
+  async pruneHistory(root, keep) {
+    return invoke<number>("prune_history", { root, keep });
   },
   async listenFsEvent(cb) {
     const { listen } = await import("@tauri-apps/api/event");
@@ -278,7 +293,8 @@ const tauriBackend: KbBackend = {
     return r.src;
   },
   async importSingleImagesFromPicker(path) {
-    const paths = await invoke<string[] | null>("pick_images");
+    const paths =
+      (await withNativeDialog(() => invoke<string[] | null>("pick_images"))) ?? null;
     if (!paths?.length) return null;
     const out: string[] = [];
     for (const p of paths) {
@@ -1060,6 +1076,22 @@ const browserBackend: KbBackend = {
     }
     saveMock(fs);
     return { id, time, auto, chars: [...content].length };
+  },
+  async pruneHistory(_root, keep) {
+    const fs = loadMock();
+    const n = Math.max(1, keep);
+    let removed = 0;
+    for (const rel of Object.keys(fs.history)) {
+      const h = fs.history[rel];
+      const drop = Object.keys(h).filter((k) => parseHistId(k)).sort(histSortDesc).slice(n);
+      for (const k of drop) {
+        delete h[k];
+        removed++;
+      }
+      if (Object.keys(h).length === 0) delete fs.history[rel];
+    }
+    saveMock(fs);
+    return removed;
   },
   async listenFsEvent() {
     return () => {}; // mock 无外部改动

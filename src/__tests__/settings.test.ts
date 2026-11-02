@@ -38,6 +38,30 @@ describe("settings 解析(PRD §8)", () => {
     expect(parseSettings('{"cardBorder":"off"}').cardBorder).toBe(true);
     expect(parseSettings('{"imageCompress":0}').imageCompress).toBe(true);
   });
+  it("打字机滚动:布尔直读,缺失或异型回 false(默认关)", () => {
+    expect(parseSettings('{"typewriterMode":true}').typewriterMode).toBe(true);
+    expect(parseSettings("{}").typewriterMode).toBe(false);
+    expect(parseSettings('{"typewriterMode":"on"}').typewriterMode).toBe(false);
+  });
+  it("AI 设置:默认关;布尔/URL/模型/温度钳制;Key 不进 settings.json", () => {
+    expect(parseSettings("{}").aiEnabled).toBe(false);
+    expect(parseSettings("{}").aiProvider).toBe("custom");
+    expect(parseSettings('{"aiEnabled":true}').aiEnabled).toBe(true);
+    expect(parseSettings('{"aiBaseUrl":" http://127.0.0.1:11434/v1 "}').aiBaseUrl).toBe(
+      "http://127.0.0.1:11434/v1",
+    );
+    expect(parseSettings('{"aiModel":" qwen "}').aiModel).toBe("qwen");
+    expect(parseSettings('{"aiProvider":"kimi"}').aiProvider).toBe("kimi");
+    expect(parseSettings('{"aiBaseUrl":"https://api.deepseek.com/v1"}').aiProvider).toBe(
+      "deepseek",
+    );
+    expect(parseSettings('{"aiBaseUrl":"https://open.bigmodel.cn/api/paas/v4"}').aiProvider).toBe(
+      "zhipu",
+    );
+    expect(parseSettings('{"aiTemperature":9}').aiTemperature).toBe(2);
+    expect(parseSettings('{"aiMaxTokens":-1}').aiMaxTokens).toBe(0);
+    expect(JSON.stringify(parseSettings('{"aiEnabled":true}'))).not.toMatch(/sk-/);
+  });
   it("快照设置(§8 存储,V2):整数直读并钳制,缺失/异型回默认(30 份 / 5 分钟)", () => {
     expect(parseSettings('{"snapshotKeep":10,"snapshotIntervalMin":1}')).toMatchObject({
       snapshotKeep: 10,
