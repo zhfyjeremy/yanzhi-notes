@@ -1,3 +1,5 @@
+# Desktop packaging for Win/macOS (manual Run workflow or v* tags).
+# Touch this file when Actions list is empty so GitHub re-registers the workflow.
 name: Desktop release
 
 on:
