@@ -29,13 +29,13 @@ const ARTICLES: {
   {
     id: "quick-start",
     title: "快速上手",
-    description: "3 分钟理解本地知识库、常用排版和继续探索入口",
+    description: "本地知识库、常用排版、可选 AI 助手与继续探索入口",
     content: STARTER_MD,
   },
   {
     id: "markdown",
     title: "Markdown 能力示例",
-    description: "查看砚知支持的 Markdown 排版能力与对应源码",
+    description: "查看砚知支持的 Markdown 排版能力、源码写法与可选 AI 增强",
     content: MARKDOWN_GUIDE_MD,
   },
 ];
