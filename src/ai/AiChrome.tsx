@@ -9,19 +9,23 @@ import {
 } from "lucide-react";
 import {
   AI_ACTIONS,
+  AI_GROUP_LABEL,
   LANG_OPTIONS,
+  MATH_OPTIONS,
   TONE_OPTIONS,
+  visibleAiActions,
   type AiActionId,
 } from "./actions";
 import { placeFloatMenu, type FloatMenuPos } from "./float-menu";
 import type { AiSession } from "./useAiSession";
 import { parseWikiSuggestTargets } from "./wiki-suggest";
 import { cn } from "@/lib/utils";
+import { shortcutMatches } from "@/shortcuts";
 
 /**
  * 编辑器 AI 表层(§7.8)精简版:
  * - 请求中 / 结果条(跟随选区)
- * - 右键 AI 子菜单
+ * - 右键 / ⌘⇧A AI 动作菜单
  * 选区 idle 浮动条已并入 SelectionBubble(格式 + AI 入口)。
  */
 
@@ -30,9 +34,11 @@ interface AiChromeProps {
   session: AiSession;
   enabled: boolean;
   onNeedSettings: () => void;
+  /** 打开 AI 动作菜单(默认 Mod+Shift+A,可在快捷键窗改) */
+  menuShortcut?: string;
 }
 
-type PendingOption = { id: AiActionId; kind: "tone" | "lang" };
+type PendingOption = { id: AiActionId; kind: "tone" | "lang" | "math" };
 type FloatingPoint = { top: number; left: number; placement: "top" | "bottom" };
 type CtxMenu = FloatMenuPos & { hasSel: boolean };
 
@@ -50,13 +56,32 @@ function LoadingDots() {
   );
 }
 
-export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeProps) {
+export function AiChrome({
+  editor,
+  session,
+  enabled,
+  onNeedSettings,
+  menuShortcut = "Mod+Shift+KeyA",
+}: AiChromeProps) {
   const [panel, setPanel] = useState<FloatingPoint | null>(null);
   const [menu, setMenu] = useState<CtxMenu | null>(null);
   const [pending, setPending] = useState<PendingOption | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const floatRef = useRef<HTMLDivElement>(null);
   const ctxSelectionRef = useRef<{ from: number; to: number } | null>(null);
+  const menuOpenRef = useRef(false);
+  const pendingRef = useRef(false);
+  menuOpenRef.current = !!menu;
+  pendingRef.current = !!pending;
+
+  const openActionMenuAt = (clientX: number, clientY: number, hasSel: boolean) => {
+    const pos = placeFloatMenu(
+      { left: clientX, right: clientX, top: clientY, bottom: clientY },
+      { estimatedHeight: 460, width: 176, preferBelow: true },
+    );
+    setMenu({ ...pos, hasSel });
+    setPending(null);
+  };
 
   // 请求/结果面板锚定选区:优先上方，视口不足放下方，并按选区中心水平居中。
   useLayoutEffect(() => {
@@ -103,7 +128,7 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
     };
   }, [editor, session.state.phase, session.state.range]);
 
-  // 右键菜单
+  // 右键菜单 + ⌘/Ctrl+Shift+A 动作菜单
   useEffect(() => {
     const dom = editor.view.dom;
     const onCtx = (e: MouseEvent) => {
@@ -113,37 +138,68 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
       e.preventDefault();
       const { empty, from, to } = editor.state.selection;
       ctxSelectionRef.current = empty ? null : { from, to };
-      const pos = placeFloatMenu(
-        { left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY },
-        { estimatedHeight: 460, width: 176, preferBelow: true },
-      );
-      setMenu({ ...pos, hasSel: !empty });
+      openActionMenuAt(e.clientX, e.clientY, !empty);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (!shortcutMatches(e, menuShortcut)) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("input, textarea, [contenteditable='false']")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (!enabled) {
+        onNeedSettings();
+        return;
+      }
+      // 再按一次关闭
+      if (menuOpenRef.current || pendingRef.current) {
+        setMenu(null);
+        setPending(null);
+        return;
+      }
+      if (session.state.phase !== "idle") return;
+      const { empty, from, to } = editor.state.selection;
+      ctxSelectionRef.current = empty ? null : { from, to };
+      const coords = editor.view.coordsAtPos(empty ? from : Math.floor((from + to) / 2));
+      openActionMenuAt(coords.left, coords.bottom, !empty);
+    };
+    const close = () => {
+      setMenu(null);
       setPending(null);
     };
-    const close = () => setMenu(null);
     const onScroll = (e: Event) => {
       const t = e.target;
       if (t instanceof Node && floatRef.current?.contains(t)) return;
       close();
     };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (!menuOpenRef.current && !pendingRef.current) return;
+      e.preventDefault();
+      close();
+    };
     dom.addEventListener("contextmenu", onCtx);
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keydown", onEsc);
     window.addEventListener("click", close);
     window.addEventListener("scroll", onScroll, true);
     return () => {
       dom.removeEventListener("contextmenu", onCtx);
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("keydown", onEsc);
       window.removeEventListener("click", close);
       window.removeEventListener("scroll", onScroll, true);
     };
-  }, [editor, enabled]);
+  }, [editor, enabled, menuShortcut, onNeedSettings, session.state.phase]);
 
   const trigger = (id: AiActionId, option?: string) => {
-    setMenu(null);
-    setPending(null);
     const def = AI_ACTIONS.find((a) => a.id === id)!;
     if (def.option && !option) {
+      // 保留 menu 坐标给语气/语言/公式二次面板
       setPending({ id, kind: def.option });
       return;
     }
+    setMenu(null);
+    setPending(null);
     void session.run(editor, id, option, ctxSelectionRef.current ?? undefined);
   };
 
@@ -174,9 +230,18 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
           onMouseDown={(e) => e.preventDefault()}
         >
           <p className="text-muted-foreground px-2 py-1 text-[10px]">
-            {pending.kind === "tone" ? "选择语气" : "目标语言"}
+            {pending.kind === "tone"
+              ? "选择语气"
+              : pending.kind === "math"
+                ? "公式形态"
+                : "目标语言"}
           </p>
-          {(pending.kind === "tone" ? TONE_OPTIONS : LANG_OPTIONS).map((opt) => (
+          {(pending.kind === "tone"
+            ? TONE_OPTIONS
+            : pending.kind === "math"
+              ? MATH_OPTIONS
+              : LANG_OPTIONS
+          ).map((opt) => (
             <button
               key={opt}
               type="button"
@@ -214,13 +279,15 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
             AI 助手
           </p>
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {AI_ACTIONS.filter((a) => menu.hasSel || a.allowEmptySelection).map((a, i, list) => {
+            {visibleAiActions(editor, menu.hasSel).map((a, i, list) => {
               const prev = list[i - 1];
               const showSep = prev && prev.group !== a.group;
               return (
                 <div key={a.id}>
                   {showSep ? (
-                    <p className="text-muted-foreground px-2 pt-1.5 pb-0.5 text-[10px]">结构</p>
+                    <p className="text-muted-foreground px-2 pt-1.5 pb-0.5 text-[10px]">
+                      {AI_GROUP_LABEL[a.group]}
+                    </p>
                   ) : null}
                   <button
                     type="button"

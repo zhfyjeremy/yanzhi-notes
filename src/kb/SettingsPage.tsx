@@ -75,7 +75,8 @@ const PAGE_META: Record<SettingsTab, { title: string; description: string }> = {
   search: { title: "搜索", description: "查看索引策略,并在异常时手动恢复搜索能力。" },
   ai: {
     title: "AI 助手",
-    description: "自备钥匙(BYOK)。默认关闭;开启后在选区浮动条、右键与 /ai 中使用。",
+    description:
+      "自备钥匙(BYOK)。默认关闭;开启后在选区浮动条、右键、⌘/Ctrl+Shift+A 与 /ai 中使用。",
   },
   about: { title: "关于", description: "了解砚知的产品原则与本地优先存储方式。" },
 };

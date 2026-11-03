@@ -1,9 +1,10 @@
 import { useCallback, useRef, useState } from "react";
 import type { Editor } from "@tiptap/core";
 import type { AppSettings } from "../settings";
-import { aiActionById, type AiActionId } from "./actions";
-import { applyAiMarkdown, copyAiText, prefixContext, selectionText } from "./apply";
+import { aiActionById, type AiActionId, type AiApplyMode } from "./actions";
+import { applyAiResult, copyAiText, prefixContext, selectionText } from "./apply";
 import { aiChat, cancelAi, hostOfBaseUrl } from "./client";
+import { resolveCodeBlockContext } from "./node-context";
 import {
   filterWikiSuggestOutput,
   formatWikiCatalog,
@@ -25,6 +26,10 @@ export interface AiSessionState {
   error: string;
   /** 生成时锁定的选区,供替换 */
   range: { from: number; to: number } | null;
+  /** 代码块内容区间(改写/修正 Mermaid) */
+  contentRange: { from: number; to: number } | null;
+  /** 解释类插入落点(代码块后),避免 NodeSelection 时 insert 整块替换 */
+  insertPos: number | null;
   bias: "insert" | "replace";
   actionId: AiActionId | null;
   actionLabel: string;
@@ -32,6 +37,9 @@ export interface AiSessionState {
   runningLabel: string;
   /** AI-2 结构类替换走块级 Markdown */
   blockApply: boolean;
+  applyMode: AiApplyMode;
+  /** 公式行内/块级等二次选项 */
+  option: string | null;
 }
 
 const IDLE: AiSessionState = {
@@ -41,11 +49,15 @@ const IDLE: AiSessionState = {
   result: "",
   error: "",
   range: null,
+  contentRange: null,
+  insertPos: null,
   bias: "replace",
   actionId: null,
   actionLabel: "",
   runningLabel: "",
   blockApply: false,
+  applyMode: "markdown",
+  option: null,
 };
 
 export function useAiSession(
@@ -78,6 +90,8 @@ export function useAiSession(
       actionId: AiActionId,
       option?: string,
       lockedSelection?: LockedAiSelection,
+      /** 代码块卡片传入的节点 pos,只解释/改写这一块 */
+      nodePos?: number,
     ) => {
       if (!ready) {
         onNeedSettings();
@@ -85,9 +99,10 @@ export function useAiSession(
         return;
       }
       const action = aiActionById(actionId);
-      const locked = lockedSelection?.from != null && lockedSelection.to > lockedSelection.from
-        ? lockedSelection
-        : undefined;
+      const locked =
+        lockedSelection?.from != null && lockedSelection.to > lockedSelection.from
+          ? lockedSelection
+          : undefined;
       const selection = locked ?? editor.state.selection;
       const empty = locked !== undefined ? false : editor.state.selection.empty;
       const { from, to } = selection;
@@ -95,8 +110,39 @@ export function useAiSession(
         ? editor.state.doc.textBetween(locked.from, locked.to, "\n")
         : selectionText(editor);
       let range: { from: number; to: number } | null = locked ?? (empty ? null : { from, to });
+      let contentRange: { from: number; to: number } | null = null;
+      let insertPos: number | null = null;
+      let promptOption = option;
 
-      if (!ctx) {
+      const codeCtx = resolveCodeBlockContext(editor, nodePos);
+      if (action.requireNode === "mermaid") {
+        if (!codeCtx || codeCtx.kind !== "mermaid") {
+          onToast?.("请先把光标放在 Mermaid 图表内");
+          return;
+        }
+        ctx = codeCtx.text;
+        range = codeCtx.range;
+        contentRange = codeCtx.contentRange;
+        if (typeof nodePos === "number") {
+          editor.commands.setNodeSelection(nodePos);
+        }
+      } else if (action.requireNode === "codeBlock") {
+        if (!codeCtx) {
+          onToast?.("请先把光标放在代码块内");
+          return;
+        }
+        // 只用这一块的源码,绝不拼其它代码块
+        ctx = codeCtx.text;
+        range = codeCtx.range;
+        contentRange = codeCtx.contentRange;
+        insertPos = codeCtx.range.to;
+        promptOption = option ?? codeCtx.language;
+        if (typeof nodePos === "number") {
+          editor.commands.setNodeSelection(nodePos);
+        }
+      }
+
+      if (!ctx?.trim()) {
         if (action.id === "continue") {
           ctx = prefixContext(editor);
           if (!ctx.trim()) {
@@ -115,7 +161,6 @@ export function useAiSession(
         return;
       }
 
-      let promptOption = option;
       let wikiDocs: WikiSuggestDoc[] = [];
       if (action.id === "wikiSuggest") {
         wikiDocs = getWikiDocsRef.current?.() ?? [];
@@ -136,11 +181,15 @@ export function useAiSession(
         result: "",
         error: "",
         range,
+        contentRange,
+        insertPos,
         bias: action.bias,
         actionId: action.id,
         actionLabel: action.label,
         runningLabel: action.runningLabel ?? action.label,
         blockApply: !!action.blockApply,
+        applyMode: action.applyMode ?? "markdown",
+        option: option ?? null,
       });
 
       try {
@@ -195,16 +244,24 @@ export function useAiSession(
         setState(IDLE);
         return;
       }
-      applyAiMarkdown(
-        editor,
-        state.result,
-        mode,
-        mode === "replace" ? state.range ?? undefined : undefined,
-        { blockApply: state.blockApply },
-      );
+      // 解释代码:落到该代码块后方,避免当前仍是 NodeSelection 时整块被替换
+      if (
+        mode === "insert" &&
+        state.actionId === "explainCode" &&
+        typeof state.insertPos === "number"
+      ) {
+        const pos = Math.min(state.insertPos, editor.state.doc.content.size);
+        editor.chain().focus().setTextSelection(pos).run();
+      }
+      applyAiResult(editor, state.result, mode, state.range, {
+        applyMode: state.applyMode,
+        blockApply: state.blockApply,
+        mathOption: state.option ?? undefined,
+        contentRange: state.contentRange,
+      });
       setState(IDLE);
     },
-    [state.result, state.range, state.blockApply, onToast],
+    [state, onToast],
   );
 
   /** 插入单条片段(双链建议逐条选用);不关闭结果条,方便连续挑选 */
@@ -212,7 +269,7 @@ export function useAiSession(
     (editor: Editor, markdown: string) => {
       const md = markdown.trim();
       if (!md) return;
-      applyAiMarkdown(editor, md, "insert");
+      applyAiResult(editor, md, "insert", null, { applyMode: "markdown" });
       onToast?.("已插入");
     },
     [onToast],

@@ -24,6 +24,7 @@ import { WikiLinkSuggestExtension, type WikiDocRef } from "./wiki-link-command";
 import { DEFAULT_SHORTCUTS, shortcutMatches, type ShortcutBindings } from "../shortcuts";
 import { scrollCaretToTypewriterLine } from "./typewriter";
 import { AiChrome } from "../ai/AiChrome";
+import { setCardAiHandler } from "../ai/card-bridge";
 import { SelectionBubble } from "./toolbar/SelectionBubble";
 import { EDITOR_COLUMN_MAX } from "./layout";
 import type { AiSession } from "../ai/useAiSession";
@@ -292,10 +293,11 @@ export function YanzhiEditor({
     };
   }, []);
 
-  // 斜杠 AI:未开开关 → 引导设置;续写允许空选区
+  // 斜杠 / 代码块卡片 AI:未开开关 → 引导设置;续写与卡片节点动作允许空选区
   useEffect(() => {
     if (!aiSession) {
       setSlashAiHandler(null);
+      setCardAiHandler(null);
       return;
     }
     setSlashAiHandler((ed, actionId) => {
@@ -305,7 +307,17 @@ export function YanzhiEditor({
       }
       void aiSession.run(ed, actionId);
     });
-    return () => setSlashAiHandler(null);
+    setCardAiHandler(
+      aiReady
+        ? (ed, actionId, nodePos) => {
+            void aiSession.run(ed, actionId, undefined, undefined, nodePos);
+          }
+        : null,
+    );
+    return () => {
+      setSlashAiHandler(null);
+      setCardAiHandler(null);
+    };
   }, [aiSession, aiReady, onNeedAiSettings]);
 
   // 全局搜索定位:文档载入完成后跳首个命中 + 高亮 + 打开查找条
@@ -380,11 +392,12 @@ export function YanzhiEditor({
               }
             />
           )}
-          {editor && aiSession && aiReady && (
+          {editor && aiSession && (
             <AiChrome
               editor={editor}
               session={aiSession}
               enabled={aiReady}
+              menuShortcut={shortcuts.aiMenu}
               onNeedSettings={() => onNeedAiSettings?.()}
             />
           )}

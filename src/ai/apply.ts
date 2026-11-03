@@ -2,6 +2,8 @@ import { Editor } from "@tiptap/core";
 import { Fragment, type Mark, type Node as PMNode, type Schema } from "@tiptap/pm/model";
 import { mdToHtml } from "../editor/markdown/md-instance";
 import { markdownToDoc } from "../editor/markdown/parse";
+import { extractLatex, stripCodeFence } from "./node-context";
+import type { AiApplyMode } from "./actions";
 
 function commonBlockAt(
   doc: PMNode,
@@ -82,6 +84,70 @@ export function applyAiMarkdown(
     return;
   }
   editor.chain().focus().insertContent(html).run();
+}
+
+/** AI-3:按 applyMode 写回(代码内容 / Mermaid 围栏 / 公式节点 / 普通 Markdown) */
+export function applyAiResult(
+  editor: Editor,
+  raw: string,
+  mode: "insert" | "replace",
+  range: { from: number; to: number } | null | undefined,
+  opts: {
+    applyMode?: AiApplyMode;
+    blockApply?: boolean;
+    mathOption?: string;
+    contentRange?: { from: number; to: number } | null;
+  },
+): void {
+  const applyMode = opts.applyMode ?? "markdown";
+  if (applyMode === "codeContent") {
+    const code = stripCodeFence(raw);
+    const cr = opts.contentRange;
+    if (!cr || cr.from >= cr.to) {
+      // 无内容区间时退化为整段 Markdown 代码块替换
+      applyAiMarkdown(editor, "```\n" + code + "\n```", mode, range ?? undefined, {
+        blockApply: true,
+      });
+      return;
+    }
+    const textNode = code.length ? editor.schema.text(code) : null;
+    editor
+      .chain()
+      .focus()
+      .command(({ tr, dispatch }) => {
+        if (dispatch) {
+          if (textNode) tr.replaceWith(cr.from, cr.to, textNode);
+          else tr.delete(cr.from, cr.to);
+        }
+        return true;
+      })
+      .run();
+    return;
+  }
+  if (applyMode === "mermaidFence") {
+    const src = stripCodeFence(raw);
+    const md = "```mermaid\n" + src + "\n```";
+    applyAiMarkdown(editor, md, mode, range ?? undefined, { blockApply: true });
+    return;
+  }
+  if (applyMode === "math") {
+    const latex = extractLatex(raw);
+    if (!latex) return;
+    const block = (opts.mathOption ?? "行内") === "块级";
+    const node = {
+      type: block ? "mathBlock" : "mathInline",
+      attrs: { latex },
+    };
+    if (mode === "replace" && range && range.from !== range.to) {
+      editor.chain().focus().insertContentAt({ from: range.from, to: range.to }, node).run();
+      return;
+    }
+    editor.chain().focus().insertContent(node).run();
+    return;
+  }
+  applyAiMarkdown(editor, raw, mode, range ?? undefined, {
+    blockApply: opts.blockApply,
+  });
 }
 
 export async function copyAiText(text: string): Promise<void> {

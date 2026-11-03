@@ -122,6 +122,7 @@ describe("settings 解析(PRD §8)", () => {
     expect(s.shortcuts.find).toBe("Mod+Alt+KeyF");
     expect(s.shortcuts.replace).toBe(DEFAULT_SETTINGS.shortcuts.replace);
     expect(s.shortcuts.slashMenu).toBe(DEFAULT_SETTINGS.shortcuts.slashMenu);
+    expect(s.shortcuts.aiMenu).toBe(DEFAULT_SETTINGS.shortcuts.aiMenu);
   });
 });
 

@@ -30,8 +30,11 @@ import {
 } from "@/components/ui/popover";
 import {
   AI_ACTIONS,
+  AI_GROUP_LABEL,
   LANG_OPTIONS,
+  MATH_OPTIONS,
   TONE_OPTIONS,
+  visibleAiActions,
   type AiActionId,
 } from "@/ai/actions";
 import { placeFloatMenu, type FloatMenuPos } from "@/ai/float-menu";
@@ -47,7 +50,7 @@ import { cn } from "@/lib/utils";
  */
 
 type FloatingPoint = { top: number; left: number };
-type PendingOption = { id: AiActionId; kind: "tone" | "lang" };
+type PendingOption = { id: AiActionId; kind: "tone" | "lang" | "math" };
 
 /** AI 开启时行内露出的常用动作;其余进「更多」 */
 const AI_QUICK: AiActionId[] = ["polish", "expand", "shorten"];
@@ -247,7 +250,7 @@ export function SelectionBubble({ editor, ai }: SelectionBubbleProps) {
   };
 
   const aiOn = !!ai?.enabled;
-  const moreActions = AI_ACTIONS.filter((a) => !AI_QUICK.includes(a.id));
+  const moreActions = visibleAiActions(editor, true).filter((a) => !AI_QUICK.includes(a.id));
 
   return (
     <div ref={wrapRef} className="pointer-events-none absolute inset-0 z-20 overflow-visible">
@@ -447,9 +450,18 @@ export function SelectionBubble({ editor, ai }: SelectionBubbleProps) {
           onClick={(e) => e.stopPropagation()}
         >
           <p className="text-muted-foreground px-2 py-1 text-[10px]">
-            {pending.kind === "tone" ? "选择语气" : "目标语言"}
+            {pending.kind === "tone"
+              ? "选择语气"
+              : pending.kind === "math"
+                ? "公式形态"
+                : "目标语言"}
           </p>
-          {(pending.kind === "tone" ? TONE_OPTIONS : LANG_OPTIONS).map((opt) => (
+          {(pending.kind === "tone"
+            ? TONE_OPTIONS
+            : pending.kind === "math"
+              ? MATH_OPTIONS
+              : LANG_OPTIONS
+          ).map((opt) => (
             <button
               key={opt}
               type="button"
@@ -493,7 +505,9 @@ export function SelectionBubble({ editor, ai }: SelectionBubbleProps) {
               return (
                 <div key={a.id}>
                   {showSep ? (
-                    <p className="text-muted-foreground px-2 pt-1.5 pb-0.5 text-[10px]">结构</p>
+                    <p className="text-muted-foreground px-2 pt-1.5 pb-0.5 text-[10px]">
+                      {AI_GROUP_LABEL[a.group]}
+                    </p>
                   ) : null}
                   <button
                     type="button"

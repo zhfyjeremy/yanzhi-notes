@@ -11,6 +11,7 @@ export const SHORTCUT_ACTIONS = [
   "find",
   "replace",
   "slashMenu",
+  "aiMenu",
 ] as const;
 
 export type ShortcutAction = (typeof SHORTCUT_ACTIONS)[number];
@@ -23,6 +24,7 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   find: "文档内查找",
   replace: "查找并替换",
   slashMenu: "唤起斜杠菜单",
+  aiMenu: "打开 AI 动作菜单",
 };
 
 export const DEFAULT_SHORTCUTS: ShortcutBindings = {
@@ -32,6 +34,7 @@ export const DEFAULT_SHORTCUTS: ShortcutBindings = {
   find: "Mod+KeyF",
   replace: "Mod+Alt+KeyF",
   slashMenu: "Mod+Shift+Slash",
+  aiMenu: "Mod+Shift+KeyA",
 };
 
 const MODIFIER_CODES = new Set([

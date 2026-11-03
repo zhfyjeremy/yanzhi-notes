@@ -31,6 +31,8 @@ describe("V3 快捷键自定义", () => {
     const bindings = normalizeShortcutBindings({ focus: "Alt+KeyG" });
     expect(bindings.focus).toBe("Alt+KeyG");
     expect(bindings.find).toBe(DEFAULT_SHORTCUTS.find);
+    expect(bindings.aiMenu).toBe(DEFAULT_SHORTCUTS.aiMenu);
+    expect(DEFAULT_SHORTCUTS.aiMenu).toBe("Mod+Shift+KeyA");
     expect(shortcutConflict(bindings, "navBack", "Mod+Alt+KeyF")).toBe("replace");
   });
 });

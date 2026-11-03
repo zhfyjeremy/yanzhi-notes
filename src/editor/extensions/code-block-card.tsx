@@ -8,14 +8,17 @@ import {
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react";
-import { Check, ChevronDown, Code2, Copy, Eye } from "lucide-react";
+import { Check, ChevronDown, Code2, Copy, Eye, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cardAiAvailable, runCardAi } from "@/ai/card-bridge";
+import type { AiActionId } from "@/ai/actions";
 
 /**
  * 代码块卡片(PRD §5.3.8):hover 浮层 = 语言选择 + 一键复制;左侧行号列;
@@ -154,13 +157,22 @@ function CodeBlockCardView({
 
   const code = node.textContent;
   const hasDiagram = code.trim().length > 0;
+  const aiOn = cardAiAvailable();
+
+  const runAi = (actionId: AiActionId) => {
+    const pos = typeof getPos === "function" ? getPos() : undefined;
+    if (typeof pos !== "number") return;
+    // 显式带上本卡片节点 pos,避免下拉抢焦点后选区落到别的代码块
+    editor.commands.setNodeSelection(pos);
+    runCardAi(editor, actionId, pos);
+  };
 
   return (
     <NodeViewWrapper
       className="yz-code-card group relative"
       data-selected={selected || undefined}
     >
-      {/* hover 浮层:mermaid 视图切换 + 语言 + 复制 */}
+      {/* hover 浮层:mermaid 视图切换 + AI + 语言 + 复制 */}
       <div className="absolute top-1.5 right-2 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
         {isMermaid && (
           <Button
@@ -184,6 +196,34 @@ function CodeBlockCardView({
               </>
             )}
           </Button>
+        )}
+        {aiOn && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="xs"
+                className="bg-background/80 text-primary backdrop-blur"
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                <Sparkles className="size-3" />
+                AI
+                <ChevronDown className="size-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-36">
+              <DropdownMenuItem onClick={() => runAi("explainCode")}>解释代码</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => runAi("rewriteCode")}>改写代码</DropdownMenuItem>
+              {isMermaid && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => runAi("mermaidFix")}>
+                    修正 Mermaid
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
