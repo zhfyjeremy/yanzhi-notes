@@ -1274,6 +1274,8 @@ export function useKb(settings: AppSettings) {
     pickAndCreate,
     pickAndOpen,
     closeKb,
+    /** 立即冲刷未落盘内容(关窗/退出/挂后台前调用) */
+    flushSave,
     createDoc,
     createFolder,
     removeEntry,

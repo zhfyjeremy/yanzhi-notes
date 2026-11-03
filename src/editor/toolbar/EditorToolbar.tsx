@@ -181,7 +181,8 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
 
   return (
     <div role="toolbar" aria-label="格式工具栏" className="yz-toolbar bg-editor flex h-14 shrink-0 items-center justify-center px-4">
-      <div className="border-border-subtle bg-raised flex h-9 w-full max-w-[640px] min-w-0 items-center gap-0.5 overflow-x-auto rounded-[10px] border px-1.5 shadow-sm">
+      {/* 胶囊跟内容收缩、居中;不随正文列拉长。窄纸张时 max-w-full + 内滚,容器查询仍按外层纸宽收纳低频按钮 */}
+      <div className="border-border-subtle bg-raised flex h-9 w-fit max-w-full min-w-0 items-center gap-0.5 overflow-x-auto rounded-[10px] border px-1.5 shadow-sm">
       {/* 标题下拉 */}
       <DropdownMenu onOpenChange={snapshotMenuSelection}>
         <DropdownMenuTrigger asChild>

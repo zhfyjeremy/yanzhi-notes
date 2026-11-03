@@ -315,13 +315,56 @@ body {
   }
 }
 
-@keyframes yz-ai-dot {
-  0%, 60%, 100% {
-    transform: translateY(0);
-    opacity: 0.45;
+/* AI 请求中:选区旁轻量胶囊(AiChrome running) */
+.yz-ai-running-chip {
+  animation: yz-ai-chip-in 180ms ease-out;
+}
+
+.yz-ai-dot {
+  animation: yz-ai-dot 1.05s ease-in-out infinite;
+}
+
+.yz-ai-spark {
+  animation: yz-ai-spark 1.6s ease-in-out infinite;
+}
+
+@keyframes yz-ai-chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
   }
-  30% {
-    transform: translateY(-3px);
+  to {
     opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes yz-ai-dot {
+  0%, 70%, 100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  35% {
+    transform: translateY(-2.5px);
+    opacity: 1;
+  }
+}
+
+@keyframes yz-ai-spark {
+  0%, 100% {
+    opacity: 0.55;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .yz-ai-running-chip,
+  .yz-ai-dot,
+  .yz-ai-spark {
+    animation: none;
   }
 }

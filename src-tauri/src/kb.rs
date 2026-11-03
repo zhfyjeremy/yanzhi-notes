@@ -28,12 +28,12 @@ fn err<E: std::fmt::Display>(e: E) -> String {
 fn resolve(root: &str, rel: &str) -> Result<PathBuf, String> {
     let rel = rel.trim_start_matches('/');
     let p = Path::new(root).join(rel);
-    let normalized = p
+    let normalized = p.canonicalize().map_err(err)?.to_string_lossy().to_string();
+    let root_canon = Path::new(root)
         .canonicalize()
         .map_err(err)?
         .to_string_lossy()
         .to_string();
-    let root_canon = Path::new(root).canonicalize().map_err(err)?.to_string_lossy().to_string();
     if !normalized.starts_with(&root_canon) {
         return Err(format!("路径越界: {rel}"));
     }
@@ -45,7 +45,11 @@ fn resolve_new(root: &str, rel: &str) -> Result<PathBuf, String> {
     let p = Path::new(root).join(rel.trim_start_matches('/'));
     let parent = p.parent().ok_or("无父目录")?;
     let canon_parent = parent.canonicalize().map_err(err)?;
-    let root_canon = Path::new(root).canonicalize().map_err(err)?.to_string_lossy().to_string();
+    let root_canon = Path::new(root)
+        .canonicalize()
+        .map_err(err)?
+        .to_string_lossy()
+        .to_string();
     if !canon_parent.starts_with(&root_canon) {
         return Err(format!("路径越界: {rel}"));
     }
@@ -84,10 +88,8 @@ fn scan_dir(root: &Path, dir: &Path) -> Result<Vec<TreeNode>, String> {
     for entry in fs::read_dir(dir).map_err(err)? {
         let entry = entry.map_err(err)?;
         let name = entry.file_name().to_string_lossy().to_string();
-        let skip = name.starts_with('.')
-            || name == "assets"
-            || name == "node_modules"
-            || name == "trash";
+        let skip =
+            name.starts_with('.') || name == "assets" || name == "node_modules" || name == "trash";
         if skip {
             continue;
         }
@@ -102,7 +104,10 @@ fn scan_dir(root: &Path, dir: &Path) -> Result<Vec<TreeNode>, String> {
             });
         } else if name.to_lowercase().ends_with(".md") {
             docs.push(TreeNode {
-                name: name.trim_end_matches(".md").trim_end_matches(".MD").to_string(),
+                name: name
+                    .trim_end_matches(".md")
+                    .trim_end_matches(".MD")
+                    .to_string(),
                 path: rel_posix(root, &entry.path()),
                 is_dir: false,
                 children: Vec::new(),
@@ -417,7 +422,9 @@ pub fn read_single_file(path: &str) -> Result<String, String> {
 /// 用户显式保存:先确认原文件仍在,再同目录临时文件原子替换
 #[tauri::command]
 pub fn write_single_file(path: &str, content: &str) -> Result<(), String> {
-    let abs = PathBuf::from(path).canonicalize().map_err(|_| "文件不存在或已被移动".to_string())?;
+    let abs = PathBuf::from(path)
+        .canonicalize()
+        .map_err(|_| "文件不存在或已被移动".to_string())?;
     if !is_markdown_path(&abs) {
         return Err("仅支持 Markdown 文件".into());
     }
@@ -447,7 +454,9 @@ pub async fn save_single_file_as(
     })
     .await
     .map_err(|e| e.to_string())?;
-    let Some(picked) = picked else { return Ok(None) };
+    let Some(picked) = picked else {
+        return Ok(None);
+    };
     let mut abs = PathBuf::from(picked.to_string());
     if abs.extension().is_none() {
         abs.set_extension("md");
@@ -456,8 +465,14 @@ pub async fn save_single_file_as(
         return Err("仅支持 Markdown 文件".into());
     }
     if let Some(parent) = abs.parent() {
-        let title = abs.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-        let ext = abs.extension().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "md".into());
+        let title = abs
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let ext = abs
+            .extension()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "md".into());
         let mut candidate = abs.clone();
         let mut n = 2;
         while candidate.exists() {
@@ -476,7 +491,9 @@ pub async fn save_single_file_as(
 #[tauri::command]
 pub fn watch_single_file(app: tauri::AppHandle, path: &str) -> Result<(), String> {
     use notify::Watcher;
-    let target = PathBuf::from(path).canonicalize().map_err(|_| "文件不存在或已被移动".to_string())?;
+    let target = PathBuf::from(path)
+        .canonicalize()
+        .map_err(|_| "文件不存在或已被移动".to_string())?;
     if !is_markdown_path(&target) {
         return Err("仅支持 Markdown 文件".into());
     }
@@ -500,7 +517,8 @@ pub fn watch_single_file(app: tauri::AppHandle, path: &str) -> Result<(), String
                 Ok(Err(_)) => continue,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     if pending {
-                        let _ = thread_app.emit("yz-single-file-event", target.to_string_lossy().to_string());
+                        let _ = thread_app
+                            .emit("yz-single-file-event", target.to_string_lossy().to_string());
                         pending = false;
                     }
                 }
@@ -631,7 +649,9 @@ fn update_wikilink_refs(
     let mut updated = Vec::new();
     let mut count = 0u64;
     for abs in docs {
-        let Ok(content) = fs::read_to_string(&abs) else { continue };
+        let Ok(content) = fs::read_to_string(&abs) else {
+            continue;
+        };
         let mut next = content.clone();
         for (from, to) in patterns {
             count += next.matches(from.as_str()).count() as u64;
@@ -829,7 +849,10 @@ pub fn move_entry(root: &str, src: &str, dest_folder: &str) -> Result<RenameResu
     let old_doc_dir = src_abs.parent().map(Path::to_path_buf);
     let new_doc_dir = new_abs.parent().map(Path::to_path_buf);
     let migrated_content = if !is_dir {
-        match fs::read(&src_abs).ok().and_then(|b| String::from_utf8(b).ok()) {
+        match fs::read(&src_abs)
+            .ok()
+            .and_then(|b| String::from_utf8(b).ok())
+        {
             Some(content) if old_doc_dir.is_some() && new_doc_dir.is_some() => {
                 let (next, changed) = migrate_doc_asset_refs(
                     Path::new(root),
@@ -872,7 +895,11 @@ pub fn move_entry(root: &str, src: &str, dest_folder: &str) -> Result<RenameResu
     }
     let (mut updated_files, ref_count) =
         update_wikilink_refs(Path::new(root), &patterns, None, prefix)?;
-    if migrated_content.as_ref().is_some_and(|(_, changed)| *changed) && !updated_files.contains(&new_rel) {
+    if migrated_content
+        .as_ref()
+        .is_some_and(|(_, changed)| *changed)
+        && !updated_files.contains(&new_rel)
+    {
         updated_files.push(new_rel.clone());
     }
     // 快照目录随文件夹整体迁移(子孙文档的快照目录嵌套在内)
@@ -901,7 +928,11 @@ fn migrate_doc_asset_refs(
     while let Some(found) = content[offset..].find("](") {
         let open = offset + found + 2;
         let mut start = open;
-        while content[start..].chars().next().is_some_and(char::is_whitespace) {
+        while content[start..]
+            .chars()
+            .next()
+            .is_some_and(char::is_whitespace)
+        {
             start += content[start..].chars().next().unwrap().len_utf8();
         }
         let angle = content[start..].starts_with('<');
@@ -1073,11 +1104,16 @@ pub fn save_single_to_kb(
         return Err("不是有效知识库目录".into());
     }
     ensure_yanzhi(root_path)?;
-    let src = PathBuf::from(path).canonicalize().map_err(|_| "源文件不存在".to_string())?;
+    let src = PathBuf::from(path)
+        .canonicalize()
+        .map_err(|_| "源文件不存在".to_string())?;
     if !is_markdown_path(&src) {
         return Err("仅支持 Markdown 文件".into());
     }
-    let stem = src.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let stem = src
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
     let rel = dedupe(root_path, &sanitize_title(&stem), ".md", None);
     let assets_dir = root_path.join("assets");
     fs::create_dir_all(&assets_dir).map_err(err)?;
@@ -1118,11 +1154,18 @@ fn single_draft_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-pub fn save_single_draft(app: tauri::AppHandle, path: String, content: String) -> Result<(), String> {
+pub fn save_single_draft(
+    app: tauri::AppHandle,
+    path: String,
+    content: String,
+) -> Result<(), String> {
     let draft = SingleDraft {
         path,
         content,
-        saved_at: SystemTime::now().duration_since(UNIX_EPOCH).map_err(err)?.as_millis() as u64,
+        saved_at: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(err)?
+            .as_millis() as u64,
     };
     let json = serde_json::to_string_pretty(&draft).map_err(err)?;
     fs::write(single_draft_path(&app)?, json).map_err(err)?;
@@ -1259,15 +1302,16 @@ fn ext_sanitize(ext: &str) -> String {
         .take(5)
         .collect::<String>()
         .to_ascii_lowercase();
-    if e.is_empty() {
-        "png".to_string()
-    } else {
-        e
-    }
+    if e.is_empty() { "png".to_string() } else { e }
 }
 
 /// 图片字节写进「文档所在文件夹/assets/」,内容哈希命名,同内容不重写(9.3.2/9.3.3)
-fn save_asset_bytes(root: &str, doc_rel: &str, ext: &str, bytes: &[u8]) -> Result<AssetInfo, String> {
+fn save_asset_bytes(
+    root: &str,
+    doc_rel: &str,
+    ext: &str,
+    bytes: &[u8],
+) -> Result<AssetInfo, String> {
     if doc_rel.is_empty() {
         return Err("未打开文档,无法定位 assets 目录".into());
     }
@@ -1289,7 +1333,12 @@ fn save_asset_bytes(root: &str, doc_rel: &str, ext: &str, bytes: &[u8]) -> Resul
 
 /// 粘贴/拖拽剪贴板图片落盘(5.3.7/5.7)
 #[tauri::command]
-pub fn save_asset(root: &str, doc_rel: &str, ext: &str, bytes: Vec<u8>) -> Result<AssetInfo, String> {
+pub fn save_asset(
+    root: &str,
+    doc_rel: &str,
+    ext: &str,
+    bytes: Vec<u8>,
+) -> Result<AssetInfo, String> {
     save_asset_bytes(root, doc_rel, ext, &bytes)
 }
 
@@ -1422,7 +1471,10 @@ pub async fn pick_images(app: tauri::AppHandle) -> Result<Option<Vec<String>>, S
     tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .file()
-            .add_filter("图片", &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"])
+            .add_filter(
+                "图片",
+                &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"],
+            )
             .blocking_pick_files()
             .map(|fs| fs.iter().map(|f| f.to_string()).collect::<Vec<_>>())
     })
@@ -1460,7 +1512,13 @@ pub fn read_asset_base64(root: &str, rel: &str) -> Result<Option<AssetData>, Str
     let Ok(bytes) = fs::read(&abs) else {
         return Ok(None);
     };
-    let mime = match abs.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase().as_str() {
+    let mime = match abs
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
         "gif" => "image/gif",
@@ -1474,14 +1532,29 @@ pub fn read_asset_base64(root: &str, rel: &str) -> Result<Option<AssetData>, Str
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut b64 = String::with_capacity(bytes.len() / 3 * 4 + 4);
     for chunk in bytes.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
         let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
         b64.push(TABLE[(n >> 18) as usize & 63] as char);
         b64.push(TABLE[(n >> 12) as usize & 63] as char);
-        b64.push(if chunk.len() > 1 { TABLE[(n >> 6) as usize & 63] as char } else { '=' });
-        b64.push(if chunk.len() > 2 { TABLE[n as usize & 63] as char } else { '=' });
+        b64.push(if chunk.len() > 1 {
+            TABLE[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        b64.push(if chunk.len() > 2 {
+            TABLE[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
-    Ok(Some(AssetData { data: b64, mime: mime.to_string() }))
+    Ok(Some(AssetData {
+        data: b64,
+        mime: mime.to_string(),
+    }))
 }
 
 fn collect_asset_files(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
@@ -1565,7 +1638,9 @@ pub struct TrashEntry {
 }
 
 fn count_md(dir: &Path) -> u32 {
-    let Ok(entries) = fs::read_dir(dir) else { return 0 };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return 0;
+    };
     let mut n = 0;
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
@@ -1587,7 +1662,9 @@ pub fn list_trash(root: &str) -> Result<Vec<TrashEntry>, String> {
     let mut out = Vec::new();
     let mut stack = vec![trash.clone()];
     while let Some(dir) = stack.pop() {
-        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.starts_with('.') {
@@ -1615,7 +1692,9 @@ pub fn list_trash(root: &str) -> Result<Vec<TrashEntry>, String> {
 /// strategy=None 且冲突 → Err("CONFLICT"),前端弹三选一(5.1.1)
 #[tauri::command]
 pub fn restore_trash(root: &str, rel: &str, strategy: Option<String>) -> Result<String, String> {
-    let trash_abs = Path::new(root).join(".yanzhi/trash").join(rel.trim_start_matches('/'));
+    let trash_abs = Path::new(root)
+        .join(".yanzhi/trash")
+        .join(rel.trim_start_matches('/'));
     if !trash_abs.exists() {
         return Err("回收站中不存在该条目".into());
     }
@@ -1666,7 +1745,11 @@ pub fn restore_trash(root: &str, rel: &str, strategy: Option<String>) -> Result<
 pub fn purge_trash(root: &str, rel: &str) -> Result<(), String> {
     let rel = rel.trim_start_matches('/');
     // 不可恢复的破坏性操作,先挡路径逃逸
-    if rel.is_empty() || rel.split('/').any(|c| c == ".." || c == "." || c.is_empty()) {
+    if rel.is_empty()
+        || rel
+            .split('/')
+            .any(|c| c == ".." || c == "." || c.is_empty())
+    {
         return Err("非法路径".into());
     }
     let abs = Path::new(root).join(".yanzhi/trash").join(rel);
@@ -1696,7 +1779,9 @@ pub fn empty_trash(root: &str) -> Result<(), String> {
             continue;
         }
         let p = entry.path();
-        let rel = rel_posix(root_path, &p).trim_start_matches(".yanzhi/trash/").to_string();
+        let rel = rel_posix(root_path, &p)
+            .trim_start_matches(".yanzhi/trash/")
+            .to_string();
         if p.is_dir() {
             fs::remove_dir_all(&p).map_err(err)?;
         } else {
@@ -1733,7 +1818,10 @@ fn history_dir(root: &Path, rel: &str) -> Result<PathBuf, String> {
         .strip_suffix(".md")
         .or_else(|| trimmed.strip_suffix(".MD"))
         .unwrap_or(trimmed);
-    if stem.split('/').any(|s| s.is_empty() || s == ".." || s == ".") {
+    if stem
+        .split('/')
+        .any(|s| s.is_empty() || s == ".." || s == ".")
+    {
         return Err(format!("非法路径: {rel}"));
     }
     Ok(root.join(".yanzhi/history").join(stem))
@@ -1774,7 +1862,12 @@ pub fn list_history(root: &str, rel: &str) -> Result<Vec<HistoryEntry>, String> 
                 let chars = fs::read_to_string(entry.path())
                     .map(|s| s.chars().count() as u32)
                     .unwrap_or(0);
-                out.push(HistoryEntry { id: name, time, auto, chars });
+                out.push(HistoryEntry {
+                    id: name,
+                    time,
+                    auto,
+                    chars,
+                });
             }
         }
     }
@@ -1861,7 +1954,12 @@ pub fn save_snapshot(
     );
     write_atomic(&dir.join(&id), content)?;
     prune_history_dir(&dir, keep.max(1) as usize);
-    Ok(HistoryEntry { id, time, auto, chars: content.chars().count() as u32 })
+    Ok(HistoryEntry {
+        id,
+        time,
+        auto,
+        chars: content.chars().count() as u32,
+    })
 }
 
 /// 改名/移动后迁移快照目录(文件夹的子孙快照嵌套其下,一次 rename 全带走);
@@ -1950,7 +2048,11 @@ fn migrate_md_assets(content: &str, src_dir: &Path, assets_dir: &Path) -> Result
 
 /// 导入外部 Markdown(5.6):文件落到目标文件夹(重名 ` (n)`),图片迁到 assets
 #[tauri::command]
-pub fn import_docs(root: &str, folder_rel: &str, src_paths: Vec<String>) -> Result<Vec<String>, String> {
+pub fn import_docs(
+    root: &str,
+    folder_rel: &str,
+    src_paths: Vec<String>,
+) -> Result<Vec<String>, String> {
     let dir = if folder_rel.is_empty() {
         PathBuf::from(root)
     } else {
@@ -1963,7 +2065,11 @@ pub fn import_docs(root: &str, folder_rel: &str, src_paths: Vec<String>) -> Resu
         let Ok(raw) = fs::read_to_string(src_path) else {
             continue; // 单篇失败不阻断整批
         };
-        let content = migrate_md_assets(&raw, src_path.parent().unwrap_or(Path::new(".")), &assets_dir)?;
+        let content = migrate_md_assets(
+            &raw,
+            src_path.parent().unwrap_or(Path::new(".")),
+            &assets_dir,
+        )?;
         let stem = src_path
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())
@@ -1986,7 +2092,10 @@ pub async fn export_text(
     content: String,
 ) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
-    let exts: Vec<String> = filter_ext.split(',').map(|s| s.trim().to_string()).collect();
+    let exts: Vec<String> = filter_ext
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
     let label: &'static str = if exts.first().map(|s| s.as_str()) == Some("html") {
         "HTML"
     } else {
@@ -2003,7 +2112,9 @@ pub async fn export_text(
     })
     .await
     .map_err(|e| e.to_string())?;
-    let Some(picked) = picked else { return Ok(None) };
+    let Some(picked) = picked else {
+        return Ok(None);
+    };
     let path = picked.to_string();
     fs::write(&path, content).map_err(err)?;
     Ok(Some(path))
@@ -2022,7 +2133,10 @@ mod tests {
         let root = dir.to_string_lossy().to_string();
         let content = read_doc(&root, "bad.md").unwrap();
         assert!(content.starts_with('a') && content.ends_with('b'));
-        assert!(content.contains('\u{FFFD}'), "非法字节应以替换字符呈现: {content:?}");
+        assert!(
+            content.contains('\u{FFFD}'),
+            "非法字节应以替换字符呈现: {content:?}"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -2037,21 +2151,43 @@ mod tests {
         let root = dir.to_string_lossy().to_string();
 
         let names = list_templates(&root).unwrap();
-        assert_eq!(names, vec!["a".to_string(), "b".to_string()], "名称序,非 md 不列: {names:?}");
+        assert_eq!(
+            names,
+            vec!["a".to_string(), "b".to_string()],
+            "名称序,非 md 不列: {names:?}"
+        );
         assert_eq!(read_template(&root, "a").unwrap(), "# a\n");
-        assert!(read_template(&root, "../meta").is_err(), "路径段模板名须拒绝");
         assert!(
-            list_templates(&format!("{}/不存在目录-{}", std::env::temp_dir().to_string_lossy(), std::process::id())).unwrap().is_empty(),
+            read_template(&root, "../meta").is_err(),
+            "路径段模板名须拒绝"
+        );
+        assert!(
+            list_templates(&format!(
+                "{}/不存在目录-{}",
+                std::env::temp_dir().to_string_lossy(),
+                std::process::id()
+            ))
+            .unwrap()
+            .is_empty(),
             "模板目录缺失 = 空列表而非错误"
         );
         // 写(目录缺失时连建)/ 读 / 改名另存(写新名 + 删旧)/ 删
-        let empty_root = dir.parent().unwrap().join(format!("yz-tpl-empty-{}", std::process::id()));
+        let empty_root = dir
+            .parent()
+            .unwrap()
+            .join(format!("yz-tpl-empty-{}", std::process::id()));
         write_template(&empty_root.to_string_lossy(), "新建", "# 新\n\n骨架\n").unwrap();
-        assert_eq!(read_template(&empty_root.to_string_lossy(), "新建").unwrap(), "# 新\n\n骨架\n");
+        assert_eq!(
+            read_template(&empty_root.to_string_lossy(), "新建").unwrap(),
+            "# 新\n\n骨架\n"
+        );
         write_template(&root, "c", "# c\n").unwrap();
         delete_template(&root, "b").unwrap();
         assert!(delete_template(&root, "b").is_err(), "已删再删应报错");
-        assert_eq!(list_templates(&root).unwrap(), vec!["a".to_string(), "c".to_string()]);
+        assert_eq!(
+            list_templates(&root).unwrap(),
+            vec!["a".to_string(), "c".to_string()]
+        );
         std::fs::remove_dir_all(&dir).unwrap();
         std::fs::remove_dir_all(&empty_root).unwrap();
     }
@@ -2112,8 +2248,14 @@ mod tests {
     #[test]
     fn history_rejects_bad_id_and_traversal() {
         let root = hist_test_root("guard");
-        assert!(read_history(&root, "a.md", "../x.md").is_err(), "id 必须过文件名校验");
-        assert!(read_history(&root, "a.md", "1730000000000-a-deadbeef.md").is_err(), "不存在的快照报错");
+        assert!(
+            read_history(&root, "a.md", "../x.md").is_err(),
+            "id 必须过文件名校验"
+        );
+        assert!(
+            read_history(&root, "a.md", "1730000000000-a-deadbeef.md").is_err(),
+            "不存在的快照报错"
+        );
         assert!(list_history(&root, "../escape.md").is_err(), "rel 越界拒绝");
         assert!(save_snapshot(&root, "a/../b.md", "x", true, 5).is_err());
         // 合法名但哈希段长度不对 → 不识别(列表忽略、读取拒绝)
@@ -2123,7 +2265,10 @@ mod tests {
             "junk",
         )
         .unwrap();
-        assert!(list_history(&root, "a.md").unwrap().is_empty(), "杂物文件不入列表");
+        assert!(
+            list_history(&root, "a.md").unwrap().is_empty(),
+            "杂物文件不入列表"
+        );
         std::fs::remove_dir_all(&root).unwrap();
     }
 
@@ -2157,7 +2302,10 @@ mod tests {
             "![图](./assets/a.png)"
         );
         assert_eq!(std::fs::read(root.join("新/assets/a.png")).unwrap(), b"png");
-        assert!(root.join("assets/a.png").exists(), "源资源保留供其它文档使用");
+        assert!(
+            root.join("assets/a.png").exists(),
+            "源资源保留供其它文档使用"
+        );
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

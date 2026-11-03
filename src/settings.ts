@@ -109,6 +109,8 @@ export interface AppSettings {
   imageCompress: boolean;
   /** §8 通用:启动时直开上次库(默认,5.0.4-1)或显示欢迎页 */
   launch: LaunchMode;
+  /** §8 通用:关闭主窗口时隐藏到系统托盘/菜单栏,不退出;默认关 */
+  closeToTray: boolean;
   /** 显示菜单勾选项(非设置页项,菜单「显示」控制):右侧大纲+反链面板 */
   showRightPanel: boolean;
   /** 显示菜单勾选项:编辑器顶部格式工具栏 */
@@ -151,6 +153,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   typewriterMode: false,
   imageCompress: true,
   launch: "last",
+  closeToTray: false,
   showRightPanel: true,
   showToolbar: true,
   showOutline: true,
@@ -203,6 +206,7 @@ export function parseSettings(raw: string): AppSettings {
       typewriterMode: typeof v?.typewriterMode === "boolean" ? v.typewriterMode : false,
       imageCompress: typeof v?.imageCompress === "boolean" ? v.imageCompress : true,
       launch: v?.launch === "welcome" ? "welcome" : "last",
+      closeToTray: typeof v?.closeToTray === "boolean" ? v.closeToTray : false,
       showRightPanel: typeof v?.showRightPanel === "boolean" ? v.showRightPanel : true,
       showToolbar: typeof v?.showToolbar === "boolean" ? v.showToolbar : true,
       showOutline: typeof v?.showOutline === "boolean" ? v.showOutline : true,
@@ -213,10 +217,17 @@ export function parseSettings(raw: string): AppSettings {
       snapshotIntervalMin: clampInt(v?.snapshotIntervalMin, 5, 0, 120),
       shortcuts: normalizeShortcutBindings(v?.shortcuts),
       aiEnabled: typeof v?.aiEnabled === "boolean" ? v.aiEnabled : false,
-      aiBaseUrl:
-        typeof v?.aiBaseUrl === "string" && v.aiBaseUrl.trim()
-          ? v.aiBaseUrl.trim()
-          : DEFAULT_SETTINGS.aiBaseUrl,
+      aiBaseUrl: (() => {
+        const raw =
+          typeof v?.aiBaseUrl === "string" && v.aiBaseUrl.trim()
+            ? v.aiBaseUrl.trim()
+            : DEFAULT_SETTINGS.aiBaseUrl;
+        // 误用 Responses 基址 /api/v1 → 对话补全 paas/v4(本应用只支持 chat/completions)
+        if (/^https:\/\/open\.bigmodel\.cn\/api\/v1\/?$/i.test(raw)) {
+          return "https://open.bigmodel.cn/api/paas/v4";
+        }
+        return raw;
+      })(),
       aiModel:
         typeof v?.aiModel === "string" && v.aiModel.trim()
           ? v.aiModel.trim()

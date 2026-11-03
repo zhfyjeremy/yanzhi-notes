@@ -24,6 +24,8 @@ import { WikiLinkSuggestExtension, type WikiDocRef } from "./wiki-link-command";
 import { DEFAULT_SHORTCUTS, shortcutMatches, type ShortcutBindings } from "../shortcuts";
 import { scrollCaretToTypewriterLine } from "./typewriter";
 import { AiChrome } from "../ai/AiChrome";
+import { SelectionBubble } from "./toolbar/SelectionBubble";
+import { EDITOR_COLUMN_MAX } from "./layout";
 import type { AiSession } from "../ai/useAiSession";
 import "./editor.css";
 
@@ -225,12 +227,34 @@ export function YanzhiEditor({
     },
   });
 
-  /** 空白文档只有一行时,点击正文下方留白应聚焦末尾;正文/链接/按钮仍交给 PM 默认处理 */
+  /**
+   * 点到正文列左右/上下留白时补聚焦(正文/链接/按钮仍走 PM 默认)。
+   * 左右白边:按点击高度落到最近一行(不滚到文末);上方 → 文首;下方 → 文末。
+   */
   const focusEditorFromBlankArea = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0 || !editor || editor.isDestroyed) return;
     const target = event.target as HTMLElement;
     if (target.closest(".yz-editor-doc, a, button, input, textarea, select")) return;
     event.preventDefault();
+
+    const view = editor.view;
+    const docRect = view.dom.getBoundingClientRect();
+    const y = event.clientY;
+    if (y < docRect.top) {
+      editor.commands.focus("start", { scrollIntoView: false });
+      return;
+    }
+    if (y > docRect.bottom) {
+      editor.commands.focus("end");
+      return;
+    }
+    // 左右 padding:X 夹进正文列,Y 保持 → 命中该行附近位置
+    const x = Math.min(Math.max(event.clientX, docRect.left + 1), docRect.right - 1);
+    const hit = view.posAtCoords({ left: x, top: y });
+    if (hit) {
+      editor.commands.focus(hit.pos, { scrollIntoView: false });
+      return;
+    }
     editor.commands.focus("end");
   };
 
@@ -338,7 +362,7 @@ export function YanzhiEditor({
         {/* relative 是 TableToolbar/ImageToolbar/AiChrome 浮层的定位锚;
             打字机加大上下留白,首行/文末也能滚到视口中线 */}
         <div
-          className={`relative mx-auto flex w-full max-w-3xl flex-1 flex-col px-16 ${
+          className={`relative mx-auto flex w-full ${EDITOR_COLUMN_MAX} flex-1 flex-col px-16 ${
             typewriter ? "pt-[42vh] pb-[58vh]" : "pt-10 pb-24"
           }`}
           onMouseDown={focusEditorFromBlankArea}
@@ -346,6 +370,16 @@ export function YanzhiEditor({
           <EditorContent editor={editor} className="flex flex-1 flex-col" />
           {editor && <TableToolbar editor={editor} />}
           {editor && <ImageToolbar editor={editor} onPreview={setPreviewSrc} />}
+          {editor && (
+            <SelectionBubble
+              editor={editor}
+              ai={
+                aiSession && aiReady
+                  ? { session: aiSession, enabled: true }
+                  : null
+              }
+            />
+          )}
           {editor && aiSession && aiReady && (
             <AiChrome
               editor={editor}

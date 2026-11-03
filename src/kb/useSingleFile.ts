@@ -360,6 +360,7 @@ export function useSingleFile() {
     save,
     saveAs,
     close,
+    reload,
     resolveExternal,
     restoreDraft,
     discardDraft,

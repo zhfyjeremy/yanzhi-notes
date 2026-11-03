@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useSettings } from "./settings";
 import { mdToHtml } from "./editor/markdown/md-instance";
+import { EDITOR_COLUMN_MAX } from "./editor/layout";
 import { renderMermaid } from "./editor/extensions/mermaid";
 import { MARKDOWN_GUIDE_MD, STARTER_MD } from "./kb/help-docs";
 import { isTauriEnv } from "./kb/backend";
@@ -298,7 +299,7 @@ export function HelpDocsWindow() {
         </nav>
 
         <main ref={scrollRef} className="bg-editor min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-3xl px-10 py-10">
+          <div className={`mx-auto w-full ${EDITOR_COLUMN_MAX} px-10 py-10`}>
             {sourceView ? (
               <pre className="bg-raised/45 border-border-subtle overflow-x-auto rounded-xl border p-4 text-xs leading-5">
                 <code>{article.content}</code>

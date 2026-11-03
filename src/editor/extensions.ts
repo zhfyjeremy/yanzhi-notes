@@ -71,7 +71,13 @@ export const baseExtensions = [
   TaskList,
   TaskItem.configure({ nested: true }),
   ImageCard.configure({ inline: true }),
-  Table,
+  // 列宽拖拽:colwidth 仅会话内有效,GFM 管道表无列宽语法,保存重开后回均分(与图片 width 同口径)
+  Table.configure({
+    resizable: true,
+    handleWidth: 6,
+    cellMinWidth: 48,
+    lastColumnResizable: true,
+  }),
   TableRow,
   TableHeaderAligned,
   TableCellAligned,

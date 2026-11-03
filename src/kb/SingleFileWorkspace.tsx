@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { Editor } from "@tiptap/react";
 import { YanzhiEditor } from "../editor/YanzhiEditor";
+import { EDITOR_COLUMN_MAX } from "../editor/layout";
 import { TocPanel } from "../editor/panel/TocPanel";
 import { StatusBar } from "./StatusBar";
 import type { ShortcutBindings } from "../shortcuts";
@@ -123,7 +124,7 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
             {!props.focusMode && (
               <header className="w-full shrink-0 px-6 pt-6 pb-3">
                 {/* 两行即可:身份条 + 标题/主操作;低频动作收进「更多」 */}
-                <div className="mx-auto flex max-w-3xl flex-col gap-2.5">
+                <div className={`mx-auto flex w-full ${EDITOR_COLUMN_MAX} flex-col gap-2.5`}>
                   <div className="flex min-w-0 items-center gap-2 text-[11px]">
                     {/* 工作区切换:对齐知识库左栏身份卡,首页/开库不再埋进「更多」 */}
                     <DropdownMenu>

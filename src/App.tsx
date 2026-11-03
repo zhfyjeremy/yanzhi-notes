@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/hint";
 import { YanzhiEditor } from "./editor/YanzhiEditor";
+import { EDITOR_COLUMN_MAX } from "./editor/layout";
 import { insertImage } from "./editor/extensions/image-card";
 import type { WikiDocRef } from "./editor/wiki-link-command";
 import { TocPanel } from "./editor/panel/TocPanel";
@@ -88,6 +89,8 @@ function App() {
   const [tplMgrOpen, setTplMgrOpen] = useState(false);
   const [singlePending, setSinglePending] = useState<
     | { kind: "close"; nextWindow?: boolean }
+    /** 关窗挂托盘 / 真退出前的未保存确认(不关闭当前单文件会话,除非随后进程退出) */
+    | { kind: "app-leave"; leave: "tray" | "quit" }
     | { kind: "open-picker" }
     | { kind: "open-path"; path: string }
     | { kind: "open-kb-picker" }
@@ -98,6 +101,8 @@ function App() {
   const [singleAssetsConfirmOpen, setSingleAssetsConfirmOpen] = useState(false);
   const [singleSaveToKbOpen, setSingleSaveToKbOpen] = useState(false);
   const [singleSavedToKb, setSingleSavedToKb] = useState<{ root: string; rel: string } | null>(null);
+  /** /ai 等入口未就绪时先提示,确认后再进设置,避免生硬直跳 */
+  const [aiSetupPromptOpen, setAiSetupPromptOpen] = useState(false);
   // 单文件大纲默认展开(无目录树,大纲占左导航);与知识库右栏 showOutline 独立
   const [singleOutlineOpen, setSingleOutlineOpen] = useState(true);
   const singleAssetsAllowedRef = useRef(false);
@@ -135,7 +140,11 @@ function App() {
     }
   }, []);
 
-  const aiSession = useAiSession(settings, () => openSettings("ai"), showToast);
+  const promptAiSetup = useCallback(() => setAiSetupPromptOpen(true), []);
+
+  // 双链建议只认知识库文档名;列表在树加载后写入 ref,避免 useAiSession 早于 wikiDocRefs
+  const wikiDocsForAiRef = useRef<import("./editor/wiki-link-command").WikiDocRef[]>([]);
+  const aiSession = useAiSession(settings, promptAiSetup, showToast, () => wikiDocsForAiRef.current);
 
   const confirmSingleAssets = useCallback(() => {
     if (singleAssetsAllowedRef.current) return Promise.resolve(true);
@@ -146,13 +155,47 @@ function App() {
     });
   }, []);
 
+  /** 关窗挂托盘或真退出:知识库先冲刷;单文件 dirty 由调用方先弹确认 */
+  const finishAppLeave = useCallback(
+    async (leave: "tray" | "quit") => {
+      if (!isTauriEnv()) {
+        if (leave === "quit") window.close();
+        return;
+      }
+      if (kb.kbRoot) await kb.flushSave();
+      const { invoke } = await import("@tauri-apps/api/core");
+      if (leave === "tray") {
+        await invoke("set_close_to_tray", { enabled: true });
+        await invoke("hide_main_window");
+        return;
+      }
+      await invoke("quit_app");
+    },
+    [kb],
+  );
+
+  const requestAppLeave = useCallback(
+    (leave: "tray" | "quit") => {
+      if (single.active && single.dirty) {
+        setSinglePending({ kind: "app-leave", leave });
+        return;
+      }
+      void finishAppLeave(leave);
+    },
+    [finishAppLeave, single.active, single.dirty],
+  );
+
   const runSinglePending = useCallback(
     async (pending: NonNullable<typeof singlePending>) => {
       setSinglePending(null);
+      if (pending.kind === "app-leave") {
+        await finishAppLeave(pending.leave);
+        return;
+      }
       if (pending.kind === "close") {
         await single.close();
         if (pending.nextWindow && isTauriEnv()) {
-          void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => void getCurrentWindow().destroy());
+          void import("@tauri-apps/api/core").then(({ invoke }) => void invoke("quit_app"));
         }
         return;
       }
@@ -195,7 +238,7 @@ function App() {
       if (err) showToast(err);
       else if (pending.docRel) await kb.openDoc(pending.docRel);
     },
-    [kb, showToast, single],
+    [finishAppLeave, kb, showToast, single],
   );
 
   const requestSingleAction = useCallback(
@@ -208,6 +251,11 @@ function App() {
 
   const singlePendingDescription = useMemo(() => {
     if (!singlePending) return "";
+    if (singlePending.kind === "app-leave") {
+      return singlePending.leave === "tray"
+        ? "隐藏到后台前可以先保存、放弃修改,或继续编辑。"
+        : "退出前可以先保存、放弃修改,或继续编辑。";
+    }
     if (singlePending.kind === "close") return "关闭文件前可以先保存、放弃修改,或继续编辑。";
     if (singlePending.kind === "open-picker") return "打开新的 Markdown 文件前,先处理当前未保存修改。";
     if (singlePending.kind === "open-path") return "切换到新的 Markdown 文件前,先处理当前未保存修改。";
@@ -228,8 +276,13 @@ function App() {
   const discardAndRunSinglePending = useCallback(() => {
     const pending = singlePending;
     if (!pending) return;
+    // 挂后台时放弃修改:重载磁盘版清 dirty,会话保留;真退出则直接走 leave
+    if (pending.kind === "app-leave" && pending.leave === "tray") {
+      void single.reload().then(() => runSinglePending(pending));
+      return;
+    }
     void runSinglePending(pending);
-  }, [runSinglePending, singlePending]);
+  }, [runSinglePending, single, singlePending]);
 
   const allowSingleAssets = useCallback(() => {
     singleAssetsAllowedRef.current = true;
@@ -594,33 +647,58 @@ function App() {
     };
   }, [kb.booted, requestSingleAction]);
 
-  // 单文件有未保存修改时拦下窗口关闭,给保存/放弃/继续编辑三选一
+  // 关主窗 / 退出:用 ref 挂最新处理,只订一次(同 kb-menu,避免 deps 抖动泄漏多 handler)
+  const requestAppLeaveRef = useRef(requestAppLeave);
+  requestAppLeaveRef.current = requestAppLeave;
+  const closeToTrayRef = useRef(settings.closeToTray);
+  closeToTrayRef.current = settings.closeToTray;
+  const singleDirtyRef = useRef(single.active && single.dirty);
+  singleDirtyRef.current = single.active && single.dirty;
+
   useEffect(() => {
-    if (!single.active) return;
     if (!isTauriEnv()) {
       const onBeforeUnload = (e: BeforeUnloadEvent) => {
-        if (single.dirty) e.preventDefault();
+        if (singleDirtyRef.current) e.preventDefault();
       };
       window.addEventListener("beforeunload", onBeforeUnload);
       return () => window.removeEventListener("beforeunload", onBeforeUnload);
     }
-    let un: (() => void) | undefined;
+    let unClose: (() => void) | undefined;
+    let unQuit: (() => void) | undefined;
     let disposed = false;
     void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
-      void getCurrentWindow().onCloseRequested((event) => {
-        if (!single.dirty) return;
-        event.preventDefault();
-        setSinglePending({ kind: "close", nextWindow: true });
+      void getCurrentWindow()
+        .onCloseRequested((event) => {
+          event.preventDefault();
+          requestAppLeaveRef.current(closeToTrayRef.current ? "tray" : "quit");
+        })
+        .then((fn) => {
+          if (disposed) fn();
+          else unClose = fn;
+        });
+    });
+    void import("@tauri-apps/api/event").then(({ listen }) => {
+      void listen("yz-app-quit", () => {
+        requestAppLeaveRef.current("quit");
       }).then((fn) => {
         if (disposed) fn();
-        else un = fn;
+        else unQuit = fn;
       });
     });
     return () => {
       disposed = true;
-      un?.();
+      unClose?.();
+      unQuit?.();
     };
-  }, [single.active, single.dirty]);
+  }, []);
+
+  // 设置开/关「关闭窗口时保持后台」→ 同步托盘生命周期
+  useEffect(() => {
+    if (!isTauriEnv()) return;
+    void import("@tauri-apps/api/core").then(({ invoke }) => {
+      void invoke("set_close_to_tray", { enabled: settings.closeToTray }).catch(console.error);
+    });
+  }, [settings.closeToTray]);
 
   // V3 全局快捷键(设置来自应用配置;查找/替换由 Editor 内监听)
   useEffect(() => {
@@ -955,6 +1033,7 @@ function App() {
     const docs = flattenDocs(kb.tree);
     return docs.map((d) => ({ name: d.name, path: d.path, target: wikiTargetFor(docs, d.path) }));
   }, [kb.tree]);
+  wikiDocsForAiRef.current = wikiDocRefs;
 
   const onOpenWikiLink = useCallback(
     (target: string) => {
@@ -1113,7 +1192,7 @@ function App() {
         shortcuts={settings.shortcuts}
         aiReady={settings.aiEnabled && settings.aiVerified}
         aiSession={aiSession}
-        onNeedAiSettings={() => openSettings("ai")}
+        onNeedAiSettings={promptAiSetup}
         focusMode={focusMode}
         onToggleFocus={() => setFocusMode((v) => !v)}
         outlineOpen={singleOutlineOpen}
@@ -1231,10 +1310,10 @@ function App() {
         <div className="border-border-subtle bg-editor flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-[0_14px_40px_-22px_color-mix(in_oklab,var(--foreground)_32%,transparent)]">
           {currentPath ? (
             /* 专注模式:导航按钮收起(纯 chrome,⌘[ ⌘] 仍可用),标题与正文同列对齐
-             * (mx-auto max-w-3xl px-16,同 EditorContent 容器);常态:导航胶囊放在
+             * (mx-auto EDITOR_COLUMN_MAX px-16,同 EditorContent 容器);常态:导航胶囊放在
              * 正文列左边界内侧,避免窄卡片时贴到纸张左缘 */
             <div className="w-full shrink-0 px-6 pt-5 pb-2">
-              <div className="relative mx-auto max-w-3xl px-16">
+              <div className={`relative mx-auto ${EDITOR_COLUMN_MAX} px-16`}>
                 {!focusMode && (
                   <div
                     role="group"
@@ -1301,7 +1380,7 @@ function App() {
             shortcuts={settings.shortcuts}
             aiReady={settings.aiEnabled && settings.aiVerified}
             aiSession={aiSession}
-            onNeedAiSettings={() => openSettings("ai")}
+            onNeedAiSettings={promptAiSetup}
           />
         </div>
         {!focusMode && settings.showRightPanel && kbEditor && (
@@ -1439,6 +1518,33 @@ function App() {
         }}
         onCreateTemplateFromCurrent={() => void saveCurrentAsTemplate()}
       />
+      {/* /ai 等未配置时先确认再进设置,避免选动作后生硬直跳 */}
+      <Dialog open={aiSetupPromptOpen} onOpenChange={setAiSetupPromptOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>使用 AI 前需要先配置</DialogTitle>
+            <DialogDescription>
+              {settings.aiEnabled
+                ? "还差一步:在设置里填好 API Key 并测试连接通过后,即可使用润色、续写等能力。砚知不中转、不代扣费。"
+                : "AI 助手默认关闭。开启并完成连接测试后,即可在选区、右键与 /ai 中使用。砚知不中转、不代扣费。"}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setAiSetupPromptOpen(false)}>
+              稍后再说
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setAiSetupPromptOpen(false);
+                openSettings("ai");
+              }}
+            >
+              去配置
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* 菜单触发的库切换确认(5.0.2):非空目录 / 已是砚知库 */}
       <Dialog open={menuPending !== null} onOpenChange={(v) => !v && setMenuPending(null)}>
         <DialogContent className="sm:max-w-sm">

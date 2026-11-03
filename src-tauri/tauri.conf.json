@@ -15,7 +15,8 @@
         "title": "砚知",
         "width": 1280,
         "height": 800,
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+        "visible": false
       }
     ],
     "security": {

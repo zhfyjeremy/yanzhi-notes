@@ -1,8 +1,105 @@
 mod ai;
 mod kb;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::menu::{CheckMenuItem, IconMenuItem, Menu, MenuItem, NativeIcon, SubmenuBuilder};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+
+/// 关闭主窗时是否隐藏到托盘(状态源在前端 settings.closeToTray,经 set_close_to_tray 同步)
+struct CloseToTray(AtomicBool);
+/// 前端完成冲刷/未保存确认后武装退出,ExitRequested 才放行
+struct QuitArmed(AtomicBool);
+
+fn show_main_window_inner(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+fn ensure_tray(app: &tauri::AppHandle) -> Result<(), String> {
+    if app.tray_by_id("main-tray").is_some() {
+        return Ok(());
+    }
+    let show = MenuItem::with_id(app, "yz_tray_show", "打开砚知", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let quit = MenuItem::with_id(app, "yz_tray_quit", "退出砚知", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let menu = Menu::with_items(app, &[&show, &quit]).map_err(|e| e.to_string())?;
+    let icon = app
+        .default_window_icon()
+        .cloned()
+        .ok_or_else(|| "缺少应用图标,无法创建托盘".to_string())?;
+    let _tray = TrayIconBuilder::with_id("main-tray")
+        .icon(icon)
+        .tooltip("砚知")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "yz_tray_show" => show_main_window_inner(app),
+            "yz_tray_quit" => {
+                show_main_window_inner(app);
+                if let Some(main) = app.get_webview_window("main") {
+                    let _ = main.emit("yz-app-quit", ());
+                }
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window_inner(tray.app_handle());
+            }
+        })
+        .build(app)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn remove_tray(app: &tauri::AppHandle) {
+    let _ = app.remove_tray_by_id("main-tray");
+}
+
+/// 同步「关闭窗口时保持后台」:开则建托盘,关则移除并确保主窗可见
+#[tauri::command]
+fn set_close_to_tray(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    app.state::<CloseToTray>()
+        .0
+        .store(enabled, Ordering::SeqCst);
+    if enabled {
+        ensure_tray(&app)?;
+    } else {
+        remove_tray(&app);
+        show_main_window_inner(&app);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn show_main_window(app: tauri::AppHandle) {
+    show_main_window_inner(&app);
+}
+
+#[tauri::command]
+fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    let w = app
+        .get_webview_window("main")
+        .ok_or_else(|| "主窗口不存在".to_string())?;
+    w.hide().map_err(|e| e.to_string())
+}
+
+/// 前端冲刷/确认完成后真正退出(武装 QuitArmed,避免 ExitRequested 再拦一次)
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.state::<QuitArmed>().0.store(true, Ordering::SeqCst);
+    app.exit(0);
+}
 
 /// 显示菜单勾选态:状态源在前端(App state / settings.json),Rust 只镜像,
 /// 前端变化时经 set_view_state 回写并重建菜单(勾选标记与界面一致)
@@ -52,12 +149,7 @@ struct StartupSingleFile(std::sync::Mutex<Option<String>>);
 
 #[tauri::command]
 fn take_startup_single_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    Ok(app
-        .state::<StartupSingleFile>()
-        .0
-        .lock()
-        .unwrap()
-        .take())
+    Ok(app.state::<StartupSingleFile>().0.lock().unwrap().take())
 }
 
 /// 应用菜单(参考 Typora,全量中文重建):砚知 / 文件 / 编辑 / 显示 / 窗口。
@@ -101,37 +193,61 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     // 最近打开收进子菜单(macOS 惯例「Open Recent ▸」):顶级只占一行,列表 hover 展开
     let recent = kb::read_recent(app).recent;
     let recent_items: Vec<_> = if recent.is_empty() {
-        vec![MenuItem::with_id(app, "yz_recent_none", "暂无最近打开", false, None::<&str>)?]
+        vec![MenuItem::with_id(
+            app,
+            "yz_recent_none",
+            "暂无最近打开",
+            false,
+            None::<&str>,
+        )?]
     } else {
         // id 只带序号:路径放 id 里会被 muda 净化,事件侧按序号回查 recent.json
         recent
             .iter()
             .take(10)
             .enumerate()
-            .map(|(i, root)| MenuItem::with_id(app, format!("yz_recent::{i}"), root, true, None::<&str>))
+            .map(|(i, root)| {
+                MenuItem::with_id(app, format!("yz_recent::{i}"), root, true, None::<&str>)
+            })
             .collect::<Result<Vec<_>, _>>()?
     };
-    let recent_refs: Vec<&dyn tauri::menu::IsMenuItem<_>> =
-        recent_items.iter().map(|i| i as &dyn tauri::menu::IsMenuItem<_>).collect();
+    let recent_refs: Vec<&dyn tauri::menu::IsMenuItem<_>> = recent_items
+        .iter()
+        .map(|i| i as &dyn tauri::menu::IsMenuItem<_>)
+        .collect();
     let recent_menu = SubmenuBuilder::new(app, "打开最近文件夹")
         .items(&recent_refs)
         .submenu_native_icon(NativeIcon::Folder)
         .build()?;
     let recent_files = kb::read_recent_files(app).recent;
     let recent_file_items: Vec<_> = if recent_files.is_empty() {
-        vec![MenuItem::with_id(app, "yz_recent_file_none", "暂无最近文件", false, None::<&str>)?]
+        vec![MenuItem::with_id(
+            app,
+            "yz_recent_file_none",
+            "暂无最近文件",
+            false,
+            None::<&str>,
+        )?]
     } else {
         recent_files
             .iter()
             .take(10)
             .enumerate()
             .map(|(i, path)| {
-                MenuItem::with_id(app, format!("yz_recent_file::{i}"), path, true, None::<&str>)
+                MenuItem::with_id(
+                    app,
+                    format!("yz_recent_file::{i}"),
+                    path,
+                    true,
+                    None::<&str>,
+                )
             })
             .collect::<Result<Vec<_>, _>>()?
     };
-    let recent_file_refs: Vec<&dyn tauri::menu::IsMenuItem<_>> =
-        recent_file_items.iter().map(|i| i as &dyn tauri::menu::IsMenuItem<_>).collect();
+    let recent_file_refs: Vec<&dyn tauri::menu::IsMenuItem<_>> = recent_file_items
+        .iter()
+        .map(|i| i as &dyn tauri::menu::IsMenuItem<_>)
+        .collect();
     let recent_file_menu = SubmenuBuilder::new(app, "打开最近文件")
         .items(&recent_file_refs)
         .submenu_native_icon(NativeIcon::MultipleDocuments)
@@ -139,7 +255,8 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     // 保存/另存为/关闭/存入知识库 = 单文件专用;知识库页灰掉避免「点了没反应」
     let flags = *app.state::<ViewFlags>().0.lock().unwrap();
     let single = flags.single_file;
-    let save_single = MenuItem::with_id(app, "yz_save_single", "保存", single, Some("CmdOrCtrl+S"))?;
+    let save_single =
+        MenuItem::with_id(app, "yz_save_single", "保存", single, Some("CmdOrCtrl+S"))?;
     let save_single_as = MenuItem::with_id(
         app,
         "yz_save_single_as",
@@ -269,7 +386,11 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
             "yz_view_outline",
             "大纲",
             if single { true } else { flags.panel },
-            if single { flags.single_outline } else { flags.outline },
+            if single {
+                flags.single_outline
+            } else {
+                flags.outline
+            },
             None::<&str>,
         )?)
         .item(&CheckMenuItem::with_id(
@@ -336,13 +457,8 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         Some(NativeIcon::Info),
         None::<&str>,
     )?;
-    let help_quick_start = MenuItem::with_id(
-        app,
-        "yz_help_quick_start",
-        "快速上手",
-        true,
-        None::<&str>,
-    )?;
+    let help_quick_start =
+        MenuItem::with_id(app, "yz_help_quick_start", "快速上手", true, None::<&str>)?;
     let help_markdown = MenuItem::with_id(
         app,
         "yz_help_markdown",
@@ -377,7 +493,10 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .build()?;
 
     #[cfg(target_os = "macos")]
-    let menu = Menu::with_items(app, &[&app_submenu, &file, &edit, &view, &window, &help_menu])?;
+    let menu = Menu::with_items(
+        app,
+        &[&app_submenu, &file, &edit, &view, &window, &help_menu],
+    )?;
     // Windows:菜单从「文件」起,顶栏不再重复产品名(标题栏图标+名已承担品牌)
     #[cfg(not(target_os = "macos"))]
     let menu = Menu::with_items(app, &[&file, &edit, &view, &window, &help_menu])?;
@@ -394,7 +513,11 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
 /// (见 Tauri `WebviewWindowBuilder::new` Known issues)。
 /// 并发创建用 `AuxWindowLock` 双检锁串行化,避免同 label 竞态炸出多窗。
 #[tauri::command]
-async fn open_aux_window(app: tauri::AppHandle, label: String, tab: Option<String>) -> Result<(), String> {
+async fn open_aux_window(
+    app: tauri::AppHandle,
+    label: String,
+    tab: Option<String>,
+) -> Result<(), String> {
     let focus_existing = |app: &tauri::AppHandle, label: &str, tab: &Option<String>| -> bool {
         let Some(w) = app.get_webview_window(label) else {
             return false;
@@ -411,10 +534,7 @@ async fn open_aux_window(app: tauri::AppHandle, label: String, tab: Option<Strin
         return Ok(());
     }
     let lock = app.state::<AuxWindowLock>();
-    let _guard = lock
-        .0
-        .lock()
-        .map_err(|_| "辅助窗创建锁异常".to_string())?;
+    let _guard = lock.0.lock().map_err(|_| "辅助窗创建锁异常".to_string())?;
     if focus_existing(&app, &label, &tab) {
         return Ok(());
     }
@@ -510,11 +630,31 @@ fn set_view_state(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // 单实例:关到托盘后再点桌面图标 → 唤起已有进程,禁止再开一份(多托盘图标)
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            show_main_window_inner(app);
+            // 二次启动若带 .md(打开方式/拖到图标),转给前台实例
+            let path = args
+                .iter()
+                .skip(1)
+                .filter(|p| {
+                    let lower = p.to_lowercase();
+                    (lower.ends_with(".md") || lower.ends_with(".markdown"))
+                        && std::path::Path::new(p).is_file()
+                })
+                .last()
+                .cloned();
+            if let Some(path) = path {
+                *app.state::<StartupSingleFile>().0.lock().unwrap() = Some(path.clone());
+                let _ = app.emit("yz-open-single-file", path);
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         // 窗口记忆(6.4-3):主窗大小/位置自动保存恢复(关闭时落盘 app_config_dir);
-        // 辅助窗跳过恢复——设置/图谱等有固定或最小尺寸,恢复旧状态会破坏布局
+        // 主窗 tauri.conf visible:false —— 等本插件 restore 后再 show,避免先闪默认位置再跳;
+        // 辅助窗 skip —— 设置/图谱等有固定或最小尺寸,恢复旧状态会破坏布局
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .skip_initial_state("settings")
@@ -528,6 +668,8 @@ pub fn run() {
         .manage(ViewFlags::default())
         .manage(AuxWindowLock::default())
         .manage(StartupSingleFile::default())
+        .manage(CloseToTray(AtomicBool::new(false)))
+        .manage(QuitArmed(AtomicBool::new(false)))
         .setup(|app| {
             let pending = std::env::args()
                 .skip(1)
@@ -627,6 +769,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_aux_window,
             set_view_state,
+            set_close_to_tray,
+            show_main_window,
+            hide_main_window,
+            quit_app,
             kb::pick_folder,
             kb::create_kb,
             kb::force_create_kb,
@@ -696,21 +842,37 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Opened { urls } = event {
-                let path = urls.iter().find_map(|url| {
-                    url.to_file_path()
-                        .ok()
-                        .map(|p| p.to_string_lossy().to_string())
-                });
-                if let Some(path) = path {
-                    *app.state::<StartupSingleFile>().0.lock().unwrap() = Some(path.clone());
-                    let _ = app.emit("yz-open-single-file", path);
+            match &event {
+                // 菜单「退出」/系统退出:先交给前端冲刷与单文件未保存确认,确认后再 quit_app
+                tauri::RunEvent::ExitRequested { api, .. } => {
+                    if !app.state::<QuitArmed>().0.load(Ordering::SeqCst) {
+                        api.prevent_exit();
+                        show_main_window_inner(app);
+                        if let Some(main) = app.get_webview_window("main") {
+                            let _ = main.emit("yz-app-quit", ());
+                        }
+                    }
                 }
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                let _ = (app, event);
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::Opened { urls } => {
+                    let path = urls.iter().find_map(|url| {
+                        url.to_file_path()
+                            .ok()
+                            .map(|p| p.to_string_lossy().to_string())
+                    });
+                    if let Some(path) = path {
+                        *app.state::<StartupSingleFile>().0.lock().unwrap() = Some(path.clone());
+                        let _ = app.emit("yz-open-single-file", path);
+                    }
+                }
+                // macOS:主窗 hide 后点 Dock 图标会 Reopen;无可见窗时拉回主窗
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::Reopen { has_visible_windows, .. } => {
+                    if !has_visible_windows {
+                        show_main_window_inner(app);
+                    }
+                }
+                _ => {}
             }
         });
 }

@@ -4,6 +4,7 @@ import { NodeSelection, Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { NodeViewProps } from "@tiptap/react";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
+import { useCallback, useRef } from "react";
 import { resolveRenderSrc } from "@/kb/asset-src";
 
 /**
@@ -13,7 +14,11 @@ import { resolveRenderSrc } from "@/kb/asset-src";
  * width/align 是视图层属性,不进 md 序列化(方言表无宽度语法,不擅自扩方言;
  * M3 已定:持久化不做,会话级视图属性,见 STATUS 决策记录)。
  * 独占段落的图片居中由段落级 decoration 实现(inline img 自身无法居中)。
+ * 选中时可拖左右手柄连续改宽(仍写 width 百分比 attrs)。
  */
+
+const WIDTH_MIN = 20;
+const WIDTH_MAX = 100;
 
 /** 独占段落且 align=center 的图片所在段落 → 居中 class */
 const centerParagraphsPlugin = new Plugin({
@@ -36,20 +41,88 @@ const centerParagraphsPlugin = new Plugin({
   },
 });
 
-function ImageCardView({ node, selected }: NodeViewProps) {
+function parseWidthPct(width: unknown, fallbackPx: number, editorWidth: number): number {
+  if (typeof width === "string" && width.endsWith("%")) {
+    const n = Number.parseFloat(width);
+    if (Number.isFinite(n)) return Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, n));
+  }
+  if (editorWidth > 0 && fallbackPx > 0) {
+    return Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, Math.round((fallbackPx / editorWidth) * 100)));
+  }
+  return 100;
+}
+
+function ImageCardView({ node, selected, updateAttributes, editor }: NodeViewProps) {
   const { src, alt, width } = node.attrs;
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const draggingRef = useRef(false);
+
+  const startResize = useCallback(
+    (edge: "left" | "right") => (event: React.PointerEvent<HTMLSpanElement>) => {
+      if (event.button !== 0 || !editor || editor.isDestroyed) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const img = imgRef.current;
+      const docEl = editor.view.dom as HTMLElement;
+      if (!img || !docEl) return;
+
+      const startX = event.clientX;
+      const startPx = img.getBoundingClientRect().width;
+      const editorWidth = docEl.clientWidth || 1;
+      const startPct = parseWidthPct(node.attrs.width, startPx, editorWidth);
+      draggingRef.current = true;
+      docEl.classList.add("yz-img-resizing");
+
+      const onMove = (ev: PointerEvent) => {
+        if (!draggingRef.current) return;
+        const dx = edge === "right" ? ev.clientX - startX : startX - ev.clientX;
+        const deltaPct = (dx / editorWidth) * 100;
+        const next = Math.round(
+          Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, startPct + deltaPct)),
+        );
+        updateAttributes({ width: `${next}%` });
+      };
+      const onUp = () => {
+        draggingRef.current = false;
+        docEl.classList.remove("yz-img-resizing");
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    [editor, node.attrs.width, updateAttributes],
+  );
+
+  // 宽度加在卡片上而非 img:避免「img 百分比 + inline-block 父级」循环算宽,
+  // 父级被撑满正文宽、图只占一半时,右侧手柄漂在空白里。
   return (
     <NodeViewWrapper
       as="span"
       className="yz-img-card"
       data-selected={selected || undefined}
+      style={width ? { width } : undefined}
     >
       <img
+        ref={imgRef}
         src={resolveRenderSrc(String(src ?? ""))}
         alt={alt ?? ""}
-        style={width ? { width } : undefined}
         draggable={false}
       />
+      {selected && (
+        <>
+          <span
+            className="yz-img-handle yz-img-handle-w"
+            contentEditable={false}
+            onPointerDown={startResize("left")}
+          />
+          <span
+            className="yz-img-handle yz-img-handle-e"
+            contentEditable={false}
+            onPointerDown={startResize("right")}
+          />
+        </>
+      )}
     </NodeViewWrapper>
   );
 }

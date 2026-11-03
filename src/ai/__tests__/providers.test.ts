@@ -14,6 +14,7 @@ describe("ai providers", () => {
     expect(inferAiProvider("https://api.moonshot.cn/v1")).toBe("custom");
     expect(inferAiProvider("https://api.kimi.com/coding/")).toBe("kimi_coding");
     expect(inferAiProvider("https://open.bigmodel.cn/api/paas/v4")).toBe("zhipu");
+    expect(inferAiProvider("https://open.bigmodel.cn/api/v1")).toBe("zhipu");
     expect(inferAiProvider("https://api.deepseek.com/v1")).toBe("deepseek");
     expect(inferAiProvider("http://127.0.0.1:11434/v1")).toBe("custom");
   });

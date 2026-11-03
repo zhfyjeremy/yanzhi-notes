@@ -128,14 +128,12 @@ export function AiSettingsPanel({
   const [testing, setTesting] = useState(false);
   const [testMsg, setTestMsg] = useState<string | null>(null);
   const [remoteModels, setRemoteModels] = useState<string[]>([]);
-  const [presetFallback, setPresetFallback] = useState(false);
   const [manualModel, setManualModel] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
 
   const provider = aiProviderById(settings.aiProvider);
   const isCustom = provider.id === "custom";
-  const modelsReady = remoteModels.length > 0 || presetFallback;
-  const availableModels = remoteModels.length ? remoteModels : presetFallback ? provider.models : [];
+  const availableModels = remoteModels;
   const modelReady = Boolean(settings.aiModel.trim());
   const interfaceReady = Boolean(settings.aiBaseUrl.trim());
   const phase: AiSetupPhase = !settings.aiEnabled
@@ -179,7 +177,6 @@ export function AiSettingsPanel({
     const next = aiProviderById(id);
     setTestMsg(null);
     setRemoteModels([]);
-    setPresetFallback(false);
     setManualModel(false);
     if (id === "custom") {
       onChange({ aiProvider: id, aiVerified: false });
@@ -188,7 +185,7 @@ export function AiSettingsPanel({
     onChange({
       aiProvider: id,
       aiBaseUrl: next.baseUrl,
-      aiModel: next.model,
+      aiModel: "",
       aiVerified: false,
     });
   };
@@ -213,24 +210,20 @@ export function AiSettingsPanel({
       if (keyDraft.trim()) await setAiKey(keyDraft.trim());
       const models = await listAiModels(settings.aiBaseUrl, keyDraft);
       setRemoteModels(models);
-      setPresetFallback(false);
       refreshHasKey();
+      if (!models.length) {
+        setManualModel(true);
+        setTestMsg("接口未返回模型列表，请手填模型名后测试连接");
+        return;
+      }
       setTestMsg(`已获取 ${models.length} 个模型，请选择`);
       if (!models.includes(settings.aiModel)) {
         onChange({ aiModel: models[0], aiVerified: false });
       }
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      if (provider.models.length) {
-        setRemoteModels([]);
-        setPresetFallback(true);
-        if (!provider.models.includes(settings.aiModel)) {
-          onChange({ aiModel: provider.model, aiVerified: false });
-        }
-        setTestMsg(`${message}；已展示内置常用模型`);
-      } else {
-        setTestMsg(message);
-      }
+      setRemoteModels([]);
+      setManualModel(true);
+      setTestMsg(e instanceof Error ? e.message : String(e));
       refreshHasKey();
     } finally {
       setLoadingModels(false);
@@ -263,7 +256,7 @@ export function AiSettingsPanel({
             <p className="text-foreground font-medium">本地钥匙 · 直连你的模型</p>
             <p className="text-muted-foreground">
               请求只在你点击生成时发往你填写的服务商;砚知不中转、不代扣费。Key
-              仅保存在本机系统安全存储与 0600 权限缓存,永不写入知识库或导出包。
+              只保存在你这台电脑上,不会写入知识库或导出包。
             </p>
           </div>
         </div>
@@ -350,7 +343,6 @@ export function AiSettingsPanel({
               readOnly={!isCustom}
               onChange={(e) => {
                 setRemoteModels([]);
-                setPresetFallback(false);
                 onChange({
                   aiBaseUrl: e.target.value,
                   aiProvider: "custom",
@@ -412,7 +404,6 @@ export function AiSettingsPanel({
                 onClick={() => {
                   void removeKey();
                   setRemoteModels([]);
-                  setPresetFallback(false);
                   onChange({ aiVerified: false });
                 }}
               >
@@ -424,17 +415,15 @@ export function AiSettingsPanel({
           <Field
             label="选择模型"
             hint={
-              modelsReady
-                ? remoteModels.length
-                  ? "已从服务商加载，点击选择后可测试连接"
-                  : "该接口未返回模型列表，已展示内置常用模型"
-                : "完成上一步后自动加载；自定义接口不支持列表时可手填"
+              availableModels.length
+                ? "已从服务商加载，点击选择后可测试连接"
+                : "连接并获取后展示可用模型；若接口无列表请手填模型名"
             }
             step="3"
             stepState={!configured ? "locked" : modelReady ? "done" : "active"}
           >
-            <div className="border-border-subtle bg-muted/25 max-h-44 overflow-y-auto rounded-lg border p-2">
-              {availableModels.length ? (
+            {availableModels.length > 0 && (
+              <div className="border-border-subtle bg-muted/25 max-h-44 overflow-y-auto rounded-lg border p-2">
                 <div className="flex flex-wrap gap-1.5">
                   {availableModels.map((m) => (
                     <button
@@ -455,29 +444,29 @@ export function AiSettingsPanel({
                     </button>
                   ))}
                 </div>
-              ) : (
-                <p className="text-muted-foreground px-1 py-3 text-center text-[11px]">
-                  连接成功后，模型会在这里加载
-                </p>
-              )}
-            </div>
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <Input
                 value={settings.aiModel}
-                placeholder={provider.model}
-                readOnly={!manualModel}
+                placeholder={provider.model || "模型名"}
+                readOnly={!manualModel && availableModels.length > 0}
                 onChange={(e) => onChange({ aiModel: e.target.value, aiVerified: false })}
-                className={cn(!manualModel && "bg-muted/40 text-muted-foreground")}
+                className={cn(
+                  !manualModel && availableModels.length > 0 && "bg-muted/40 text-muted-foreground",
+                )}
               />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setManualModel((v) => !v)}
-                className="h-9 shrink-0"
-              >
-                {manualModel ? "选择模型" : "手填模型"}
-              </Button>
+              {availableModels.length > 0 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setManualModel((v) => !v)}
+                  className="h-9 shrink-0"
+                >
+                  {manualModel ? "选择模型" : "手填模型"}
+                </Button>
+              )}
             </div>
           </Field>
 

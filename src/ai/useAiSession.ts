@@ -4,6 +4,11 @@ import type { AppSettings } from "../settings";
 import { aiActionById, type AiActionId } from "./actions";
 import { applyAiMarkdown, copyAiText, prefixContext, selectionText } from "./apply";
 import { aiChat, cancelAi, hostOfBaseUrl } from "./client";
+import {
+  filterWikiSuggestOutput,
+  formatWikiCatalog,
+  type WikiSuggestDoc,
+} from "./wiki-suggest";
 
 export type AiPhase = "idle" | "running" | "result" | "error";
 
@@ -21,7 +26,12 @@ export interface AiSessionState {
   /** 生成时锁定的选区,供替换 */
   range: { from: number; to: number } | null;
   bias: "insert" | "replace";
+  actionId: AiActionId | null;
   actionLabel: string;
+  /** 请求中文案(「正在…」) */
+  runningLabel: string;
+  /** AI-2 结构类替换走块级 Markdown */
+  blockApply: boolean;
 }
 
 const IDLE: AiSessionState = {
@@ -32,16 +42,23 @@ const IDLE: AiSessionState = {
   error: "",
   range: null,
   bias: "replace",
+  actionId: null,
   actionLabel: "",
+  runningLabel: "",
+  blockApply: false,
 };
 
 export function useAiSession(
   settings: AppSettings,
   onNeedSettings: () => void,
   onToast?: (msg: string) => void,
+  /** 双链建议用:知识库文档列表(读 ref,可空=单文件/无库) */
+  getWikiDocs?: () => WikiSuggestDoc[],
 ) {
   const [state, setState] = useState<AiSessionState>(IDLE);
   const reqRef = useRef<string | null>(null);
+  const getWikiDocsRef = useRef(getWikiDocs);
+  getWikiDocsRef.current = getWikiDocs;
 
   // 测试通过才暴露编辑器入口;Key 仍在真正请求时读取。
   const ready = settings.aiEnabled && settings.aiVerified;
@@ -98,6 +115,17 @@ export function useAiSession(
         return;
       }
 
+      let promptOption = option;
+      let wikiDocs: WikiSuggestDoc[] = [];
+      if (action.id === "wikiSuggest") {
+        wikiDocs = getWikiDocsRef.current?.() ?? [];
+        if (!wikiDocs.length) {
+          onToast?.("当前知识库没有可关联的文档");
+          return;
+        }
+        promptOption = formatWikiCatalog(wikiDocs);
+      }
+
       const requestId = `ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       reqRef.current = requestId;
       const host = hostOfBaseUrl(settings.aiBaseUrl);
@@ -109,7 +137,10 @@ export function useAiSession(
         error: "",
         range,
         bias: action.bias,
+        actionId: action.id,
         actionLabel: action.label,
+        runningLabel: action.runningLabel ?? action.label,
+        blockApply: !!action.blockApply,
       });
 
       try {
@@ -117,16 +148,18 @@ export function useAiSession(
           baseUrl: settings.aiBaseUrl,
           model: settings.aiModel,
           system: action.system,
-          user: action.userPrompt(ctx, option),
+          user: action.userPrompt(ctx, promptOption),
           temperature: settings.aiTemperature,
           maxTokens: settings.aiMaxTokens,
           requestId,
         });
         if (reqRef.current !== requestId) return;
+        const result =
+          action.id === "wikiSuggest" ? filterWikiSuggestOutput(text, wikiDocs) : text;
         setState((s) => ({
           ...s,
           phase: "result",
-          result: text,
+          result,
           requestId: null,
         }));
         reqRef.current = null;
@@ -167,13 +200,25 @@ export function useAiSession(
         state.result,
         mode,
         mode === "replace" ? state.range ?? undefined : undefined,
+        { blockApply: state.blockApply },
       );
       setState(IDLE);
     },
-    [state.result, state.range, onToast],
+    [state.result, state.range, state.blockApply, onToast],
   );
 
-  return { state, ready, run, cancel, apply, clearResult };
+  /** 插入单条片段(双链建议逐条选用);不关闭结果条,方便连续挑选 */
+  const insertSnippet = useCallback(
+    (editor: Editor, markdown: string) => {
+      const md = markdown.trim();
+      if (!md) return;
+      applyAiMarkdown(editor, md, "insert");
+      onToast?.("已插入");
+    },
+    [onToast],
+  );
+
+  return { state, ready, run, cancel, apply, insertSnippet, clearResult };
 }
 
 export type AiSession = ReturnType<typeof useAiSession>;

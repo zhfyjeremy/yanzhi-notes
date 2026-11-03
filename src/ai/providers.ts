@@ -29,7 +29,8 @@ export const AI_PROVIDERS: readonly AiProviderPreset[] = [
   {
     id: "zhipu",
     label: "智谱",
-    hint: "智谱 GLM(OpenAI 兼容 /api/paas/v4)",
+    // 对话补全用 paas/v4;/api/v1 是 Responses(Codex/CCSwitch),本应用不走该协议
+    hint: "智谱 GLM 对话补全(OpenAI 兼容 /api/paas/v4)",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
     model: "glm-4-flash",
     models: ["glm-4-flash", "glm-5.3", "glm-5-turbo", "glm-4.7-flash", "glm-4.6"],
@@ -70,7 +71,7 @@ export function aiChatUrl(base: string): string {
   const b = base.trim().replace(/\/$/, "");
   if (isAnthropicBase(b)) return `${b}/v1/messages`;
   if (b.endsWith("/chat/completions")) return b;
-  // /v1、智谱 /v4 等版本后缀
+  // /v1、/v4 等版本后缀
   if (/\/v\d+$/i.test(b)) return `${b}/chat/completions`;
   return `${b}/v1/chat/completions`;
 }

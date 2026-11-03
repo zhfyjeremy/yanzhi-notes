@@ -66,7 +66,7 @@ const NAV_GROUPS: { title: string; tabs: SettingsTab[] }[] = [
 ];
 
 const PAGE_META: Record<SettingsTab, { title: string; description: string }> = {
-  general: { title: "通用", description: "控制砚知启动方式,并查看应用数据的存放边界。" },
+  general: { title: "通用", description: "控制启动方式、关闭是否进后台,并查看应用数据的存放边界。" },
   templates: { title: "模板", description: "管理当前知识库的文档模板,模板仍是标准 Markdown 文件。" },
   appearance: { title: "外观", description: "调整主题、主色与正文排版,所有变化即时预览。" },
   editor: { title: "编辑器", description: "控制卡片视觉与专注写作相关偏好。" },
@@ -461,7 +461,7 @@ function AboutPane() {
         <ValueRow label="数据自持" value="复制文件夹即备份,随时带走" />
       </Group>
 
-      <p className="text-muted-foreground/70 text-center text-[11px]">© 2026 砚知 · Tauri 2</p>
+      <p className="text-muted-foreground/70 text-center text-[11px]">© 2026 砚知</p>
     </div>
   );
 }
@@ -543,6 +543,18 @@ export function SettingsPage({
                   value={settings.launch}
                   onChange={(v) => onChange({ launch: v })}
                 />
+              </SettingsSection>
+              <SettingsSection
+                title="关闭与后台"
+                hint="开启后,点关闭会进入系统托盘(Windows)或菜单栏(macOS);菜单「退出」仍会真正退出。知识库自动保存;单文件有未保存修改时会询问"
+              >
+                <Group>
+                  <SwitchRow
+                    label="关闭窗口时保持后台"
+                    checked={settings.closeToTray}
+                    onCheckedChange={(v) => onChange({ closeToTray: v })}
+                  />
+                </Group>
               </SettingsSection>
               <SettingsSection
                 title="数据边界"

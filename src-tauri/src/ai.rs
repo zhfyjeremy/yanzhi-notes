@@ -306,7 +306,14 @@ async fn post_chat(
 ) -> Result<String, String> {
     if is_anthropic_base(base) {
         return post_anthropic_chat(
-            base, model, system, user, temperature, max_tokens, api_key, cancel_rx,
+            base,
+            model,
+            system,
+            user,
+            temperature,
+            max_tokens,
+            api_key,
+            cancel_rx,
         )
         .await;
     }
@@ -370,7 +377,9 @@ async fn post_chat(
         error: None,
     });
     if let Some(err) = parsed.error {
-        return Err(err.message.unwrap_or_else(|| format!("接口错误 HTTP {status}")));
+        return Err(err
+            .message
+            .unwrap_or_else(|| format!("接口错误 HTTP {status}")));
     }
     if !status.is_success() {
         let snippet: String = text.chars().take(200).collect();
@@ -418,9 +427,7 @@ async fn post_anthropic_chat(
         .header("anthropic-version", "2023-06-01")
         .json(&body);
     if !api_key.is_empty() {
-        req = req
-            .bearer_auth(api_key)
-            .header("x-api-key", api_key);
+        req = req.bearer_auth(api_key).header("x-api-key", api_key);
     }
 
     let send = req.send();
@@ -434,13 +441,18 @@ async fn post_anthropic_chat(
         })?
     };
     let status = response.status();
-    let text = response.text().await.map_err(|e| format!("读取响应失败: {e}"))?;
+    let text = response
+        .text()
+        .await
+        .map_err(|e| format!("读取响应失败: {e}"))?;
     let parsed: AnthropicResponse = serde_json::from_str(&text).unwrap_or(AnthropicResponse {
         content: None,
         error: None,
     });
     if let Some(err) = parsed.error {
-        return Err(err.message.unwrap_or_else(|| format!("接口错误 HTTP {status}")));
+        return Err(err
+            .message
+            .unwrap_or_else(|| format!("接口错误 HTTP {status}")));
     }
     if !status.is_success() {
         let snippet: String = text.chars().take(200).collect();
@@ -503,7 +515,9 @@ pub async fn ai_list_models(
         error: None,
     });
     if let Some(err) = parsed.error {
-        return Err(err.message.unwrap_or_else(|| format!("接口错误 HTTP {status}")));
+        return Err(err
+            .message
+            .unwrap_or_else(|| format!("接口错误 HTTP {status}")));
     }
     if !status.is_success() {
         let snippet: String = text.chars().take(200).collect();

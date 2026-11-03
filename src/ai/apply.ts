@@ -54,21 +54,25 @@ export function applyAiMarkdown(
   markdown: string,
   mode: "insert" | "replace",
   range?: { from: number; to: number },
+  opts?: { blockApply?: boolean },
 ): void {
   const html = mdToHtml(markdown.trim());
   if (mode === "replace" && range && range.from !== range.to) {
-    const block = commonBlockAt(editor.state.doc, range.from, range.to);
-    // 选区仍在同一个文本块内:把模型结果降为 inline 内容,避免 `# 标题` 之类
-    // 把当前标题拆成新块。标题/引用等宿主样式因此保持不变。
-    if (block) {
-      const inheritedMarks = editor.state.doc.resolve(range.from).marks();
-      const fragment = inlineFragmentFromMarkdown(markdown, editor.schema, inheritedMarks);
-      editor
-        .chain()
-        .focus()
-        .insertContentAt({ from: range.from, to: range.to }, fragment)
-        .run();
-      return;
+    // 结构类(大纲拆段/表格等)强制块级回写;写作类同块局部替换仍走行内,避免拆宿主块
+    if (!opts?.blockApply) {
+      const block = commonBlockAt(editor.state.doc, range.from, range.to);
+      // 选区仍在同一个文本块内:把模型结果降为 inline 内容,避免 `# 标题` 之类
+      // 把当前标题拆成新块。标题/引用等宿主样式因此保持不变。
+      if (block) {
+        const inheritedMarks = editor.state.doc.resolve(range.from).marks();
+        const fragment = inlineFragmentFromMarkdown(markdown, editor.schema, inheritedMarks);
+        editor
+          .chain()
+          .focus()
+          .insertContentAt({ from: range.from, to: range.to }, fragment)
+          .run();
+        return;
+      }
     }
     editor.chain().focus().insertContentAt({ from: range.from, to: range.to }, html).run();
     return;

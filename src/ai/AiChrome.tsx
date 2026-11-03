@@ -13,17 +13,16 @@ import {
   TONE_OPTIONS,
   type AiActionId,
 } from "./actions";
+import { placeFloatMenu, type FloatMenuPos } from "./float-menu";
 import type { AiSession } from "./useAiSession";
-import { selectionText } from "./apply";
-import { Hint } from "@/components/hint";
+import { parseWikiSuggestTargets } from "./wiki-suggest";
 import { cn } from "@/lib/utils";
 
 /**
- * 编辑器 AI 表层(§7.8):
- * - 选区浮动条(主路径)
- * - 结果条:插入 / 替换 / 复制
- * - 右键 AI 子菜单(document contextmenu)
- * 视觉:宣纸 raised 轻条 + 主色点缀,不用紫系聊天壳。
+ * 编辑器 AI 表层(§7.8)精简版:
+ * - 请求中 / 结果条(跟随选区)
+ * - 右键 AI 子菜单
+ * 选区 idle 浮动条已并入 SelectionBubble(格式 + AI 入口)。
  */
 
 interface AiChromeProps {
@@ -35,18 +34,16 @@ interface AiChromeProps {
 
 type PendingOption = { id: AiActionId; kind: "tone" | "lang" };
 type FloatingPoint = { top: number; left: number; placement: "top" | "bottom" };
+type CtxMenu = FloatMenuPos & { hasSel: boolean };
 
 function LoadingDots() {
   return (
-    <span className="inline-flex items-end gap-0.5 pb-0.5" aria-hidden>
+    <span className="inline-flex items-center gap-0.5" aria-hidden>
       {[0, 1, 2].map((i) => (
         <span
           key={i}
-          className="bg-primary/70 size-1.5 rounded-full"
-          style={{
-            animation: "yz-ai-dot 1s infinite",
-            animationDelay: `${i * 0.16}s`,
-          }}
+          className="yz-ai-dot bg-primary/70 size-1 rounded-full"
+          style={{ animationDelay: `${i * 0.18}s` }}
         />
       ))}
     </span>
@@ -54,83 +51,12 @@ function LoadingDots() {
 }
 
 export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeProps) {
-  const [bar, setBar] = useState<FloatingPoint | null>(null);
   const [panel, setPanel] = useState<FloatingPoint | null>(null);
-  const [menu, setMenu] = useState<{ x: number; y: number; hasSel: boolean } | null>(null);
+  const [menu, setMenu] = useState<CtxMenu | null>(null);
   const [pending, setPending] = useState<PendingOption | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const pointerDownRef = useRef(false);
-  const toolbarSelectionRef = useRef<{ from: number; to: number } | null>(null);
-
-  // 选区浮动条定位:鼠标拖拽期间始终隐藏;松开且选区含文本后再出现。
-  useLayoutEffect(() => {
-    let timer = 0;
-    const parent = wrapRef.current?.offsetParent as HTMLElement | null;
-    const hide = () => {
-      window.clearTimeout(timer);
-      setBar(null);
-    };
-    const position = () => {
-      if (!enabled || session.state.phase !== "idle" || editor.isDestroyed) {
-        setBar(null);
-        return;
-      }
-      const { empty, from, to } = editor.state.selection;
-      const hasText = !empty && selectionText(editor).trim().length > 0;
-      if (!hasText) {
-        toolbarSelectionRef.current = null;
-        setBar(null);
-        return;
-      }
-      toolbarSelectionRef.current = { from, to };
-      const start = editor.view.coordsAtPos(from);
-      const end = editor.view.coordsAtPos(to);
-      const left = Math.min(start.left, end.left);
-      const right = Math.max(start.right, end.right);
-      const top = Math.min(start.top, end.top);
-      const bottom = Math.max(start.bottom, end.bottom);
-      const pref = parent?.getBoundingClientRect();
-      const x = (left + right) / 2 - (pref?.left ?? 0) + (parent?.scrollLeft ?? 0);
-      const width = parent?.clientWidth ?? 0;
-      const clampedX = Math.max(170, Math.min(x, Math.max(170, width - 170)));
-      const aboveViewport = top >= 180;
-      setBar({
-        top:
-          (aboveViewport ? top : bottom) -
-          (pref?.top ?? 0) +
-          (parent?.scrollTop ?? 0) +
-          (aboveViewport ? -44 : 10),
-        left: clampedX,
-        placement: aboveViewport ? "top" : "bottom",
-      });
-    };
-    const schedule = (delay = 220) => {
-      hide();
-      if (pointerDownRef.current) return;
-      timer = window.setTimeout(position, delay);
-    };
-    const onPointerDown = () => {
-      pointerDownRef.current = true;
-      hide();
-    };
-    const onPointerUp = () => {
-      if (!pointerDownRef.current) return;
-      pointerDownRef.current = false;
-      schedule(120);
-    };
-    const onEditorChange = () => schedule();
-    editor.on("selectionUpdate", onEditorChange);
-    editor.on("transaction", onEditorChange);
-    editor.view.dom.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("pointerup", onPointerUp);
-    return () => {
-      hide();
-      editor.off("selectionUpdate", onEditorChange);
-      editor.off("transaction", onEditorChange);
-      editor.view.dom.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("pointerup", onPointerUp);
-    };
-  }, [editor, enabled, session.state.phase]);
+  const floatRef = useRef<HTMLDivElement>(null);
+  const ctxSelectionRef = useRef<{ from: number; to: number } | null>(null);
 
   // 请求/结果面板锚定选区:优先上方，视口不足放下方，并按选区中心水平居中。
   useLayoutEffect(() => {
@@ -153,8 +79,9 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
       const bottom = Math.max(start.bottom, end.bottom);
       const pref = parent?.getBoundingClientRect();
       const width = parent?.clientWidth ?? 0;
-      const halfWidth = phase === "running" ? 24 : 192;
-      const anchorX = phase === "running" ? end.right : (left + right) / 2;
+      // running / result 都锚在选区水平中心,避免「裸点挂在行尾」与结果条错位
+      const halfWidth = phase === "running" ? 88 : 192;
+      const anchorX = (left + right) / 2;
       const x = anchorX - (pref?.left ?? 0) + (parent?.scrollLeft ?? 0);
       const aboveViewport = top >= 250;
       setPanel({
@@ -181,38 +108,43 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
     const dom = editor.view.dom;
     const onCtx = (e: MouseEvent) => {
       if (!enabled) return;
-      // 仅在编辑器正文内、且未点在原生控件上
       const t = e.target as HTMLElement;
       if (t.closest("input, textarea, button, a, .yz-code-card")) return;
       e.preventDefault();
-      setMenu({
-        x: e.clientX,
-        y: e.clientY,
-        hasSel: !editor.state.selection.empty,
-      });
+      const { empty, from, to } = editor.state.selection;
+      ctxSelectionRef.current = empty ? null : { from, to };
+      const pos = placeFloatMenu(
+        { left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY },
+        { estimatedHeight: 460, width: 176, preferBelow: true },
+      );
+      setMenu({ ...pos, hasSel: !empty });
       setPending(null);
     };
     const close = () => setMenu(null);
+    const onScroll = (e: Event) => {
+      const t = e.target;
+      if (t instanceof Node && floatRef.current?.contains(t)) return;
+      close();
+    };
     dom.addEventListener("contextmenu", onCtx);
     window.addEventListener("click", close);
-    window.addEventListener("scroll", close, true);
+    window.addEventListener("scroll", onScroll, true);
     return () => {
       dom.removeEventListener("contextmenu", onCtx);
       window.removeEventListener("click", close);
-      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("scroll", onScroll, true);
     };
   }, [editor, enabled]);
 
   const trigger = (id: AiActionId, option?: string) => {
     setMenu(null);
     setPending(null);
-    setBar(null);
     const def = AI_ACTIONS.find((a) => a.id === id)!;
     if (def.option && !option) {
       setPending({ id, kind: def.option });
       return;
     }
-    void session.run(editor, id, option, toolbarSelectionRef.current ?? undefined);
+    void session.run(editor, id, option, ctxSelectionRef.current ?? undefined);
   };
 
   const pickAction = (id: AiActionId) => {
@@ -221,7 +153,7 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
       return;
     }
     const def = AI_ACTIONS.find((a) => a.id === id)!;
-    if (!def.allowEmptySelection && editor.state.selection.empty && !toolbarSelectionRef.current) {
+    if (!def.allowEmptySelection && editor.state.selection.empty && !ctxSelectionRef.current) {
       setMenu(null);
       return;
     }
@@ -230,70 +162,14 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
 
   return (
     <div ref={wrapRef} className="pointer-events-none absolute inset-0 z-20 overflow-visible">
-      {/* 选区浮动条:未开启时仅一枚引导芯片 */}
-      {bar && session.state.phase === "idle" && (
-        <div
-          className="pointer-events-auto absolute flex items-center gap-0.5 rounded-lg border border-border-subtle bg-raised px-1 py-0.5 shadow-[0_8px_24px_-12px_color-mix(in_oklab,var(--foreground)_28%,transparent)]"
-          style={{
-            top: bar.top,
-            left: bar.left,
-            transform: "translateX(-50%)",
-          }}
-          onMouseDown={(e) => e.preventDefault()}
-        >
-          {!enabled ? (
-            <button
-              type="button"
-              className="text-primary hover:bg-hover flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium"
-              onClick={onNeedSettings}
-            >
-              <Sparkles className="size-3" />
-              AI · 去设置开启
-            </button>
-          ) : (
-            <>
-              <span className="text-primary flex items-center gap-1 px-1.5 text-[11px] font-medium">
-                <Sparkles className="size-3" />
-                AI
-              </span>
-              <span className="bg-border-subtle mx-0.5 h-3 w-px" />
-              {(["polish", "expand", "shorten", "translate", "fix"] as AiActionId[]).map((id) => {
-                const a = AI_ACTIONS.find((x) => x.id === id)!;
-                return (
-                  <button
-                    key={a.id}
-                    type="button"
-                    className="hover:bg-hover text-foreground/80 hover:text-foreground rounded-md px-1.5 py-1 text-[11px]"
-                    onClick={() => pickAction(a.id)}
-                  >
-                    {a.label}
-                  </button>
-                );
-              })}
-              <Hint label="更多 AI 动作">
-                <button
-                  type="button"
-                  className="hover:bg-hover text-muted-foreground rounded-md px-1.5 py-1 text-[11px]"
-                  onClick={(e) => {
-                    const r = (e.target as HTMLElement).getBoundingClientRect();
-                    setMenu({ x: r.left, y: r.bottom + 4, hasSel: true });
-                  }}
-                >
-                  更多
-                </button>
-              </Hint>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* 语气/语言选项 */}
       {pending && (
         <div
-          className="pointer-events-auto fixed z-50 flex flex-col gap-0.5 rounded-lg border border-border-subtle bg-raised p-1 shadow-md"
+          ref={floatRef}
+          className="pointer-events-auto fixed z-50 flex max-h-[min(50vh,20rem)] flex-col gap-0.5 overflow-y-auto rounded-lg border border-border-subtle bg-raised p-1 shadow-md"
           style={{
             top: menu?.y ?? 120,
             left: menu?.x ?? 120,
+            transform: menu?.placement === "top" ? "translateY(-100%)" : undefined,
           }}
           onMouseDown={(e) => e.preventDefault()}
         >
@@ -304,7 +180,7 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
             <button
               key={opt}
               type="button"
-              className="hover:bg-hover rounded-md px-2.5 py-1.5 text-left text-[12px]"
+              className="hover:bg-hover cursor-pointer rounded-md px-2.5 py-1.5 text-left text-[12px]"
               onClick={() => trigger(pending.id, opt)}
             >
               {opt}
@@ -312,7 +188,7 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
           ))}
           <button
             type="button"
-            className="text-muted-foreground hover:bg-hover rounded-md px-2.5 py-1 text-left text-[11px]"
+            className="text-muted-foreground hover:bg-hover cursor-pointer rounded-md px-2.5 py-1 text-left text-[11px]"
             onClick={() => setPending(null)}
           >
             取消
@@ -320,33 +196,47 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
         </div>
       )}
 
-      {/* 右键 / 更多菜单 */}
       {menu && !pending && (
         <div
-          className="pointer-events-auto fixed z-50 min-w-40 rounded-lg border border-border-subtle bg-raised p-1 shadow-md"
-          style={{ top: menu.y, left: menu.x }}
+          ref={floatRef}
+          className="pointer-events-auto fixed z-50 flex min-w-40 flex-col overflow-hidden rounded-lg border border-border-subtle bg-raised p-1 shadow-md"
+          style={{
+            top: menu.y,
+            left: menu.x,
+            maxHeight: menu.maxHeight,
+            transform: menu.placement === "top" ? "translateY(-100%)" : undefined,
+          }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => e.stopPropagation()}
         >
-          <p className="text-primary flex items-center gap-1 px-2 py-1 text-[10px] font-medium">
+          <p className="text-primary flex shrink-0 items-center gap-1 bg-raised px-2 py-1 text-[10px] font-medium">
             <Sparkles className="size-3" />
             AI 助手
           </p>
-          {AI_ACTIONS.filter((a) => menu.hasSel || a.allowEmptySelection).map((a) => (
-            <button
-              key={a.id}
-              type="button"
-              className="hover:bg-hover flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px]"
-              onClick={() => pickAction(a.id)}
-            >
-              {a.id === "translate" ? <Languages className="size-3.5 opacity-60" /> : null}
-              {a.label}
-            </button>
-          ))}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {AI_ACTIONS.filter((a) => menu.hasSel || a.allowEmptySelection).map((a, i, list) => {
+              const prev = list[i - 1];
+              const showSep = prev && prev.group !== a.group;
+              return (
+                <div key={a.id}>
+                  {showSep ? (
+                    <p className="text-muted-foreground px-2 pt-1.5 pb-0.5 text-[10px]">结构</p>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="hover:bg-hover flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px]"
+                    onClick={() => pickAction(a.id)}
+                  >
+                    {a.id === "translate" ? <Languages className="size-3.5 opacity-60" /> : null}
+                    {a.label}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      {/* 请求中 / 结果条 — 跟随选区，上方优先/下方兜底并水平居中 */}
       {(session.state.phase === "running" ||
         session.state.phase === "result" ||
         session.state.phase === "error") &&
@@ -362,14 +252,34 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
         >
           <div
             className={cn(
+              "border-border-subtle bg-raised shadow-[0_10px_28px_-18px_color-mix(in_oklab,var(--foreground)_28%,transparent)]",
               session.state.phase === "running"
-                ? "flex items-center justify-center"
-                : "border-border-subtle bg-raised flex w-[min(24rem,calc(100vw-2rem))] max-w-full flex-col gap-2 rounded-xl border px-3 py-2.5 shadow-[0_10px_28px_-18px_color-mix(in_oklab,var(--foreground)_28%,transparent)]",
+                ? "yz-ai-running-chip flex items-center gap-2 rounded-full border px-2.5 py-1.5"
+                : "flex w-[min(24rem,calc(100vw-2rem))] max-w-full flex-col gap-2 rounded-xl border px-3 py-2.5",
             )}
           >
             {session.state.phase === "running" && (
-              <div className="flex h-6 items-center justify-center">
-                <LoadingDots />
+              <div
+                className="flex items-center gap-2"
+                role="status"
+                aria-live="polite"
+                aria-label={`正在${session.state.runningLabel || session.state.actionLabel || "处理"}`}
+              >
+                <span className="bg-primary/10 text-primary flex size-5 shrink-0 items-center justify-center rounded-full">
+                  <Sparkles className="yz-ai-spark size-3" />
+                </span>
+                <span className="text-foreground flex items-center gap-1.5 text-[12px] leading-none whitespace-nowrap">
+                  正在{session.state.runningLabel || session.state.actionLabel || "处理"}
+                  <LoadingDots />
+                </span>
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:bg-hover hover:text-foreground -mr-0.5 ml-0.5 rounded-full p-1"
+                  onClick={() => void session.cancel()}
+                  aria-label="取消"
+                >
+                  <X className="size-3.5" />
+                </button>
               </div>
             )}
             {session.state.phase === "error" && (
@@ -380,56 +290,111 @@ export function AiChrome({ editor, session, enabled, onNeedSettings }: AiChromeP
                 </button>
               </div>
             )}
-            {session.state.phase === "result" && (
-              <>
-                <div className="flex items-center gap-2">
-                  <Sparkles className="text-primary size-3.5" />
-                  <span className="text-[12px] font-medium">{session.state.actionLabel}结果</span>
-                  <button type="button" className="ml-auto p-0.5" onClick={session.clearResult}>
-                    <X className="text-muted-foreground size-3.5" />
-                  </button>
-                </div>
-                <pre className="text-muted-foreground max-h-40 overflow-auto whitespace-pre-wrap text-[11px] leading-5">
-                  {session.state.result.slice(0, 800)}
-                  {session.state.result.length > 800 ? "…" : ""}
-                </pre>
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    className="bg-primary text-primary-foreground hover:opacity-90 inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium"
-                    onClick={() => void session.apply(editor, session.state.bias)}
-                  >
-                    <Check className="size-3" />
-                    {session.state.bias === "replace" ? "替换选区" : "插入"}
-                  </button>
-                  {session.state.bias === "replace" ? (
-                    <button
-                      type="button"
-                      className="hover:bg-hover border-border-subtle rounded-md border px-2.5 py-1 text-[11px]"
-                      onClick={() => void session.apply(editor, "insert")}
-                    >
-                      插入
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="hover:bg-hover border-border-subtle rounded-md border px-2.5 py-1 text-[11px]"
-                      onClick={() => void session.apply(editor, "replace")}
-                    >
-                      替换选区
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="hover:bg-hover border-border-subtle inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px]"
-                    onClick={() => void session.apply(editor, "copy")}
-                  >
-                    <ClipboardCopy className="size-3" />
-                    仅复制
-                  </button>
-                </div>
-              </>
-            )}
+            {session.state.phase === "result" &&
+              (() => {
+                const wikiTargets =
+                  session.state.actionId === "wikiSuggest"
+                    ? parseWikiSuggestTargets(session.state.result)
+                    : [];
+                const wikiMode = session.state.actionId === "wikiSuggest";
+                return (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="text-primary size-3.5" />
+                      <span className="text-[12px] font-medium">
+                        {wikiMode ? "可选双链" : `${session.state.actionLabel}结果`}
+                      </span>
+                      <button type="button" className="ml-auto p-0.5" onClick={session.clearResult}>
+                        <X className="text-muted-foreground size-3.5" />
+                      </button>
+                    </div>
+                    {wikiMode && wikiTargets.length > 0 ? (
+                      <>
+                        <p className="text-muted-foreground text-[11px] leading-4">
+                          点击一条插入对应双链，可连续挑选
+                        </p>
+                        <ul className="max-h-44 space-y-0.5 overflow-auto">
+                          {wikiTargets.map((target) => (
+                            <li key={target}>
+                              <button
+                                type="button"
+                                className="hover:bg-hover border-border-subtle flex w-full cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-[12px]"
+                                onClick={() => session.insertSnippet(editor, `[[${target}]]`)}
+                              >
+                                <span className="text-primary font-medium">[[{target}]]</span>
+                                <span className="text-muted-foreground ml-auto text-[10px]">
+                                  插入
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            type="button"
+                            className="hover:bg-hover border-border-subtle rounded-md border px-2.5 py-1 text-[11px]"
+                            onClick={() => void session.apply(editor, "insert")}
+                          >
+                            全部插入
+                          </button>
+                          <button
+                            type="button"
+                            className="hover:bg-hover border-border-subtle inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px]"
+                            onClick={() => void session.apply(editor, "copy")}
+                          >
+                            <ClipboardCopy className="size-3" />
+                            仅复制
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <pre className="text-muted-foreground max-h-40 overflow-auto whitespace-pre-wrap text-[11px] leading-5">
+                          {session.state.result.slice(0, 800)}
+                          {session.state.result.length > 800 ? "…" : ""}
+                        </pre>
+                        {!wikiMode && (
+                          <div className="flex flex-wrap gap-1.5">
+                            <button
+                              type="button"
+                              className="bg-primary text-primary-foreground hover:opacity-90 inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium"
+                              onClick={() => void session.apply(editor, session.state.bias)}
+                            >
+                              <Check className="size-3" />
+                              {session.state.bias === "replace" ? "替换选区" : "插入"}
+                            </button>
+                            {session.state.bias === "replace" ? (
+                              <button
+                                type="button"
+                                className="hover:bg-hover border-border-subtle rounded-md border px-2.5 py-1 text-[11px]"
+                                onClick={() => void session.apply(editor, "insert")}
+                              >
+                                插入
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="hover:bg-hover border-border-subtle rounded-md border px-2.5 py-1 text-[11px]"
+                                onClick={() => void session.apply(editor, "replace")}
+                              >
+                                替换选区
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="hover:bg-hover border-border-subtle inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px]"
+                              onClick={() => void session.apply(editor, "copy")}
+                            >
+                              <ClipboardCopy className="size-3" />
+                              仅复制
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </>
+                );
+              })()}
           </div>
         </div>
       )}

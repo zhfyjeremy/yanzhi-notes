@@ -38,4 +38,14 @@ describe("applyAiMarkdown", () => {
     applyAiMarkdown(editor, "there", "replace", range);
     expect(docToMarkdown(editor.state.doc)).toBe("**Hello there**\n");
   });
+
+  it("blockApply 允许结构类把标题语法写成新块", () => {
+    const editor = makeEditor(mdToHtml("一段需要拆开的长文"));
+    const range = selectText(editor, "一段需要拆开的长文", 0, 0);
+    applyAiMarkdown(editor, "## 小节\n\n拆开后的正文", "replace", range, {
+      blockApply: true,
+    });
+    expect(docToMarkdown(editor.state.doc)).toContain("## 小节");
+    expect(docToMarkdown(editor.state.doc)).toContain("拆开后的正文");
+  });
 });

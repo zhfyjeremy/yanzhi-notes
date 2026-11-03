@@ -59,6 +59,9 @@ describe("settings 解析(PRD §8)", () => {
     expect(parseSettings('{"aiBaseUrl":"https://open.bigmodel.cn/api/paas/v4"}').aiProvider).toBe(
       "zhipu",
     );
+    expect(parseSettings('{"aiBaseUrl":"https://open.bigmodel.cn/api/v1"}').aiBaseUrl).toBe(
+      "https://open.bigmodel.cn/api/paas/v4",
+    );
     expect(parseSettings('{"aiTemperature":9}').aiTemperature).toBe(2);
     expect(parseSettings('{"aiMaxTokens":-1}').aiMaxTokens).toBe(0);
     expect(parseSettings('{"aiVerified":true}').aiVerified).toBe(true);
@@ -81,6 +84,11 @@ describe("settings 解析(PRD §8)", () => {
     expect(parseSettings('{"launch":"last"}').launch).toBe("last");
     expect(parseSettings('{"launch":"resume"}').launch).toBe("last");
     expect(parseSettings('{"launch":null}').launch).toBe("last");
+  });
+  it("关闭窗口时保持后台:布尔直读,缺失或异型回 false(默认关)", () => {
+    expect(parseSettings('{"closeToTray":true}').closeToTray).toBe(true);
+    expect(parseSettings("{}").closeToTray).toBe(false);
+    expect(parseSettings('{"closeToTray":"on"}').closeToTray).toBe(false);
   });
   it("显示菜单项(右侧面板/工具栏):布尔直读,缺失或异型回 true(默认显示)", () => {
     expect(parseSettings('{"showRightPanel":false,"showToolbar":false}').showRightPanel).toBe(false);
