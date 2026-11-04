@@ -101,7 +101,7 @@ const PHASE_META: Record<AiSetupPhase, { title: string; detail: string; badge: s
   connect: { title: "第 1 步 · 连接账号", detail: "粘贴 API Key，并连接获取模型", badge: "待连接" },
   select: { title: "第 2 步 · 选择模型", detail: "点击加载出的模型，或手填模型名", badge: "待选模型" },
   untested: { title: "配置完成 · 待测试", detail: "基础配置已保存，建议测试一次连接", badge: "待测试" },
-  ready: { title: "AI 配置成功", detail: "可在选区 AI、右键 AI 与 /ai 中使用", badge: "可用" },
+  ready: { title: "AI 配置成功", detail: "可在选区 AI、右键 AI、/ai 与标题栏 AI 起标题中使用", badge: "可用" },
 };
 
 function PhaseIcon({ phase }: { phase: AiSetupPhase }) {

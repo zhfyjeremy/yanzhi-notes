@@ -25,6 +25,10 @@ import { templateToContent, uniqueTemplateName } from "./kb/templates";
 import { compressImageFile, isImageFile } from "./kb/image-compress";
 import { useSettings } from "./settings";
 import { useAiSession } from "./ai/useAiSession";
+import { useTitleAiSession } from "./ai/useTitleAiSession";
+import { TitleAiControl, type TitleAiConfirmInfo } from "./ai/TitleAiControl";
+import { buildTitleContext, markdownFingerprint } from "./ai/title-suggest";
+import { hostOfBaseUrl } from "./ai/client";
 import { WelcomePage } from "./kb/WelcomePage";
 import { SingleFileWorkspace } from "./kb/SingleFileWorkspace";
 import { useKb } from "./kb/useKb";
@@ -60,6 +64,7 @@ const docBasename = (rel: string): string =>
   rel.split("/").pop()?.replace(/\.md$/i, "") ?? "";
 
 type EditorScope = "kb" | "single";
+type TitleAiPending = { markdown: string; path: string; info: TitleAiConfirmInfo };
 
 function App() {
   const { settings, update: updateSettings } = useSettings();
@@ -103,6 +108,8 @@ function App() {
   const [singleSavedToKb, setSingleSavedToKb] = useState<{ root: string; rel: string } | null>(null);
   /** /ai 等入口未就绪时先提示,确认后再进设置,避免生硬直跳 */
   const [aiSetupPromptOpen, setAiSetupPromptOpen] = useState(false);
+  const [titleAiPopoverOpen, setTitleAiPopoverOpen] = useState(false);
+  const [titleAiPending, setTitleAiPending] = useState<TitleAiPending | null>(null);
   // 单文件大纲默认展开(无目录树,大纲占左导航);与知识库右栏 showOutline 独立
   const [singleOutlineOpen, setSingleOutlineOpen] = useState(true);
   const singleAssetsAllowedRef = useRef(false);
@@ -145,6 +152,7 @@ function App() {
   // 双链建议只认知识库文档名;列表在树加载后写入 ref,避免 useAiSession 早于 wikiDocRefs
   const wikiDocsForAiRef = useRef<import("./editor/wiki-link-command").WikiDocRef[]>([]);
   const aiSession = useAiSession(settings, promptAiSetup, showToast, () => wikiDocsForAiRef.current);
+  const titleAi = useTitleAiSession(settings, promptAiSetup, showToast);
 
   const confirmSingleAssets = useCallback(() => {
     if (singleAssetsAllowedRef.current) return Promise.resolve(true);
@@ -890,6 +898,103 @@ function App() {
     [kb.renameEntry, showToast],
   );
 
+  const startTitleAi = useCallback(() => {
+    const path = currentPathRef.current;
+    if (!path?.endsWith(".md")) return;
+    const context = buildTitleContext(kb.getMarkdownNow());
+    if (context.chars < 8) {
+      showToast("先写一点内容，再让 AI 起标题");
+      return;
+    }
+    setTitleAiPending({
+      markdown: context.text,
+      path,
+      info: {
+        host: hostOfBaseUrl(settings.aiBaseUrl),
+        chars: Math.min(context.chars, 12000),
+        clipped: context.clipped,
+      },
+    });
+    setTitleAiPopoverOpen(true);
+  }, [kb.getMarkdownNow, settings.aiBaseUrl, showToast]);
+
+  const confirmTitleAi = useCallback(() => {
+    const pending = titleAiPending;
+    if (!pending) return;
+    setTitleAiPopoverOpen(true);
+    void titleAi.run({ markdown: pending.markdown, sourcePath: pending.path });
+    setTitleAiPending(null);
+  }, [titleAi, titleAiPending]);
+
+  const applyTitleAi = useCallback(
+    (candidate: string) => {
+      const state = titleAi.state;
+      if (state.phase !== "result") return;
+      const path = currentPathRef.current;
+      if (!path || path !== state.sourcePath) {
+        showToast("文档已切换，请重新生成标题");
+        return;
+      }
+      if (markdownFingerprint(buildTitleContext(kb.getMarkdownNow()).text) !== state.fingerprint) {
+        showToast("文档内容已变化，请重新生成标题");
+        return;
+      }
+
+      titleAi.clearResult();
+      setTitleAiPopoverOpen(false);
+      setTitle(candidate);
+      titleRef.current = candidate;
+      renameChain.current = renameChain.current
+        .then(async () => {
+          if (currentPathRef.current !== path) return;
+          const result = await kb.renameEntry(path, candidate);
+          if (!result) {
+            if (currentPathRef.current === path) setTitle(docBasename(path));
+            showToast("AI 标题重命名失败");
+            return;
+          }
+          if (currentPathRef.current === path) {
+            currentPathRef.current = result.newPath;
+            setTitle(docBasename(result.newPath));
+          }
+          const finalTitle = docBasename(result.newPath);
+          const messages: string[] = [];
+          if (result.refCount) messages.push(`已更新 ${result.refCount} 处双链引用`);
+          if (finalTitle !== candidate) messages.push(`同名冲突，已使用「${finalTitle}」`);
+          else if (result.newPath === path) messages.push("标题未变化");
+          if (messages.length) showToast(messages.join("，"));
+        })
+        .catch((e) => {
+          console.error("[title-ai-rename]", e);
+          if (currentPathRef.current === path) setTitle(docBasename(path));
+          showToast("AI 标题重命名失败");
+        });
+    },
+    [kb, titleAi, showToast],
+  );
+
+  const changeTitleAiPopoverOpen = useCallback(
+    (open: boolean) => {
+      setTitleAiPopoverOpen(open);
+      if (!open && titleAi.state.phase === "idle") setTitleAiPending(null);
+    },
+    [titleAi.state.phase],
+  );
+
+  // 状态被取消或清空时同步关掉空弹层(状态栏取消/关闭总开关也会走到这里)。
+  useEffect(() => {
+    if (titleAi.state.phase === "idle" && titleAiPopoverOpen) setTitleAiPopoverOpen(false);
+  }, [titleAi.state.phase, titleAiPopoverOpen]);
+
+  // 切换文档后旧请求不再可用;直接取消，避免继续占用用户配置的模型服务。
+  useEffect(() => {
+    if (titleAi.state.phase === "idle") return;
+    if (currentPath === titleAi.state.sourcePath) return;
+    setTitleAiPopoverOpen(false);
+    if (titleAi.state.phase === "running") void titleAi.cancel();
+    else titleAi.clearResult();
+  }, [currentPath, titleAi]);
+
   // 拖入文件夹 / 跨组拖到目标旁 = 移动(5.1 调整层级);同名冲突等失败要浮出来,不能静默
   const moveWithToast = useCallback(
     async (src: string, dest: string, ordered?: string[]) => {
@@ -1344,19 +1449,50 @@ function App() {
                     </Hint>
                   </div>
                 )}
-                <input
-                  className="w-full bg-transparent pb-1 text-[2rem] leading-tight font-semibold tracking-[-0.035em] outline-none placeholder:text-muted-foreground/45"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  onBlur={() => void commitTitleRename()}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      e.currentTarget.blur();
-                    }
-                  }}
-                  placeholder="未命名文档"
-                />
+                <div className="flex w-full items-start gap-1">
+                  <input
+                    className="min-w-0 flex-1 bg-transparent pb-1 text-[2rem] leading-tight font-semibold tracking-[-0.035em] outline-none placeholder:text-muted-foreground/45"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    onBlur={() => void commitTitleRename()}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    placeholder="未命名文档"
+                  />
+                  <div className="pt-1.5">
+                    <TitleAiControl
+                      state={titleAi.state}
+                      ready={titleAi.ready}
+                      currentTitle={title}
+                      stale={
+                        titleAi.state.phase !== "idle" &&
+                        (currentPath !== titleAi.state.sourcePath ||
+                          markdownFingerprint(buildTitleContext(kb.getMarkdownNow()).text) !==
+                            titleAi.state.fingerprint)
+                      }
+                      popoverOpen={titleAiPopoverOpen}
+                      confirm={titleAiPending?.info ?? null}
+                      onPopoverOpenChange={changeTitleAiPopoverOpen}
+                      onStart={startTitleAi}
+                      onConfirm={confirmTitleAi}
+                      onNeedSettings={promptAiSetup}
+                      onApply={applyTitleAi}
+                      onCancel={() => {
+                        setTitleAiPopoverOpen(false);
+                        void titleAi.cancel();
+                      }}
+                      onDismiss={() => {
+                        titleAi.clearResult();
+                        setTitleAiPending(null);
+                        setTitleAiPopoverOpen(false);
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           ) : (
@@ -1445,8 +1581,21 @@ function App() {
         onToggleTypewriter={() => updateSettings({ typewriterMode: !settings.typewriterMode })}
         orphanCount={kb.orphanMeta.length}
         onOpenOrphans={() => setOrphansOpen(true)}
-        aiHost={aiSession.state.phase === "running" ? aiSession.state.host : null}
-        onCancelAi={() => void aiSession.cancel()}
+        aiHost={
+          titleAi.state.phase === "running"
+            ? titleAi.state.host
+            : aiSession.state.phase === "running"
+              ? aiSession.state.host
+              : null
+        }
+        onCancelAi={() => {
+          if (titleAi.state.phase === "running") {
+            setTitleAiPopoverOpen(false);
+            void titleAi.cancel();
+          } else {
+            void aiSession.cancel();
+          }
+        }}
       />
       {toast &&
         createPortal(
