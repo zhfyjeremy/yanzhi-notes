@@ -4,6 +4,7 @@ import {
   DEFAULT_SETTINGS,
   accentPresetOf,
   applyTheme,
+  deskPresetOf,
   parseSettings,
   resolvedIsDark,
 } from "../settings";
@@ -22,11 +23,17 @@ describe("settings 解析(PRD §8)", () => {
     expect(parseSettings('{"theme":"sepia"}').theme).toBe("system");
     expect(parseSettings('{"theme":null}').theme).toBe("system");
   });
-  it("界面风格:合法值直读,缺失/未知回 card", () => {
+  it("界面风格:合法值直读,缺失/未知回 flat", () => {
     expect(parseSettings('{"uiStyle":"flat"}').uiStyle).toBe("flat");
     expect(parseSettings('{"uiStyle":"card"}').uiStyle).toBe("card");
-    expect(parseSettings("{}").uiStyle).toBe("card");
-    expect(parseSettings('{"uiStyle":"glass"}').uiStyle).toBe("card");
+    expect(parseSettings("{}").uiStyle).toBe("flat");
+    expect(parseSettings('{"uiStyle":"glass"}').uiStyle).toBe("flat");
+  });
+  it("台面背景:合法 id 直读,缺失/未知回云白", () => {
+    expect(parseSettings('{"desk":"mist"}').desk).toBe("mist");
+    expect(parseSettings('{"desk":"ink"}').desk).toBe("ink");
+    expect(parseSettings("{}").desk).toBe("cloud");
+    expect(parseSettings('{"desk":"neon"}').desk).toBe("cloud");
   });
   it("主色预设:合法 id 直读,未知/异型回语雀蓝", () => {
     expect(parseSettings('{"accent":"teal"}').accent).toBe("teal");
@@ -134,12 +141,30 @@ describe("settings 解析(PRD §8)", () => {
 
 describe("applyTheme 主色覆盖(浅/深两套)", () => {
   it("浅色挂 light 值,深色挂 dark 值;全部预设变量齐全", () => {
-    applyTheme({ ...DEFAULT_SETTINGS, theme: "light", accent: "violet" }, false);
+    applyTheme({ ...DEFAULT_SETTINGS, theme: "light", accent: "violet", uiStyle: "card" }, false);
     expect(document.documentElement.style.getPropertyValue("--primary")).toBe("hsl(258 78% 48%)");
     expect(document.documentElement.dataset.uiStyle).toBe("card");
-    applyTheme({ ...DEFAULT_SETTINGS, theme: "dark", accent: "violet", uiStyle: "flat" }, false);
+    expect(document.documentElement.style.getPropertyValue("--workspace")).toBe(
+      deskPresetOf("cloud").light.workspace,
+    );
+    expect(document.documentElement.style.getPropertyValue("--code-bg")).toBe(
+      deskPresetOf("cloud").light.codeBg,
+    );
+    applyTheme(
+      { ...DEFAULT_SETTINGS, theme: "dark", accent: "violet", uiStyle: "flat", desk: "mist" },
+      false,
+    );
     expect(document.documentElement.style.getPropertyValue("--primary")).toBe("hsl(258 74% 62%)");
     expect(document.documentElement.dataset.uiStyle).toBe("flat");
+    expect(document.documentElement.style.getPropertyValue("--workspace")).toBe(
+      deskPresetOf("mist").dark.workspace,
+    );
+    expect(document.documentElement.style.getPropertyValue("--sidebar")).toBe(
+      deskPresetOf("mist").dark.workspace,
+    );
+    expect(document.documentElement.style.getPropertyValue("--code-bg")).toBe(
+      deskPresetOf("mist").dark.codeBg,
+    );
     for (const p of ACCENT_PRESETS) {
       for (const key of ["--primary", "--primary-foreground", "--ring", "--accent", "--accent-foreground"]) {
         expect(p.light[key], `${p.id} light ${key}`).toMatch(/^hsl\(/);

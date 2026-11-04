@@ -305,7 +305,7 @@
 }
 
 .yz-editor-doc pre {
-  background: var(--muted);
+  background: var(--code-bg, var(--muted));
   border: 1px solid var(--border);
   border-radius: var(--radius-md, 6px);
   padding: 0.9em 1.1em;
@@ -317,7 +317,7 @@
 
 /* 代码块卡片(CodeBlockCard NodeView):gutter 行号 + code 内容同字号行高 */
 .yz-editor-doc .yz-code-card {
-  background: var(--muted);
+  background: var(--code-bg, var(--muted));
   border: 1px solid var(--border);
   border-radius: var(--radius-md, 6px);
   padding: 0.9em 1.1em;
@@ -423,7 +423,7 @@
 }
 
 .yz-editor-doc :not(pre) > code {
-  background: var(--muted);
+  background: var(--code-bg, var(--muted));
   border-radius: 4px;
   padding: 0.15em 0.4em;
   color: var(--accent-foreground);

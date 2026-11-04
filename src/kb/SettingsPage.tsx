@@ -23,7 +23,7 @@ import { TemplateWorkbench } from "./TemplateManager";
 import { AssetCleanupDialog } from "./AssetCleanupDialog";
 import { AiSettingsPanel } from "../ai/AiSettingsPanel";
 import type { AppSettings, LaunchMode, ReaderFont, ThemeMode, UiStyle } from "../settings";
-import { ACCENT_PRESETS } from "../settings";
+import { ACCENT_PRESETS, DESK_PRESETS, DEFAULT_DESK } from "../settings";
 import { APP_VERSION } from "../version";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -68,7 +68,7 @@ const NAV_GROUPS: { title: string; tabs: SettingsTab[] }[] = [
 const PAGE_META: Record<SettingsTab, { title: string; description: string }> = {
   general: { title: "通用", description: "控制启动方式、关闭是否进后台,并查看应用数据的存放边界。" },
   templates: { title: "模板", description: "管理当前知识库的文档模板,模板仍是标准 Markdown 文件。" },
-  appearance: { title: "外观", description: "调整界面风格、主题、主色与正文排版,所有变化即时预览。" },
+  appearance: { title: "外观", description: "调整界面风格、主题、台面背景、主色与正文排版,所有变化即时预览。" },
   editor: { title: "编辑器", description: "控制卡片视觉与专注写作相关偏好。" },
   storage: { title: "存储", description: "管理历史快照与冗余资源,保持知识库可备份、可迁移。" },
   image: { title: "图片", description: "控制图片进入知识库时的处理方式。" },
@@ -103,14 +103,14 @@ const UI_STYLE_OPTIONS: {
   description: string;
 }[] = [
   {
-    value: "card",
-    label: "卡片",
-    description: "浮起面板 · 胶囊工具栏 · 圆角选中",
-  },
-  {
     value: "flat",
     label: "平铺",
     description: "贴边线框 · 通栏工具栏 · 左条选中",
+  },
+  {
+    value: "card",
+    label: "卡片",
+    description: "浮起面板 · 胶囊工具栏 · 圆角选中",
   },
 ];
 
@@ -503,6 +503,55 @@ function AccentPicker({
   );
 }
 
+/** 台面背景:色块内嵌一小条「纸面」,示意台面 vs 宣纸层次 */
+function DeskPicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  return (
+    <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="台面背景">
+      {DESK_PRESETS.map((p) => {
+        const active = value === p.id;
+        return (
+          <button
+            key={p.id}
+            type="button"
+            role="radio"
+            aria-label={`台面:${p.name}`}
+            aria-checked={active}
+            className={cn(
+              "hover:border-primary/50 cursor-pointer rounded-lg border p-2 text-left transition-colors",
+              active ? "ring-primary border-primary/40 ring-2" : "border-border-subtle hover:border-primary/25",
+            )}
+            onClick={() => onChange(p.id)}
+          >
+            <span
+              className="relative flex h-9 w-full items-stretch gap-1 overflow-hidden rounded-md p-1"
+              style={{ backgroundColor: p.swatch }}
+            >
+              <span
+                className="w-[22%] rounded-[3px] opacity-90"
+                style={{ backgroundColor: p.light.sidebar }}
+              />
+              <span className="bg-white flex-1 rounded-[3px] shadow-sm" />
+              {active && (
+                <Check
+                  className="absolute top-1/2 left-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 drop-shadow"
+                  strokeWidth={3}
+                  style={{ color: "hsl(25 15% 20%)" }}
+                />
+              )}
+            </span>
+            <span className="mt-1.5 flex items-center justify-between text-xs">
+              {p.name}
+              {p.id === DEFAULT_DESK && (
+                <span className="text-muted-foreground text-[10px]">默认</span>
+              )}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function RangeRow({
   label,
   value,
@@ -726,6 +775,15 @@ export function SettingsPage({
                   value={settings.theme}
                   onChange={(v) => onChange({ theme: v })}
                   columns={3}
+                />
+              </SettingsSection>
+              <SettingsSection
+                title="台面背景"
+                hint="工作区外壳与侧栏底色;中间编辑纸面保持宣纸白,不写入 Markdown"
+              >
+                <DeskPicker
+                  value={settings.desk}
+                  onChange={(id) => onChange({ desk: id })}
                 />
               </SettingsSection>
               <SettingsSection title="主色" hint="自定义颜色会生成匹配的浅色、深色主色与选中底色">

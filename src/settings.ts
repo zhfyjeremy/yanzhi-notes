@@ -96,10 +96,161 @@ export function accentPresetOf(id: string | undefined): AccentPreset {
   return ACCENT_PRESETS.find((p) => p.id === id) ?? ACCENT_PRESETS[0];
 }
 
+/** 台面背景预设:workspace/sidebar/hover/editor(平铺)/codeBg,不碰主色 */
+export interface DeskPreset {
+  id: string;
+  name: string;
+  /** 设置页色块(浅色台面) */
+  swatch: string;
+  light: {
+    workspace: string;
+    sidebar: string;
+    hover: string;
+    /** 平铺时编辑区底,卡片模式不用 */
+    editor: string;
+    /** 代码块底色,随台面色相走 */
+    codeBg: string;
+  };
+  dark: {
+    workspace: string;
+    sidebar: string;
+    hover: string;
+    editor: string;
+    codeBg: string;
+  };
+}
+
+export const DESK_PRESETS: DeskPreset[] = [
+  {
+    id: "cloud",
+    name: "云白",
+    swatch: "hsl(40 12% 96%)",
+    light: {
+      workspace: "hsl(40 12% 96%)",
+      sidebar: "hsl(40 10% 97.5%)",
+      hover: "hsl(40 8% 92%)",
+      editor: "hsl(0 0% 100%)",
+      codeBg: "hsl(40 10% 96%)",
+    },
+    dark: {
+      workspace: "hsl(240 4% 9%)",
+      sidebar: "hsl(240 3% 11%)",
+      hover: "hsl(240 3% 17%)",
+      editor: "hsl(240 3% 13%)",
+      codeBg: "hsl(240 3% 16%)",
+    },
+  },
+  {
+    id: "warm",
+    name: "暖玉",
+    swatch: "hsl(38 16% 92%)",
+    light: {
+      workspace: "hsl(38 16% 92%)",
+      sidebar: "hsl(38 14% 95%)",
+      hover: "hsl(38 14% 88%)",
+      editor: "hsl(40 40% 99.5%)",
+      codeBg: "hsl(36 18% 95%)",
+    },
+    dark: {
+      workspace: "hsl(28 10% 7.5%)",
+      sidebar: "hsl(28 9% 10%)",
+      hover: "hsl(28 8% 16%)",
+      editor: "hsl(28 9% 12.5%)",
+      codeBg: "hsl(28 8% 16%)",
+    },
+  },
+  {
+    id: "mist",
+    name: "青雾",
+    swatch: "hsl(210 16% 92%)",
+    light: {
+      workspace: "hsl(210 16% 92%)",
+      sidebar: "hsl(210 12% 95%)",
+      hover: "hsl(210 12% 87%)",
+      editor: "hsl(210 25% 99.5%)",
+      codeBg: "hsl(210 18% 95%)",
+    },
+    dark: {
+      workspace: "hsl(220 12% 7%)",
+      sidebar: "hsl(220 10% 9.5%)",
+      hover: "hsl(220 9% 16%)",
+      editor: "hsl(220 10% 12%)",
+      codeBg: "hsl(220 10% 16%)",
+    },
+  },
+  {
+    id: "stone",
+    name: "冷石",
+    swatch: "hsl(220 8% 91%)",
+    light: {
+      workspace: "hsl(220 8% 91%)",
+      sidebar: "hsl(220 6% 94%)",
+      hover: "hsl(220 6% 86%)",
+      editor: "hsl(220 15% 99.5%)",
+      codeBg: "hsl(220 8% 94.5%)",
+    },
+    dark: {
+      workspace: "hsl(220 8% 6.5%)",
+      sidebar: "hsl(220 7% 9%)",
+      hover: "hsl(220 6% 15%)",
+      editor: "hsl(220 7% 11.5%)",
+      codeBg: "hsl(220 6% 15%)",
+    },
+  },
+  {
+    id: "sage",
+    name: "苔灰",
+    swatch: "hsl(150 10% 92%)",
+    light: {
+      workspace: "hsl(150 10% 92%)",
+      sidebar: "hsl(150 8% 95%)",
+      hover: "hsl(150 8% 87%)",
+      editor: "hsl(90 20% 99.5%)",
+      codeBg: "hsl(150 10% 95%)",
+    },
+    dark: {
+      workspace: "hsl(150 8% 7%)",
+      sidebar: "hsl(150 7% 9.5%)",
+      hover: "hsl(150 6% 15.5%)",
+      editor: "hsl(150 7% 12%)",
+      codeBg: "hsl(150 6% 15.5%)",
+    },
+  },
+  {
+    id: "ink",
+    name: "墨台",
+    swatch: "hsl(30 8% 86%)",
+    light: {
+      workspace: "hsl(30 8% 86%)",
+      sidebar: "hsl(30 7% 90%)",
+      hover: "hsl(30 7% 80%)",
+      editor: "hsl(40 35% 99.5%)",
+      codeBg: "hsl(30 8% 93%)",
+    },
+    dark: {
+      workspace: "hsl(24 10% 5%)",
+      sidebar: "hsl(24 9% 7.5%)",
+      hover: "hsl(24 8% 14%)",
+      editor: "hsl(28 8% 11%)",
+      codeBg: "hsl(24 8% 14%)",
+    },
+  },
+];
+
+const DESK_IDS = new Set(DESK_PRESETS.map((p) => p.id));
+export const DEFAULT_DESK = "cloud";
+export const DEFAULT_UI_STYLE: UiStyle = "flat";
+
+export function deskPresetOf(id: string | undefined): DeskPreset {
+  return DESK_PRESETS.find((p) => p.id === id) ?? DESK_PRESETS[0];
+}
+
 export interface AppSettings {
   theme: ThemeMode;
   /** §8 外观:工作区壳层布局风格 */
   uiStyle: UiStyle;
+  /** §8 外观:台面背景预设 id */
+  desk: string;
   /** §8 外观:主色预设 id(默认语雀系蓝) */
   accent: string;
   /** V3 有限主题:自定义主色(#rrggbb);null = 使用 accent 预设 */
@@ -151,7 +302,8 @@ export interface AppSettings {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "system",
-  uiStyle: "card",
+  uiStyle: DEFAULT_UI_STYLE,
+  desk: DEFAULT_DESK,
   accent: DEFAULT_ACCENT,
   customAccent: null,
   readerFont: "default",
@@ -201,7 +353,8 @@ export function parseSettings(raw: string): AppSettings {
     const v = JSON.parse(raw) as Partial<AppSettings>;
     return {
       theme: THEME_MODES.includes(v?.theme as ThemeMode) ? (v.theme as ThemeMode) : "system",
-      uiStyle: UI_STYLES.includes(v?.uiStyle as UiStyle) ? (v.uiStyle as UiStyle) : "card",
+      uiStyle: UI_STYLES.includes(v?.uiStyle as UiStyle) ? (v.uiStyle as UiStyle) : DEFAULT_UI_STYLE,
+      desk: typeof v?.desk === "string" && DESK_IDS.has(v.desk) ? v.desk : DEFAULT_DESK,
       accent: typeof v?.accent === "string" && ACCENT_IDS.has(v.accent) ? v.accent : DEFAULT_ACCENT,
       customAccent:
         typeof v?.customAccent === "string" && HEX_COLOR.test(v.customAccent)
@@ -330,6 +483,7 @@ export function applyTheme(
     AppSettings,
     | "theme"
     | "uiStyle"
+    | "desk"
     | "accent"
     | "customAccent"
     | "readerFont"
@@ -350,6 +504,19 @@ export function applyTheme(
   for (const [k, v] of Object.entries(accentVars)) {
     root.style.setProperty(k, v);
   }
+  const desk = deskPresetOf(s.desk)[dark ? "dark" : "light"];
+  // 平铺:台面与侧栏同层;卡片:侧栏略抬、台面略沉
+  if (s.uiStyle === "flat") {
+    root.style.setProperty("--workspace", desk.workspace);
+    root.style.setProperty("--sidebar", desk.workspace);
+    root.style.setProperty("--editor", desk.editor);
+  } else {
+    root.style.setProperty("--workspace", desk.workspace);
+    root.style.setProperty("--sidebar", desk.sidebar);
+    root.style.removeProperty("--editor");
+  }
+  root.style.setProperty("--surface-hover", desk.hover);
+  root.style.setProperty("--code-bg", desk.codeBg);
   root.style.setProperty("--editor-font-family", READER_FONT_STACKS[s.readerFont]);
   root.style.setProperty("--editor-font-size", `${s.readerFontSize}px`);
   root.style.setProperty("--editor-line-height", String(s.readerLineHeight));

@@ -152,7 +152,8 @@
 - 每个设置页增加标题与一句职责说明;非模板内容列从 `384px` 放宽到 `512px`,行内控件不再拥挤。
 - 通用页启动选项改为卡片式单选,直接说明“路径失效回欢迎页 / 手动选择知识库”的差异;数据边界区分应用设置与本库数据。
 - 外观页主题改为三张卡片(跟随系统/浅色/深色),附使用场景说明;正文排版新增“恢复默认”一键还原。
-- 界面风格双套可切换(`uiStyle`:卡片默认 / 平铺):设置外观页带迷你预览;`data-ui-style` 挂 `<html>`,壳层用 `shell-main`/`shell-panel`/`shell-status` 挂点;平铺=贴边线框、无圆角阴影、台面光晕关闭。红框级 chrome 同步切换:`chrome-search`/`chrome-tree-row(-active)`/`chrome-trash`/`chrome-toolbar`/`chrome-nav`/`chrome-float`——平铺下搜索去抬升、选中改左色条、回收站扁平、格式工具栏通栏、前进后退去胶囊、选区/表格/图片浮条改直角薄边。
+- 界面风格双套可切换(`uiStyle`:卡片默认 / 平铺):设置外观页带迷你预览;`data-ui-style` 挂 `<html>`,壳层用 `shell-main`/`shell-panel`/`shell-status` 挂点;平铺=贴边线框、无圆角阴影、台面光晕关闭。红框级 chrome 同步切换:`chrome-search`/`chrome-tree-row(-active)`/`chrome-trash`/`chrome-toolbar`/`chrome-nav`/`chrome-float`——平铺下搜索去抬升、选中改左色条、回收站扁平、格式工具栏通栏、前进后退去胶囊、选区/表格/图片浮条改中等圆角薄边。
+- 台面背景 6 预设(`desk`:云白默认/暖玉/青雾/冷石/苔灰/墨台);界面风格默认改为平铺。`applyTheme` 写入 `--workspace`/`--sidebar`/`--surface-hover`/`--code-bg`(代码块/行内 code 底色随台面),平铺时侧栏与台面同色。
 - 存储页快照上限/间隔改为带单位的步进器,支持一键恢复默认;资源清理文案改为“资源维护”,强调删除不可恢复。
 - 编辑器、图片、搜索页统一 section header + hint 层级;搜索页明确“索引只在本机构建,不上传文档内容”。
 - 保留模板独立页的宽版布局与未保存切换确认,模板专项回归不受影响。

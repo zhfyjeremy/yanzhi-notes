@@ -30,13 +30,13 @@
   --border-subtle: hsl(34 18% 93%);
   --input: hsl(34 15% 88%);
   --ring: hsl(204 89% 44%);
-  /* 工作区层级:外壳 / 侧栏 / 编辑纸张 / 浮起控件。
-     侧栏略沉、中间纸面白亮,拉开「台面 vs 宣纸」层次(自定义主色不改这组)。 */
-  --workspace: hsl(34 18% 88%);
-  --sidebar: hsl(35 16% 91%);
-  --editor: hsl(40 45% 99.5%);
+  /* 工作区层级:默认「云白」台面;运行时可被 settings.desk 覆盖(见 applyTheme)。 */
+  --workspace: hsl(40 12% 96%);
+  --sidebar: hsl(40 10% 97.5%);
+  --editor: hsl(0 0% 100%);
   --raised: hsl(0 0% 100%);
-  --surface-hover: hsl(34 16% 84%);
+  --surface-hover: hsl(40 8% 92%);
+  --code-bg: hsl(40 10% 96%);
   --selection: color-mix(in oklab, var(--primary) 11%, var(--editor) 89%);
   /* 文档正文链接色:比 UI 主色更深一档,长文阅读达到 WCAG AA(4.5:1) */
   --link: hsl(204 89% 36%);
@@ -92,11 +92,12 @@
   --border-subtle: hsl(25 8% 16%);
   --input: hsl(25 9% 24%);
   --ring: hsl(204 85% 56%);
-  --workspace: hsl(24 12% 6%);
-  --sidebar: hsl(25 10% 8.5%);
-  --editor: hsl(28 9% 13.5%);
+  --workspace: hsl(240 4% 9%);
+  --sidebar: hsl(240 3% 11%);
+  --editor: hsl(240 3% 13%);
   --raised: hsl(28 8% 16%);
-  --surface-hover: hsl(26 9% 18%);
+  --surface-hover: hsl(240 3% 17%);
+  --code-bg: hsl(240 3% 16%);
   --selection: color-mix(in oklab, var(--primary) 18%, var(--editor) 82%);
   --link: hsl(204 85% 62%);
 
@@ -208,18 +209,8 @@ body {
  * 组件用 shell-main / shell-panel / shell-status 作挂点,避免散落条件 class。
  */
 :root[data-ui-style="flat"] {
-  /* 台面与侧栏同层,不再露出「桌面缝」 */
-  --workspace: hsl(35 14% 93%);
-  --sidebar: hsl(35 14% 93%);
-  --editor: hsl(40 35% 99.5%);
-  /* 控件圆角对齐 hover(rounded-md),比卡片胶囊收敛,但不走死直角 */
+  /* 台面色由 applyTheme(desk) 写入;此处只定 chrome 圆角 */
   --chrome-radius: var(--radius-md, 0.5rem);
-}
-
-:root.dark[data-ui-style="flat"] {
-  --workspace: hsl(25 10% 9%);
-  --sidebar: hsl(25 10% 9%);
-  --editor: hsl(28 9% 12.5%);
 }
 
 :root[data-ui-style="flat"] .app-shell,
