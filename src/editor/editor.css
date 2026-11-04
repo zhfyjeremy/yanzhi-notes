@@ -18,14 +18,15 @@
 .yz-editor-doc h2,
 .yz-editor-doc h3 {
   font-weight: 600;
-  line-height: 1.4;
-  margin-top: 1.6em;
+  line-height: 1.35;
+  /* 标题之间/与上文:略收,避免大段留白 */
+  margin-top: 1.15em;
   letter-spacing: -0.018em;
 }
 
 .yz-editor-doc h1 {
   font-size: 1.9em;
-  margin-top: 0.5em;
+  margin-top: 0.4em;
 }
 
 .yz-editor-doc h2 {
@@ -34,6 +35,20 @@
 
 .yz-editor-doc h3 {
   font-size: 1.22em;
+}
+
+/* 文首标题不再额外顶空 */
+.yz-editor-doc > h1:first-child,
+.yz-editor-doc > h2:first-child,
+.yz-editor-doc > h3:first-child {
+  margin-top: 0.15em;
+}
+
+/* 标题紧接下一块时,下一块少叠一段「段间距」,标题与正文更贴 */
+.yz-editor-doc h1 + *,
+.yz-editor-doc h2 + *,
+.yz-editor-doc h3 + * {
+  margin-top: 0.45em;
 }
 
 .yz-editor-doc ul,
@@ -426,15 +441,23 @@
   margin: 2em 0;
 }
 
-/* 表格卡片(GFM 管道表格):全网格细线 + 表头浅底;不做合并单元格 */
+/* 表格卡片(GFM 管道表格):全网格细线 + 表头浅底;不做合并单元格.
+ * 上边距不再为浮动工具条预留大空白(工具条 absolute 叠在上文上即可)。 */
 .yz-editor-doc .tableWrapper {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md, 6px);
-  margin-top: 2.6em;
-  margin-bottom: 1em;
+  margin-top: 0.75em;
+  margin-bottom: 0.85em;
   /* auto:列宽拖拽手柄可露边,超宽时横向滚 */
   overflow-x: auto;
   overflow-y: hidden;
+}
+
+/* 标题后紧跟表格时再贴一点 */
+.yz-editor-doc h1 + .tableWrapper,
+.yz-editor-doc h2 + .tableWrapper,
+.yz-editor-doc h3 + .tableWrapper {
+  margin-top: 0.5em;
 }
 
 .yz-editor-doc table {

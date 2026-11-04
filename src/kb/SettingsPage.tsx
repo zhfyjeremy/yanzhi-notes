@@ -22,7 +22,7 @@ import { kbBackend } from "./backend";
 import { TemplateWorkbench } from "./TemplateManager";
 import { AssetCleanupDialog } from "./AssetCleanupDialog";
 import { AiSettingsPanel } from "../ai/AiSettingsPanel";
-import type { AppSettings, LaunchMode, ReaderFont, ThemeMode } from "../settings";
+import type { AppSettings, LaunchMode, ReaderFont, ThemeMode, UiStyle } from "../settings";
 import { ACCENT_PRESETS } from "../settings";
 import { APP_VERSION } from "../version";
 import { Button } from "@/components/ui/button";
@@ -68,7 +68,7 @@ const NAV_GROUPS: { title: string; tabs: SettingsTab[] }[] = [
 const PAGE_META: Record<SettingsTab, { title: string; description: string }> = {
   general: { title: "通用", description: "控制启动方式、关闭是否进后台,并查看应用数据的存放边界。" },
   templates: { title: "模板", description: "管理当前知识库的文档模板,模板仍是标准 Markdown 文件。" },
-  appearance: { title: "外观", description: "调整主题、主色与正文排版,所有变化即时预览。" },
+  appearance: { title: "外观", description: "调整界面风格、主题、主色与正文排版,所有变化即时预览。" },
   editor: { title: "编辑器", description: "控制卡片视觉与专注写作相关偏好。" },
   storage: { title: "存储", description: "管理历史快照与冗余资源,保持知识库可备份、可迁移。" },
   image: { title: "图片", description: "控制图片进入知识库时的处理方式。" },
@@ -96,6 +96,115 @@ const LAUNCH_OPTIONS: { value: LaunchMode; label: string; description: string }[
   { value: "last", label: "打开上次的知识库", description: "路径失效时回到欢迎页" },
   { value: "welcome", label: "显示欢迎页", description: "手动选择要进入的知识库" },
 ];
+
+const UI_STYLE_OPTIONS: {
+  value: UiStyle;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "card",
+    label: "卡片",
+    description: "浮起面板 · 胶囊工具栏 · 圆角选中",
+  },
+  {
+    value: "flat",
+    label: "平铺",
+    description: "贴边线框 · 通栏工具栏 · 左条选中",
+  },
+];
+
+/** 界面风格预览:壳层三栏 + 搜索/选中行/工具栏差异,方便一眼区分。 */
+function UiStylePreview({ style }: { style: UiStyle }) {
+  if (style === "flat") {
+    return (
+      <div
+        aria-hidden
+        className="bg-workspace border-border-subtle flex h-[4.5rem] w-full overflow-hidden rounded-md border"
+      >
+        <div className="bg-sidebar border-border flex w-[26%] flex-col gap-1 border-r p-1.5">
+          <div className="bg-foreground/5 h-2 w-full rounded-[1px]" />
+          <div className="bg-primary/15 border-primary h-2 w-full border-l-2 pl-0.5" />
+          <div className="bg-foreground/5 mt-auto h-2 w-full rounded-[1px]" />
+        </div>
+        <div className="bg-editor flex flex-1 flex-col">
+          <div className="border-border flex h-3 items-center gap-0.5 border-b px-1.5">
+            <span className="bg-foreground/15 h-1 w-2 rounded-[1px]" />
+            <span className="bg-foreground/15 h-1 w-2 rounded-[1px]" />
+            <span className="bg-foreground/15 h-1 w-2 rounded-[1px]" />
+          </div>
+          <div className="flex-1 px-2 pt-1.5">
+            <div className="bg-foreground/10 h-1 w-1/2" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div
+      aria-hidden
+      className="bg-workspace flex h-[4.5rem] w-full items-stretch gap-1 rounded-md p-1.5"
+    >
+      <div className="bg-sidebar border-border-subtle flex w-[26%] flex-col gap-1 rounded-sm border p-1 shadow-sm">
+        <div className="bg-raised border-border-subtle h-2 w-full rounded-sm border shadow-[0_0.5px_0_color-mix(in_oklab,var(--foreground)_8%,transparent)]" />
+        <div className="bg-raised ring-primary/30 h-2 w-full rounded-sm shadow-sm ring-1" />
+        <div className="bg-raised/70 border-border-subtle mt-auto h-2 w-full rounded-sm border shadow-sm" />
+      </div>
+      <div className="bg-editor border-border-subtle flex flex-1 flex-col rounded-sm border shadow-sm">
+        <div className="flex justify-center px-1 pt-1">
+          <div className="bg-raised border-border-subtle flex h-2.5 w-[70%] items-center justify-center gap-0.5 rounded-[3px] border shadow-sm">
+            <span className="bg-foreground/20 size-1 rounded-[1px]" />
+            <span className="bg-foreground/20 size-1 rounded-[1px]" />
+            <span className="bg-foreground/20 size-1 rounded-[1px]" />
+          </div>
+        </div>
+        <div className="flex-1 px-2 pt-1.5">
+          <div className="bg-foreground/10 h-1 w-1/2 rounded-sm" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UiStylePicker({
+  value,
+  onChange,
+}: {
+  value: UiStyle;
+  onChange: (v: UiStyle) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="界面风格">
+      {UI_STYLE_OPTIONS.map((opt) => {
+        const active = value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            className={cn(
+              "border-border-subtle bg-raised/55 hover:border-primary/25 flex cursor-pointer flex-col gap-2 rounded-lg border p-2.5 text-left transition-colors",
+              active && "bg-selection border-primary/25 ring-primary/10 ring-1",
+            )}
+            onClick={() => onChange(opt.value)}
+          >
+            <UiStylePreview style={opt.value} />
+            <span className="flex items-start justify-between gap-2">
+              <span className="min-w-0">
+                <span className="block text-xs font-medium">{opt.label}</span>
+                <span className="text-muted-foreground mt-0.5 block text-[10px] leading-4">
+                  {opt.description}
+                </span>
+              </span>
+              {active && <Check className="text-primary mt-0.5 size-3.5 shrink-0" />}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function PageHeader({ title, description }: { title: string; description: string }) {
   return (
@@ -601,6 +710,15 @@ export function SettingsPage({
 
           {tab === "appearance" && (
             <>
+              <SettingsSection
+                title="界面风格"
+                hint="只改工作区面板怎么摆,不写入 Markdown;可随时切换"
+              >
+                <UiStylePicker
+                  value={settings.uiStyle}
+                  onChange={(v) => onChange({ uiStyle: v })}
+                />
+              </SettingsSection>
               <SettingsSection title="主题" hint="选择砚知的整体明暗关系;跟随系统会实时响应 OS 切换">
                 <OptionCards
                   ariaLabel="主题"

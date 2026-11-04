@@ -109,7 +109,7 @@ export function ImageToolbar({ editor, onPreview }: ImageToolbarProps) {
   return (
     <div
       ref={ref}
-      className="bg-background/95 absolute z-20 flex items-center gap-0.5 rounded-lg p-0.5 shadow-md backdrop-blur"
+      className="chrome-float bg-background/95 absolute z-20 flex items-center gap-0.5 rounded-lg border border-border-subtle p-0.5 shadow-md backdrop-blur"
       style={{ top: pos.top, left: pos.left, height: TOOLBAR_HEIGHT }}
     >
       {WIDTH_OPTIONS.map((w) => (

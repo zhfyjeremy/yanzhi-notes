@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/popover";
 import { FONT_COLORS } from "../extensions/font-color";
 import { copyPlainText, copyRichText } from "../clipboard";
+import { applyLinkAtSelection } from "../apply-link";
 import { cn } from "@/lib/utils";
 
 /**
@@ -142,11 +143,16 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
     editor.commands.focus();
   };
 
-  const withMenuSelection = () =>
-    editor
-      .chain()
-      .focus()
-      .setTextSelection(menuSelection ?? editor.state.selection);
+  const withMenuSelection = () => {
+    const chain = editor.chain().focus();
+    if (menuSelection) {
+      chain.command(({ tr }) => {
+        tr.setSelection(menuSelection);
+        return true;
+      });
+    }
+    return chain;
+  };
 
   const applyHeading = (level: number) => {
     const chain = withMenuSelection();
@@ -166,13 +172,7 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
   };
 
   const applyLink = () => {
-    const href = linkUrl.trim();
-    const chain = withMenuSelection().extendMarkRange("link");
-    if (href) {
-      chain.setLink({ href }).run();
-    } else {
-      chain.unsetLink().run();
-    }
+    applyLinkAtSelection(editor, linkUrl, menuSelection);
     setLinkOpen(false);
   };
 
@@ -180,9 +180,9 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
     HEADING_ITEMS.find((item) => item.level === state.heading) ?? HEADING_ITEMS[0];
 
   return (
-    <div role="toolbar" aria-label="格式工具栏" className="yz-toolbar bg-editor flex h-14 shrink-0 items-center justify-center px-4">
-      {/* 胶囊跟内容收缩、居中;不随正文列拉长。窄纸张时 max-w-full + 内滚,容器查询仍按外层纸宽收纳低频按钮 */}
-      <div className="border-border-subtle bg-raised flex h-9 w-fit max-w-full min-w-0 items-center gap-0.5 overflow-x-auto rounded-[10px] border px-1.5 shadow-sm">
+    <div role="toolbar" aria-label="格式工具栏" className="yz-toolbar chrome-toolbar-host bg-editor flex h-14 shrink-0 items-center justify-center px-4">
+      {/* 卡片:居中胶囊;平铺:chrome-toolbar 改成通栏底边线(见 index.css) */}
+      <div className="chrome-toolbar border-border-subtle bg-raised flex h-9 w-fit max-w-full min-w-0 items-center gap-0.5 overflow-x-auto rounded-[10px] border px-1.5 shadow-sm">
       {/* 标题下拉 */}
       <DropdownMenu onOpenChange={snapshotMenuSelection}>
         <DropdownMenuTrigger asChild>
@@ -329,7 +329,7 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  withMenuSelection().extendMarkRange("link").unsetLink().run();
+                  applyLinkAtSelection(editor, "", menuSelection);
                   setLinkOpen(false);
                 }}
               >

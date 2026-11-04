@@ -6,7 +6,6 @@ import {
   CircleAlert,
   CheckSquare2,
   FileText,
-  FolderClosed,
   FolderOpen,
   FolderPlus,
   House,
@@ -47,7 +46,8 @@ import { foldersOf, type BatchRenameItem, type BatchResult } from "./batch";
  * 左栏目录树(M3 / PRD 5.1):递归渲染、点击切换文档、当前文档高亮、拖拽排序。
  * 行操作走语雀式两级:文件夹 hover 仅一个「+」下拉(新建文档/子文件夹),
  * 重命名/移动到/删除进右键菜单(删除直接执行,移入回收站可恢复);
- * 重命名 = 行内编辑(Enter 确认 Esc 取消失焦提交)。
+ * 重命名 = 行内编辑(Enter 确认 Esc 取消失焦提交);新建文件夹后自动进入重命名并全选默认名。
+ * 顶层目录空白处右键 = 在库根新建文档/文件夹(与右上角 + 同口径);行上右键仍走条目菜单。
  * 排序 = meta.sortIndex(拖拽落点重写整组兄弟序);折叠状态持久化进 meta。
  */
 
@@ -70,7 +70,8 @@ interface DocTreeProps {
   onToggleCollapse: (folderRel: string) => void;
   onOpenDoc: (rel: string) => void;
   onCreateDoc: (folderRel: string, title: string) => void;
-  onCreateFolder: (folderRel: string, name: string) => void;
+  /** 返回新建文件夹相对路径;失败 null —— DocTree 用其自动进入重命名 */
+  onCreateFolder: (folderRel: string, name: string) => Promise<string | null>;
   onRenameEntry: (rel: string, name: string) => void;
   onRemoveEntry: (rel: string) => void;
   onReorder: (parentRel: string, orderedPaths: string[]) => void;
@@ -142,10 +143,67 @@ function TrashGlyph({ className }: { className?: string }) {
       strokeLinecap="round"
       strokeLinejoin="round"
       className={className}
+      aria-hidden
     >
       <path d="M2.5 4.5h11" />
       <path d="M6.5 4.5V3.5c0-.55.45-1 1-1h1c.55 0 1 .45 1 1v1" />
       <path d="M4 4.5l.6 8c.04.55.5 1 1.05 1h4.7c.55 0 1.01-.45 1.05-1l.6-8" />
+    </svg>
+  );
+}
+
+/**
+ * 树行实心文件夹:无描边外框,纯填色剪影;open 用前盖分层区分展开。
+ */
+function FolderGlyph({ open = false, className }: { open?: boolean; className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" className={className} aria-hidden>
+      {open ? (
+        <>
+          <path
+            d="M1.5 4.2c0-.5.4-.9.9-.9h3.4c.28 0 .54.13.7.35l.7.95h5.9c.5 0 .9.4.9.9v1.1H1.5V4.2Z"
+            opacity="0.55"
+          />
+          <path d="M1.5 6.55h13c.55 0 1 .4.95.95l-.7 5.1c-.08.55-.55.95-1.1.95H2.35c-.55 0-1.02-.4-1.1-.95L.55 7.5c-.05-.55.4-.95.95-.95Z" />
+        </>
+      ) : (
+        <path d="M1.5 4.35c0-.5.4-.9.9-.9h3.55c.28 0 .55.14.7.37L7.4 5.1h6.2c.5 0 .9.4.9.9v6.55c0 .5-.4.9-.9.9H2.4c-.5 0-.9-.4-.9-.9V4.35Z" />
+      )}
+    </svg>
+  );
+}
+
+/**
+ * 树行文档:浅底 + 描边纸页(非纯实心),折角与两道文线保持可读。
+ * 颜色由外层 currentColor 控制——未选 muted、当前 primary。
+ */
+function DocGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden>
+      <path
+        d="M4 1.75h5.15L12.9 5.45v7.8c0 .55-.45 1-1 1H4c-.55 0-1-.45-1-1V2.75c0-.55.45-1 1-1Z"
+        fill="currentColor"
+        fillOpacity="0.12"
+      />
+      <path
+        d="M4 1.75h5.15L12.9 5.45v7.8c0 .55-.45 1-1 1H4c-.55 0-1-.45-1-1V2.75c0-.55.45-1 1-1Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.15 1.85v2.65c0 .45.35.8.8.8h2.7"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M5.2 8.2h5.6M5.2 10.55h4.1"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+        opacity="0.55"
+      />
     </svg>
   );
 }
@@ -173,6 +231,9 @@ function TreeRow({
   selectedPaths,
   selectionMode,
   dragLocked,
+  renamingPath,
+  onBeginRename,
+  onEndRename,
   onToggle,
   onOpenDoc,
   onCreateDoc,
@@ -200,6 +261,10 @@ function TreeRow({
   selectionMode: boolean;
   /** 标签筛选态:树是过滤视图,拖拽排序/移动会错位隐藏兄弟 → 全禁 */
   dragLocked: boolean;
+  /** 正在行内重命名的路径;由 DocTree 统一持有(新建文件夹后自动切入) */
+  renamingPath: string | null;
+  onBeginRename: (rel: string) => void;
+  onEndRename: () => void;
   onToggle: (path: string) => void;
   onOpenDoc: (rel: string) => void;
   onCreateDoc: (folderRel: string, title: string) => void;
@@ -217,7 +282,6 @@ function TreeRow({
   onDragOverRow: (path: string, zone: DropZone | null) => void;
   onDropRow: (target: string, zone: DropZone) => void;
 }) {
-  const [renaming, setRenaming] = useState(false);
   const active = !node.isDir && node.path === currentPath;
   const isCollapsed = collapsed.has(node.path);
   // 缩进由子树导轨承担,行自身保持同一安全边;深度参数仅继续传给递归组件
@@ -225,33 +289,50 @@ function TreeRow({
   const hint = dropHint?.path === node.path ? dropHint.zone : null;
   // 置顶行不参与拖拽(永远在组内最上,落位无意义);筛选态全禁
   const noDrag = dragLocked || (pinned && !node.isDir);
+  const renaming = renamingPath === node.path;
 
   if (renaming) {
     const commit = (value: string) => {
-      setRenaming(false);
+      onEndRename();
       const v = value.trim();
       if (v && v !== node.name) onRenameEntry(node.path, v);
     };
     return (
-      <div className="flex w-full items-center gap-1.5 py-1 pr-2" style={pad}>
+      <div
+        data-path={node.path}
+        className="flex w-full items-center gap-1.5 py-1 pr-2"
+        style={pad}
+      >
         {node.isDir ? (
-          <span className="bg-selection text-primary flex size-5 shrink-0 items-center justify-center rounded-md">
-            <FolderOpen className="size-3.5" />
+          <span className="text-primary flex size-5 shrink-0 items-center justify-center">
+            <FolderGlyph open className="size-3.5" />
           </span>
         ) : (
-          <span className="bg-hover text-muted-foreground flex size-5 shrink-0 items-center justify-center rounded-md">
-            <FileText className="size-3.5" />
+          <span className="text-muted-foreground flex size-5 shrink-0 items-center justify-center">
+            <DocGlyph className="size-3.5" />
           </span>
         )}
         <input
-          autoFocus
           defaultValue={node.name}
           className="border-border-subtle bg-raised focus:ring-ring h-7 min-w-0 flex-1 rounded-md border px-2 text-[13px] outline-none focus:ring-1"
           onClick={(e) => e.stopPropagation()}
+          ref={(el) => {
+            // 挂载即聚焦并全选默认名,方便直接覆盖输入(新建文件夹 / 右键重命名同口径)
+            if (el && document.activeElement !== el) {
+              el.focus();
+              el.select();
+            }
+          }}
           onBlur={(e) => commit(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") commit(e.currentTarget.value);
-            if (e.key === "Escape") setRenaming(false);
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit(e.currentTarget.value);
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              onEndRename();
+            }
           }}
         />
       </div>
@@ -259,7 +340,8 @@ function TreeRow({
   }
 
   return (
-    <div>
+    // 拦住 contextmenu 冒泡,避免顶层目录空白菜单盖掉行内菜单
+    <div onContextMenu={(e) => e.stopPropagation()}>
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
@@ -268,10 +350,11 @@ function TreeRow({
             data-path={node.path}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "group relative flex w-full items-center gap-1.5 rounded-lg py-1 pr-2 text-left text-[13px] transition-colors",
+              "chrome-tree-row group relative flex w-full items-center gap-1.5 rounded-lg py-1 pr-2 text-left text-[13px] transition-colors",
               // 当前文档用 raised 白底+主色描边:selection 混色叠在 sidebar 上几乎看不出
+              // (平铺风格由 [data-ui-style=flat] .chrome-tree-row-active 改成左条选中)
               active
-                ? "bg-raised text-foreground ring-primary/35 shadow-[0_1px_2px_color-mix(in_oklab,var(--workspace)_45%,transparent)] ring-1"
+                ? "chrome-tree-row-active bg-raised text-foreground ring-primary/35 shadow-[0_1px_2px_color-mix(in_oklab,var(--workspace)_45%,transparent)] ring-1"
                 : selected
                   ? "bg-selection text-foreground"
                   : node.isDir
@@ -375,32 +458,35 @@ function TreeRow({
               <>
                 <span
                   className={cn(
-                    "text-muted-foreground/70 group-hover:text-foreground flex size-4 shrink-0 items-center justify-center rounded-[5px] transition-colors",
-                    !isCollapsed && "bg-hover",
+                    "text-muted-foreground/65 group-hover:text-foreground flex size-4 shrink-0 items-center justify-center rounded-md transition-colors",
+                    !isCollapsed && "bg-hover/80 text-foreground/80",
                   )}
                 >
                   {isCollapsed ? (
-                    <ChevronRight className="size-3" />
+                    <ChevronRight className="size-3" strokeWidth={2.25} />
                   ) : (
-                    <ChevronDown className="size-3" />
+                    <ChevronDown className="size-3" strokeWidth={2.25} />
                   )}
                 </span>
-                <span className="bg-selection text-primary flex size-5 shrink-0 items-center justify-center rounded-md">
-                  {isCollapsed ? (
-                    <FolderClosed className="size-3.5" />
-                  ) : (
-                    <FolderOpen className="size-3.5" />
+                <span
+                  className={cn(
+                    "flex size-5 shrink-0 items-center justify-center transition-colors",
+                    isCollapsed ? "text-primary/85" : "text-primary",
                   )}
+                >
+                  <FolderGlyph open={!isCollapsed} className="size-3.5" />
                 </span>
               </>
             ) : (
               <span
                 className={cn(
-                  "flex size-5 shrink-0 items-center justify-center rounded-md",
-                  active ? "bg-primary/15 text-primary" : "bg-hover/70 text-muted-foreground",
+                  "flex size-5 shrink-0 items-center justify-center rounded-md transition-colors",
+                  active
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground group-hover:text-foreground/70",
                 )}
               >
-                <FileText className="size-3.5" />
+                <DocGlyph className="size-3.5" />
               </span>
             )}
             <span className={cn("truncate", (active || node.isDir) && "font-medium")}>{node.name}</span>
@@ -469,7 +555,7 @@ function TreeRow({
               </ContextMenuItem>
             </>
           )}
-          <ContextMenuItem onClick={() => setRenaming(true)}>
+          <ContextMenuItem onClick={() => onBeginRename(node.path)}>
             <PenLine /> 重命名
           </ContextMenuItem>
           <ContextMenuSub>
@@ -519,6 +605,9 @@ function TreeRow({
               pinned={pinnedSet.has(child.path)}
               selectedPaths={selectedPaths}
               dragLocked={dragLocked}
+              renamingPath={renamingPath}
+              onBeginRename={onBeginRename}
+              onEndRename={onEndRename}
               onToggle={onToggle}
               onTogglePin={onTogglePin}
               selected={selectedPaths.has(child.path)}
@@ -583,6 +672,7 @@ export function DocTree({
 }: DocTreeProps) {
   const dragPath = useRef<string | null>(null);
   const [dropHint, setDropHint] = useState<{ path: string; zone: DropZone } | null>(null);
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
   // Windows 路径是 `\`,不能只按 `/` 切——否则标题会变成整段 `C:\Users\…`
   const rootName = useMemo(() => {
     const parts = root.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean);
@@ -605,6 +695,18 @@ export function DocTree({
     setSelectionMode(false);
     setSelectedPaths(new Set());
     selectionAnchor.current = null;
+  };
+
+  /** 新建文件夹后展开父夹、切入行内重命名并全选默认名 */
+  const handleCreateFolder = async (folderRel: string, name: string) => {
+    if (folderRel && collapsed.has(folderRel)) onToggleCollapse(folderRel);
+    const rel = await onCreateFolder(folderRel, name);
+    if (!rel) return;
+    setRenamingPath(rel);
+    requestAnimationFrame(() => {
+      const el = navRef.current?.querySelector(`[data-path="${CSS.escape(rel)}"]`);
+      el?.scrollIntoView({ block: "nearest" });
+    });
   };
 
   const enterSelection = () => {
@@ -706,7 +808,7 @@ export function DocTree({
   };
 
   return (
-    <aside className="bg-sidebar border-border-subtle flex w-[248px] min-w-[248px] flex-col overflow-hidden rounded-2xl border shadow-[0_10px_28px_-20px_color-mix(in_oklab,var(--foreground)_18%,transparent)]">
+    <aside className="shell-panel bg-sidebar border-border-subtle flex w-[248px] min-w-[248px] flex-col overflow-hidden rounded-2xl border shadow-[0_10px_28px_-20px_color-mix(in_oklab,var(--foreground)_18%,transparent)]">
       <div className="shrink-0 px-2.5 pt-2.5">
         {selectionMode ? (
           <BatchDocActions
@@ -732,8 +834,8 @@ export function DocTree({
                     className="hover:bg-hover/70 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-xl px-1.5 py-1.5 text-left transition-colors outline-none"
                     title={root}
                   >
-                    <span className="bg-selection text-primary flex size-8 shrink-0 items-center justify-center rounded-lg">
-                      <FolderOpen className="size-4" />
+                    <span className="text-primary flex size-8 shrink-0 items-center justify-center">
+                      <FolderGlyph open className="size-[18px]" />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="text-foreground flex min-w-0 items-center gap-0.5">
@@ -785,7 +887,7 @@ export function DocTree({
                     <DropdownMenuItem onClick={() => onCreateDoc("", "未命名文档")}>
                       <SquarePen /> 新建文档
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onCreateFolder("", "新文件夹")}>
+                    <DropdownMenuItem onClick={() => void handleCreateFolder("", "新文件夹")}>
                       <FolderPlus /> 新建文件夹
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -806,59 +908,76 @@ export function DocTree({
         activeTag={tagFilter}
         onTagFilter={onTagFilter}
       />
-      <nav
-        ref={navRef}
-        className="min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-2"
-        onDragOver={(e) => e.preventDefault()} /* 允许拖到空白处松手(仅清除提示) */
-      >
-        {tree.length === 0 ? (
-          <div className="text-muted-foreground border-border-subtle mx-1 rounded-xl border border-dashed px-3 py-6 text-center">
-            <FolderOpen className="mx-auto mb-2 size-5 opacity-50" />
-            <p className="text-xs">
-              {tagFilter ? `没有带「#${tagFilter}」标签的文档` : "空知识库"}
-            </p>
-            {!tagFilter && (
-              <p className="mt-1 text-[10px]">点击右上角 + 新建第一篇文档</p>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <nav
+            ref={navRef}
+            className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pt-1 pb-2"
+            onDragOver={(e) => e.preventDefault()} /* 允许拖到空白处松手(仅清除提示) */
+          >
+            {tree.length === 0 ? (
+              <div className="text-muted-foreground border-border-subtle mx-1 rounded-xl border border-dashed px-3 py-6 text-center">
+                <FolderGlyph open className="mx-auto mb-2 size-5 opacity-45" />
+                <p className="text-xs">
+                  {tagFilter ? `没有带「#${tagFilter}」标签的文档` : "空知识库"}
+                </p>
+                {!tagFilter && (
+                  <p className="mt-1 text-[10px]">右键或点右上角 + 新建文档</p>
+                )}
+              </div>
+            ) : (
+              tree.map((node) => (
+                <TreeRow
+                  key={node.path}
+                  node={node}
+                  depth={0}
+                  currentPath={currentPath}
+                  collapsed={collapsed}
+                  pinnedSet={pinnedSet}
+                  pinned={pinnedSet.has(node.path)}
+                  selectedPaths={selectedPaths}
+                  dragLocked={tagFilter !== null}
+                  renamingPath={renamingPath}
+                  onBeginRename={setRenamingPath}
+                  onEndRename={() => setRenamingPath(null)}
+                  onToggle={onToggleCollapse}
+                  onTogglePin={onTogglePin}
+                  selected={selectedPaths.has(node.path)}
+                  onToggleSelect={selectDoc}
+                  selectionMode={selectionMode}
+                  onSelectSubtree={selectSubtree}
+                  onOpenDoc={onOpenDoc}
+                  onCreateDoc={onCreateDoc}
+                  onCreateFolder={(folder, name) => void handleCreateFolder(folder, name)}
+                  onRenameEntry={onRenameEntry}
+                  onRemoveEntry={onRemoveEntry}
+                  onMoveEntry={(src, dest) => onMoveEntry(src, dest)}
+                  moveFolders={moveFolders}
+                  dragPath={dragPath}
+                  dropHint={dropHint}
+                  onDragOverRow={(path, zone) => {
+                    setDropHint((prev) => {
+                      if (zone) return prev?.path === path && prev.zone === zone ? prev : { path, zone };
+                      return prev?.path === path ? null : prev;
+                    });
+                  }}
+                  onDropRow={commitDrop}
+                />
+              ))
             )}
-          </div>
-        ) : (
-          tree.map((node) => (
-            <TreeRow
-              key={node.path}
-              node={node}
-              depth={0}
-              currentPath={currentPath}
-              collapsed={collapsed}
-              pinnedSet={pinnedSet}
-              pinned={pinnedSet.has(node.path)}
-              selectedPaths={selectedPaths}
-              dragLocked={tagFilter !== null}
-              onToggle={onToggleCollapse}
-              onTogglePin={onTogglePin}
-              selected={selectedPaths.has(node.path)}
-              onToggleSelect={selectDoc}
-              selectionMode={selectionMode}
-              onSelectSubtree={selectSubtree}
-              onOpenDoc={onOpenDoc}
-              onCreateDoc={onCreateDoc}
-              onCreateFolder={onCreateFolder}
-              onRenameEntry={onRenameEntry}
-              onRemoveEntry={onRemoveEntry}
-              onMoveEntry={(src, dest) => onMoveEntry(src, dest)}
-              moveFolders={moveFolders}
-              dragPath={dragPath}
-              dropHint={dropHint}
-              onDragOverRow={(path, zone) => {
-                setDropHint((prev) => {
-                  if (zone) return prev?.path === path && prev.zone === zone ? prev : { path, zone };
-                  return prev?.path === path ? null : prev;
-                });
-              }}
-              onDropRow={commitDrop}
-            />
-          ))
-        )}
-      </nav>
+            {/* 撑满剩余空白,顶层目录空白处也能右键 */}
+            <div className="min-h-8 flex-1" aria-hidden />
+          </nav>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={() => onCreateDoc("", "未命名文档")}>
+            <SquarePen /> 新建文档
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => void handleCreateFolder("", "新文件夹")}>
+            <FolderPlus /> 新建文件夹
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
       {/* 左栏底部只保留知识库工具;工作区切换在顶部库身份卡,避免和回收站混层 */}
       <div className="border-border-subtle flex shrink-0 flex-col gap-1 border-t p-2">
         {orphanCount > 0 && (
@@ -876,9 +995,9 @@ export function DocTree({
         <button
           aria-label={trashCount > 0 ? `回收站,${trashCount} 项` : "回收站"}
           className={cn(
-            "hover:bg-hover hover:text-foreground flex h-8 w-full cursor-pointer items-center justify-between rounded-lg border px-2.5 text-xs transition-colors",
+            "chrome-trash hover:bg-hover hover:text-foreground flex h-8 w-full cursor-pointer items-center justify-between rounded-lg border px-2.5 text-xs transition-colors",
             trashCount > 0
-              ? "border-border-subtle bg-raised/65 text-foreground/75 shadow-sm"
+              ? "chrome-trash-filled border-border-subtle bg-raised/65 text-foreground/75 shadow-sm"
               : "text-muted-foreground/80 border-transparent",
           )}
           onClick={onOpenTrash}

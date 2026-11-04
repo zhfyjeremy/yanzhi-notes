@@ -202,6 +202,137 @@ body {
   background-size: auto, auto;
 }
 
+/*
+ * 壳层 UI 风格:data-ui-style 挂在 <html>。
+ * card(默认)= 浮卡台面;flat = 线框平铺(贴边、发丝分隔、无抬升)。
+ * 组件用 shell-main / shell-panel / shell-status 作挂点,避免散落条件 class。
+ */
+:root[data-ui-style="flat"] {
+  /* 台面与侧栏同层,不再露出「桌面缝」 */
+  --workspace: hsl(35 14% 93%);
+  --sidebar: hsl(35 14% 93%);
+  --editor: hsl(40 35% 99.5%);
+  /* 控件圆角对齐 hover(rounded-md),比卡片胶囊收敛,但不走死直角 */
+  --chrome-radius: var(--radius-md, 0.5rem);
+}
+
+:root.dark[data-ui-style="flat"] {
+  --workspace: hsl(25 10% 9%);
+  --sidebar: hsl(25 10% 9%);
+  --editor: hsl(28 9% 12.5%);
+}
+
+:root[data-ui-style="flat"] .app-shell,
+:root[data-ui-style="flat"] .welcome-shell {
+  /* 平铺:去掉台面光晕,只留纯色工作面 */
+  background: var(--workspace);
+}
+
+:root[data-ui-style="flat"] .shell-main {
+  gap: 0 !important;
+  padding: 0 !important;
+}
+
+:root[data-ui-style="flat"] .shell-panel {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  border-color: var(--border) !important;
+}
+
+/* 相邻面板合并竖线,避免双线 */
+:root[data-ui-style="flat"] .shell-panel + .shell-panel {
+  border-left-width: 0 !important;
+}
+
+:root[data-ui-style="flat"] .shell-status {
+  margin: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-bottom: none !important;
+  background: color-mix(in oklab, var(--sidebar) 92%, var(--foreground) 8%);
+}
+
+/* ---- 平铺:红框级 chrome(搜索 / 树选中 / 回收站 / 格式工具栏) ---- */
+
+:root[data-ui-style="flat"] .chrome-search {
+  border-radius: var(--chrome-radius) !important;
+  box-shadow: none !important;
+  background: color-mix(in oklab, var(--foreground) 3.5%, transparent) !important;
+  border-color: transparent !important;
+}
+
+:root[data-ui-style="flat"] .chrome-search:focus-within {
+  background: var(--raised) !important;
+  border-color: var(--ring) !important;
+  box-shadow: none !important;
+}
+
+:root[data-ui-style="flat"] .chrome-tree-row {
+  border-radius: var(--chrome-radius) !important;
+}
+
+:root[data-ui-style="flat"] .chrome-tree-row-active {
+  background: color-mix(in oklab, var(--primary) 10%, transparent) !important;
+  outline: none;
+  /* 盖掉 Tailwind ring + 改成左侧色条 */
+  --tw-ring-shadow: 0 0 #0000 !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
+  box-shadow: inset 2px 0 0 0 var(--primary) !important;
+}
+
+:root[data-ui-style="flat"] .chrome-trash {
+  border-radius: var(--chrome-radius) !important;
+}
+
+:root[data-ui-style="flat"] .chrome-trash-filled {
+  border-color: transparent !important;
+  background: color-mix(in oklab, var(--foreground) 4%, transparent) !important;
+  box-shadow: none !important;
+}
+
+/* 工具栏:去掉居中胶囊,改成贴顶通栏 + 底部分隔线 */
+:root[data-ui-style="flat"] .chrome-toolbar-host {
+  height: 2.5rem !important;
+  justify-content: stretch !important;
+  padding: 0 !important;
+  border-bottom: 1px solid var(--border);
+}
+
+:root[data-ui-style="flat"] .chrome-toolbar {
+  width: 100% !important;
+  max-width: none !important;
+  height: 100% !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  padding-inline: 0.75rem !important;
+}
+
+/* 标题旁后退/前进:去抬升,圆角对齐 hover */
+:root[data-ui-style="flat"] .chrome-nav {
+  border-radius: var(--chrome-radius) !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  border-color: var(--border) !important;
+  padding: 0 !important;
+}
+
+:root[data-ui-style="flat"] .chrome-nav button {
+  border-radius: calc(var(--chrome-radius) - 1px) !important;
+}
+
+/* 选区气泡 / 表格·图片浮条:中等圆角 + 弱阴影 */
+:root[data-ui-style="flat"] .chrome-float {
+  border-radius: var(--chrome-radius) !important;
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--foreground) 8%, transparent) !important;
+  border-color: var(--border) !important;
+  background: var(--raised) !important;
+  backdrop-filter: none !important;
+}
+
 .welcome-rise,
 .welcome-rise-delayed {
   animation: welcome-rise 180ms cubic-bezier(0.22, 1, 0.36, 1) both;

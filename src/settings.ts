@@ -8,8 +8,8 @@ import {
 
 /**
  * 全局设置(PRD §8):存 Tauri 应用配置目录 / mock localStorage,**不进知识库 meta**。
- * MVP:主题三选一 + 特殊卡片边框 + 图片粘贴压缩;后续批次在此结构上扩,
- * 未交付项不出现在设置页。token 双值见 index.css(:root / .dark)。
+ * MVP:主题三选一 + 界面风格(卡片/平铺) + 特殊卡片边框 + 图片粘贴压缩;
+ * 后续批次在此结构上扩,未交付项不出现在设置页。token 双值见 index.css(:root / .dark)。
  */
 
 export type ThemeMode = "system" | "light" | "dark";
@@ -17,6 +17,12 @@ export type ThemeMode = "system" | "light" | "dark";
 /** §8 通用-启动:last = 直开上次的知识库(5.0.4 默认);welcome = 总是先看欢迎页 */
 export type LaunchMode = "last" | "welcome";
 export type ReaderFont = "default" | "serif" | "kai";
+
+/**
+ * 壳层 UI 风格(外观):只改工作区面板怎么摆,不改 Markdown / token 色源。
+ * card = 浮卡台面(圆角+阴影+留白);flat = 线框平铺(贴边+发丝分隔)。
+ */
+export type UiStyle = "card" | "flat";
 
 /** 主色预设(§12:仅覆盖主色系 token,浅/深两套;自定义色值仍 V3)。
  *  accent 系是「主色相的浅灰底/深字」(hover 态),跟随色相走 */
@@ -92,6 +98,8 @@ export function accentPresetOf(id: string | undefined): AccentPreset {
 
 export interface AppSettings {
   theme: ThemeMode;
+  /** §8 外观:工作区壳层布局风格 */
+  uiStyle: UiStyle;
   /** §8 外观:主色预设 id(默认语雀系蓝) */
   accent: string;
   /** V3 有限主题:自定义主色(#rrggbb);null = 使用 accent 预设 */
@@ -143,6 +151,7 @@ export interface AppSettings {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "system",
+  uiStyle: "card",
   accent: DEFAULT_ACCENT,
   customAccent: null,
   readerFont: "default",
@@ -182,6 +191,7 @@ const clampNumber = (v: unknown, dflt: number, min: number, max: number): number
 };
 
 const THEME_MODES: readonly ThemeMode[] = ["system", "light", "dark"];
+const UI_STYLES: readonly UiStyle[] = ["card", "flat"];
 const READER_FONTS: readonly ReaderFont[] = ["default", "serif", "kai"];
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
@@ -191,6 +201,7 @@ export function parseSettings(raw: string): AppSettings {
     const v = JSON.parse(raw) as Partial<AppSettings>;
     return {
       theme: THEME_MODES.includes(v?.theme as ThemeMode) ? (v.theme as ThemeMode) : "system",
+      uiStyle: UI_STYLES.includes(v?.uiStyle as UiStyle) ? (v.uiStyle as UiStyle) : "card",
       accent: typeof v?.accent === "string" && ACCENT_IDS.has(v.accent) ? v.accent : DEFAULT_ACCENT,
       customAccent:
         typeof v?.customAccent === "string" && HEX_COLOR.test(v.customAccent)
@@ -318,6 +329,7 @@ export function applyTheme(
   s: Pick<
     AppSettings,
     | "theme"
+    | "uiStyle"
     | "accent"
     | "customAccent"
     | "readerFont"
@@ -330,6 +342,7 @@ export function applyTheme(
   const dark = resolvedIsDark(s.theme, systemDark);
   const root = document.documentElement;
   root.classList.toggle("dark", dark);
+  root.dataset.uiStyle = s.uiStyle;
   root.style.colorScheme = dark ? "dark" : "light";
   const accentVars = s.customAccent
     ? customAccentVars(s.customAccent, dark)

@@ -52,7 +52,7 @@
 | 排序与折叠 | ✅ | `meta.ts`:sortIndex 持久化(`.yanzhi/meta.json`,300ms 去抖),HTML5 拖拽排序(before/after 同组改序,into = **移动到文件夹**,文件夹 25/50/25),禁拖自身子树;**跨组 before/after = 移动 + 按落位排序**(orderedPaths 传入 moveEntry 走 `applySiblingOrder`,into 落尾 `moveMetaToTail`);折叠状态持久化。**移动 = Rust `move_entry`**(改父目录、名字不变、同名冲突报错、幂等)+ mock 同构:meta 键/折叠键前缀迁移、路径写法 `[[双链]]` 前缀改写(裸名不动)、当前文档/前进后退历史重写;WKWebView 拖拽需 dragstart `setData` + `dragDropEnabled:false`(踩坑清单) |
 | 导入导出 | ✅ | 导入 md(文件选择 → `![...](...)` 非 http/data/绝对路径图片迁移进 assets + 引用改写);导出当前文档 md / 离线 HTML(`export-html.ts`:图片转 dataURL + 内联样式,语雀式 780px 页面);mock 走 DOM input/blob 下载同构 |
 | 反向链接面板 | ✅ | `backlinks.ts`(WikiRefIndex 出链索引,与搜索索引同点位增量维护)+ `BacklinksPanel.tsx`(右栏大纲下方分区);裸名/路径/别名三写法归一按目标聚合(解析与点击跳转同构 `resolveWikiTarget`),同源多引用计 ×N;来源入回收站 → 灰态「已删除」,点击引导去回收站(5.1.1-3);点击正常行 = 打开来源 + 查找条带词定位;Rust 新增 `read_all_trash_docs`;右栏改共享 aside,TOC 折叠从竖条改为分区头 chevron |
-| 设置与主题 | ✅ | §8 设置基座:Rust `get_settings`/`set_settings` + `src/settings.ts`/`useSettings`;外观/阅读参数/卡片边框/图片压缩/搜索重建/打字机等齐全;入口 = 原生菜单设置(`⌘,`)与设置独立窗(左栏齿轮已移除) |
+| 设置与主题 | ✅ | §8 设置基座:Rust `get_settings`/`set_settings` + `src/settings.ts`/`useSettings`;外观(含界面风格卡片/平铺)/阅读参数/卡片边框/图片压缩/搜索重建/打字机等齐全;入口 = 原生菜单设置(`⌘,`)与设置独立窗(左栏齿轮已移除) |
 | 未识别条目认领 | ✅ | 5.2.1:`meta.ts` 纯函数 + `OrphanMetaDialog.tsx`:支持逐条认领/丢弃、多选同名批量认领、批量丢弃;认领选择器同名优先,丢弃带确认;入口 = 左栏底部条件渲染「未识别条目 N」+ 状态栏轻提示;失联扫描点 = 开库 / 外部监听树刷新后 / 整理动作后。失效双链保留「搜索同名文档」引导 |
 
 ### 设置窗口化 + 关于页(Typora 式,2026-10-30)✅ 代码完成(菜单/独立窗可按需真机抽检)
@@ -152,6 +152,7 @@
 - 每个设置页增加标题与一句职责说明;非模板内容列从 `384px` 放宽到 `512px`,行内控件不再拥挤。
 - 通用页启动选项改为卡片式单选,直接说明“路径失效回欢迎页 / 手动选择知识库”的差异;数据边界区分应用设置与本库数据。
 - 外观页主题改为三张卡片(跟随系统/浅色/深色),附使用场景说明;正文排版新增“恢复默认”一键还原。
+- 界面风格双套可切换(`uiStyle`:卡片默认 / 平铺):设置外观页带迷你预览;`data-ui-style` 挂 `<html>`,壳层用 `shell-main`/`shell-panel`/`shell-status` 挂点;平铺=贴边线框、无圆角阴影、台面光晕关闭。红框级 chrome 同步切换:`chrome-search`/`chrome-tree-row(-active)`/`chrome-trash`/`chrome-toolbar`/`chrome-nav`/`chrome-float`——平铺下搜索去抬升、选中改左色条、回收站扁平、格式工具栏通栏、前进后退去胶囊、选区/表格/图片浮条改直角薄边。
 - 存储页快照上限/间隔改为带单位的步进器,支持一键恢复默认;资源清理文案改为“资源维护”,强调删除不可恢复。
 - 编辑器、图片、搜索页统一 section header + hint 层级;搜索页明确“索引只在本机构建,不上传文档内容”。
 - 保留模板独立页的宽版布局与未保存切换确认,模板专项回归不受影响。

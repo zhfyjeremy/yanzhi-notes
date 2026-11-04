@@ -716,9 +716,9 @@ export function useKb(settings: AppSettings) {
   );
 
   const createFolder = useCallback(
-    async (folderRel: string, name: string) => {
+    async (folderRel: string, name: string): Promise<string | null> => {
       const root = rootRef.current;
-      if (!root) return;
+      if (!root) return null;
       try {
         markSelfWrite();
         const rel = await kbBackend.createFolder(root, folderRel, name);
@@ -731,8 +731,10 @@ export function useKb(settings: AppSettings) {
         };
         persistMeta();
         await refreshTree();
+        return rel;
       } catch (e) {
         console.error("[kb] 新建文件夹失败:", e);
+        return null;
       }
     },
     [persistMeta, refreshTree],

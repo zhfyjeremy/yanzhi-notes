@@ -221,7 +221,7 @@ export function AiChrome({
       {pending && (
         <div
           ref={floatRef}
-          className="pointer-events-auto fixed z-50 flex max-h-[min(50vh,20rem)] flex-col gap-0.5 overflow-y-auto rounded-lg border border-border-subtle bg-raised p-1 shadow-md"
+          className="chrome-float pointer-events-auto fixed z-50 flex max-h-[min(50vh,20rem)] flex-col gap-0.5 overflow-y-auto rounded-lg border border-border-subtle bg-raised p-1 shadow-md"
           style={{
             top: menu?.y ?? 120,
             left: menu?.x ?? 120,
@@ -264,7 +264,7 @@ export function AiChrome({
       {menu && !pending && (
         <div
           ref={floatRef}
-          className="pointer-events-auto fixed z-50 flex min-w-40 flex-col overflow-hidden rounded-lg border border-border-subtle bg-raised p-1 shadow-md"
+          className="chrome-float pointer-events-auto fixed z-50 flex min-w-40 flex-col overflow-hidden rounded-lg border border-border-subtle bg-raised p-1 shadow-md"
           style={{
             top: menu.y,
             left: menu.x,

@@ -102,7 +102,7 @@ export function SearchBox({
   return (
     <div className="relative px-2.5 pt-0.5 pb-2">
       <div className="flex items-center gap-1.5">
-        <div className="focus-within:border-ring border-border-subtle bg-raised flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border px-2.5 shadow-[0_1px_0_color-mix(in_oklab,var(--foreground)_5%,transparent)]">
+        <div className="chrome-search focus-within:border-ring border-border-subtle bg-raised flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border px-2.5 shadow-[0_1px_0_color-mix(in_oklab,var(--foreground)_5%,transparent)]">
           {indexReady ? (
             <Search className="text-muted-foreground size-3.5 shrink-0" />
           ) : (

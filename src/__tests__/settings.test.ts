@@ -22,6 +22,12 @@ describe("settings 解析(PRD §8)", () => {
     expect(parseSettings('{"theme":"sepia"}').theme).toBe("system");
     expect(parseSettings('{"theme":null}').theme).toBe("system");
   });
+  it("界面风格:合法值直读,缺失/未知回 card", () => {
+    expect(parseSettings('{"uiStyle":"flat"}').uiStyle).toBe("flat");
+    expect(parseSettings('{"uiStyle":"card"}').uiStyle).toBe("card");
+    expect(parseSettings("{}").uiStyle).toBe("card");
+    expect(parseSettings('{"uiStyle":"glass"}').uiStyle).toBe("card");
+  });
   it("主色预设:合法 id 直读,未知/异型回语雀蓝", () => {
     expect(parseSettings('{"accent":"teal"}').accent).toBe("teal");
     expect(parseSettings('{"accent":"pink"}').accent).toBe("blue");
@@ -130,8 +136,10 @@ describe("applyTheme 主色覆盖(浅/深两套)", () => {
   it("浅色挂 light 值,深色挂 dark 值;全部预设变量齐全", () => {
     applyTheme({ ...DEFAULT_SETTINGS, theme: "light", accent: "violet" }, false);
     expect(document.documentElement.style.getPropertyValue("--primary")).toBe("hsl(258 78% 48%)");
-    applyTheme({ ...DEFAULT_SETTINGS, theme: "dark", accent: "violet" }, false);
+    expect(document.documentElement.dataset.uiStyle).toBe("card");
+    applyTheme({ ...DEFAULT_SETTINGS, theme: "dark", accent: "violet", uiStyle: "flat" }, false);
     expect(document.documentElement.style.getPropertyValue("--primary")).toBe("hsl(258 74% 62%)");
+    expect(document.documentElement.dataset.uiStyle).toBe("flat");
     for (const p of ACCENT_PRESETS) {
       for (const key of ["--primary", "--primary-foreground", "--ring", "--accent", "--accent-foreground"]) {
         expect(p.light[key], `${p.id} light ${key}`).toMatch(/^hsl\(/);

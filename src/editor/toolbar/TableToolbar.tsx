@@ -5,6 +5,7 @@ import {
   AlignCenter,
   AlignLeft,
   AlignRight,
+  Check,
   ChevronDown,
   Columns3,
   Rows3,
@@ -20,15 +21,25 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { getTableContext, setColumnAlign, type ColumnAlign } from "../table-utils";
+import {
+  applyTableStructure,
+  getTableContext,
+  insertTableAxis,
+  setColumnAlign,
+  toStructureAnchor,
+  type ColumnAlign,
+  type TableStructureAnchor,
+  type TableStructureOp,
+} from "../table-utils";
 
 /**
  * 表格编辑工具条(PRD §5.3.9):光标进入表格时浮在表格上方。
- * 行列增删走 @tiptap/extension-table 内置命令(含 Tab 切换单元格);对齐走 table-utils 整列设置。
- * 绝对定位于正文容器(YanzhiEditor 里挂了 relative 的包裹层),随内容滚动,容器宽度变化由 ResizeObserver 兜底重算。
+ * 对齐走 table-utils 整列设置;行列增删按打开菜单时冻结的 tablePos/行列下标改结构。
+ * 「行/列」菜单里上下(左右)插入带数量框 + 勾选确认(借鉴常见表格软件交互)。
  */
 
 const TOOLBAR_HEIGHT = 34;
+const BATCH_MAX = 50;
 
 const ALIGN_ITEMS = [
   { key: "left", label: "左对齐", icon: AlignLeft },
@@ -44,6 +55,8 @@ export function TableToolbar({ editor }: TableToolbarProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [layoutTick, setLayoutTick] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const structureAnchorRef = useRef<TableStructureAnchor | null>(null);
 
   const state = useEditorState({
     editor,
@@ -51,30 +64,37 @@ export function TableToolbar({ editor }: TableToolbarProps) {
       const ctx = getTableContext(editor.state);
       return {
         inTable: !!ctx,
-        // tablePos/行列数任一变化都触发重算定位(表格在 doc 里的位置变了)
         tablePos: ctx?.tablePos ?? -1,
         rows: ctx?.rows ?? 0,
         cols: ctx?.cols ?? 0,
+        colKey: ctx?.colIndexes.join(",") ?? "",
         align: ctx?.align ?? null,
+        anchor: ctx ? toStructureAnchor(ctx) : null,
       };
     },
   });
 
-  // 定位:锚在表格左上方。单元格内编辑不会移动表格左上角,无需逐键重算
   useLayoutEffect(() => {
-    if (!state.inTable || state.tablePos < 0) {
-      setPos(null);
+    if ((!state.inTable && !menuOpen) || (state.tablePos < 0 && !menuOpen)) {
+      if (!menuOpen) setPos(null);
       return;
     }
     const host = ref.current?.parentElement;
-    // TableView 会包一层 .tableWrapper,锚点要取里面的真实 table
-    const dom = editor.view.nodeDOM(state.tablePos) as HTMLElement | null;
+    const tablePos =
+      menuOpen && structureAnchorRef.current
+        ? structureAnchorRef.current.tablePos
+        : state.tablePos;
+    if (tablePos < 0) {
+      if (!menuOpen) setPos(null);
+      return;
+    }
+    const dom = editor.view.nodeDOM(tablePos) as HTMLElement | null;
     const tableEl =
       dom?.tagName === "TABLE"
         ? dom
         : ((dom?.querySelector("table") as HTMLElement | null) ?? dom);
     if (!host || !tableEl) {
-      setPos(null);
+      if (!menuOpen) setPos(null);
       return;
     }
     const t = tableEl.getBoundingClientRect();
@@ -83,9 +103,8 @@ export function TableToolbar({ editor }: TableToolbarProps) {
       top: Math.max(0, t.top - h.top - TOOLBAR_HEIGHT - 6),
       left: t.left - h.left,
     });
-  }, [editor, state.inTable, state.tablePos, state.rows, state.cols, layoutTick]);
+  }, [editor, state.inTable, state.tablePos, state.rows, state.cols, layoutTick, menuOpen]);
 
-  // 容器宽度变化(窗口缩放/TOC 面板开合)时重算定位
   useEffect(() => {
     const host = ref.current?.parentElement;
     if (!host || typeof ResizeObserver === "undefined") return;
@@ -94,47 +113,79 @@ export function TableToolbar({ editor }: TableToolbarProps) {
     return () => ro.disconnect();
   }, []);
 
-  if (!state.inTable || !pos) {
-    // 保持挂载:hidden 态也占位,确保 parentElement/ResizeObserver 稳定
+  const visible = (state.inTable || menuOpen) && pos;
+  if (!visible) {
     return <div ref={ref} className="hidden" aria-hidden="true" />;
   }
 
-  const rowItems = [
-    { label: "在上方插入行", disabled: false, fn: () => editor.chain().focus().addRowBefore().run() },
-    { label: "在下方插入行", disabled: false, fn: () => editor.chain().focus().addRowAfter().run() },
-    {
-      label: "删除行",
-      disabled: state.rows <= 1,
-      fn: () => editor.chain().focus().deleteRow().run(),
-    },
-  ];
+  const rows = (menuOpen && structureAnchorRef.current?.rows) || state.rows;
+  const cols = (menuOpen && structureAnchorRef.current?.cols) || state.cols;
 
-  const colItems = [
-    { label: "在左侧插入列", disabled: false, fn: () => editor.chain().focus().addColumnBefore().run() },
-    { label: "在右侧插入列", disabled: false, fn: () => editor.chain().focus().addColumnAfter().run() },
-    {
-      label: "删除列",
-      disabled: state.cols <= 1,
-      fn: () => editor.chain().focus().deleteColumn().run(),
-    },
-  ];
+  const snapshotStructureAnchor = () => {
+    const ctx = getTableContext(editor.state);
+    if (ctx) structureAnchorRef.current = toStructureAnchor(ctx);
+  };
+
+  const resolveAnchor = () => structureAnchorRef.current ?? state.anchor;
+
+  const runStructure = (op: TableStructureOp) => {
+    const anchor = resolveAnchor();
+    if (!anchor) return;
+    applyTableStructure(editor, anchor, op);
+    editor.commands.focus();
+  };
+
+  const runBatch = (
+    axis: "row" | "column",
+    where: "before" | "after",
+    count: number,
+  ) => {
+    const anchor = resolveAnchor();
+    if (!anchor) return;
+    if (insertTableAxis(editor, anchor, count, axis, where)) editor.commands.focus();
+  };
+
+  const onStructureMenuOpenChange = (open: boolean) => {
+    setMenuOpen(open);
+    if (open) snapshotStructureAnchor();
+    else structureAnchorRef.current = null;
+  };
 
   return (
     <div
       ref={ref}
-      className="bg-popover border-border-subtle absolute z-20 flex items-center gap-0.5 rounded-lg border p-0.5 shadow-lg"
+      className="chrome-float bg-popover border-border-subtle absolute z-20 flex items-center gap-0.5 rounded-lg border p-0.5 shadow-lg"
       style={{ top: pos.top, left: pos.left, height: TOOLBAR_HEIGHT }}
     >
       <span className="text-muted-foreground px-1.5 text-[10px] font-semibold tracking-wide">表格</span>
       <div className="bg-border-subtle mx-0.5 h-4 w-px shrink-0" />
-      {/* 行操作 */}
-      <MenuButton icon={Rows3} label="行" items={rowItems} />
-      {/* 列操作 */}
-      <MenuButton icon={Columns3} label="列" items={colItems} />
+      <AxisMenu
+        icon={Rows3}
+        label="行"
+        deleteLabel="删除行"
+        deleteDisabled={rows <= 1}
+        beforeLabel="在上方插入行"
+        afterLabel="在下方插入行"
+        onPrepare={snapshotStructureAnchor}
+        onOpenChange={onStructureMenuOpenChange}
+        onDelete={() => runStructure("deleteRow")}
+        onInsert={(where, count) => runBatch("row", where, count)}
+      />
+      <AxisMenu
+        icon={Columns3}
+        label="列"
+        deleteLabel="删除列"
+        deleteDisabled={cols <= 1}
+        beforeLabel="在左侧插入列"
+        afterLabel="在右侧插入列"
+        onPrepare={snapshotStructureAnchor}
+        onOpenChange={onStructureMenuOpenChange}
+        onDelete={() => runStructure("deleteColumn")}
+        onInsert={(where, count) => runBatch("column", where, count)}
+      />
 
       <div className="bg-border-subtle mx-1 h-4 w-px shrink-0" />
 
-      {/* 对齐:整列设置;点击已生效项还原默认 */}
       {ALIGN_ITEMS.map(({ key, label, icon: Icon }) => (
         <Hint key={key} label={label}>
           <Button
@@ -171,45 +222,190 @@ export function TableToolbar({ editor }: TableToolbarProps) {
   );
 }
 
-interface MenuItem {
-  label: string;
-  disabled?: boolean;
-  fn: () => void;
-}
-
-function MenuButton({
+function AxisMenu({
   icon: Icon,
   label,
-  items,
+  beforeLabel,
+  afterLabel,
+  deleteLabel,
+  deleteDisabled,
+  onPrepare,
+  onOpenChange,
+  onDelete,
+  onInsert,
 }: {
   icon: typeof Rows3;
   label: string;
-  items: MenuItem[];
+  beforeLabel: string;
+  afterLabel: string;
+  deleteLabel: string;
+  deleteDisabled: boolean;
+  onPrepare: () => void;
+  onOpenChange: (open: boolean) => void;
+  onDelete: () => void;
+  onInsert: (where: "before" | "after", count: number) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const [openSeq, setOpenSeq] = useState(0);
+
   return (
-    <DropdownMenu>
+    <DropdownMenu
+      open={open}
+      onOpenChange={(next) => {
+        if (next) setOpenSeq((s) => s + 1);
+        setOpen(next);
+        onOpenChange(next);
+      }}
+    >
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
           size="sm"
           className="text-muted-foreground hover:text-foreground px-2"
-          onMouseDown={(e) => e.preventDefault()}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onPrepare();
+          }}
         >
           <Icon className="size-3.5" />
           {label}
           <ChevronDown className="size-3 opacity-60" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-32">
-        {items.map((item, i) => (
-          <div key={item.label}>
-            {i === items.length - 1 && <DropdownMenuSeparator className="my-1" />}
-            <DropdownMenuItem disabled={item.disabled} onClick={item.fn}>
-              {item.label}
-            </DropdownMenuItem>
-          </div>
-        ))}
+      <DropdownMenuContent
+        align="start"
+        className="min-w-52 p-1"
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
+        {/* openSeq 每次打开递增,数量框回到默认 1 */}
+        <CountInsertRow
+          key={`before-${openSeq}`}
+          label={beforeLabel}
+          onCommit={(n) => {
+            onInsert("before", n);
+            setOpen(false);
+            onOpenChange(false);
+          }}
+        />
+        <CountInsertRow
+          key={`after-${openSeq}`}
+          label={afterLabel}
+          onCommit={(n) => {
+            onInsert("after", n);
+            setOpen(false);
+            onOpenChange(false);
+          }}
+        />
+        <DropdownMenuSeparator className="my-1" />
+        <DropdownMenuItem
+          disabled={deleteDisabled}
+          onMouseDown={(e) => e.preventDefault()}
+          onSelect={(e) => {
+            e.preventDefault();
+            onDelete();
+          }}
+        >
+          {deleteLabel}
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** 把草稿规范到 1–50;空/非法 → 1 */
+function clampBatchCount(raw: string): number {
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(BATCH_MAX, Math.max(1, n));
+}
+
+/** 借鉴常见表格软件:标签 + 数量框(默认可手输 1–50) + 勾选确认 */
+function CountInsertRow({
+  label,
+  onCommit,
+}: {
+  label: string;
+  onCommit: (count: number) => void;
+}) {
+  const [count, setCount] = useState("1");
+
+  const commit = () => {
+    const n = clampBatchCount(count);
+    setCount(String(n));
+    onCommit(n);
+  };
+
+  const step = (delta: number) => {
+    setCount(String(clampBatchCount(String(clampBatchCount(count) + delta))));
+  };
+
+  return (
+    <div
+      className="hover:bg-accent focus-within:bg-accent flex items-center gap-1.5 rounded-md px-2 py-1.5"
+      onPointerDown={(e) => {
+        // 输入框必须能聚焦才能手输;对其它区域 preventDefault 防止 radix 菜单抢焦点关掉
+        if ((e.target as HTMLElement).closest("input")) return;
+        e.preventDefault();
+      }}
+    >
+      <span className="text-foreground min-w-0 flex-1 truncate text-[13px]">{label}</span>
+      <div className="border-border-subtle bg-raised focus-within:border-foreground relative flex h-6 w-12 shrink-0 overflow-hidden rounded border">
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          maxLength={2}
+          aria-label={`${label}数量,1 到 ${BATCH_MAX}`}
+          title={`1–${BATCH_MAX}`}
+          value={count}
+          onPointerDown={(e) => {
+            // 阻断冒泡到 DropdownMenu,同时保留默认聚焦
+            e.stopPropagation();
+          }}
+          onChange={(e) => {
+            // 允许清空再手输;只留数字
+            const next = e.target.value.replace(/\D/g, "").slice(0, 2);
+            setCount(next);
+          }}
+          onBlur={() => setCount(String(clampBatchCount(count)))}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit();
+            }
+          }}
+          className="h-full w-full bg-transparent pr-3 pl-1 text-center text-[12px] outline-none"
+        />
+        <div className="border-border-subtle absolute top-0 right-0 flex h-full w-3 flex-col border-l">
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label="增加"
+            className="text-muted-foreground hover:text-foreground hover:bg-hover flex flex-1 items-center justify-center"
+            onClick={() => step(1)}
+          >
+            <ChevronDown className="size-2.5 rotate-180" />
+          </button>
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label="减少"
+            className="text-muted-foreground hover:text-foreground hover:bg-hover border-border-subtle flex flex-1 items-center justify-center border-t"
+            onClick={() => step(-1)}
+          >
+            <ChevronDown className="size-2.5" />
+          </button>
+        </div>
+      </div>
+      <button
+        type="button"
+        aria-label="确认插入"
+        className="text-muted-foreground hover:text-foreground hover:bg-hover flex size-6 shrink-0 items-center justify-center rounded"
+        onClick={commit}
+      >
+        <Check className="size-3.5" />
+      </button>
+    </div>
   );
 }

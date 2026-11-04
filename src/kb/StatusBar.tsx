@@ -60,7 +60,7 @@ export function StatusBar({
   onCancelAi,
 }: StatusBarProps) {
   return (
-    <footer className="border-border-subtle bg-sidebar/80 text-muted-foreground mx-3 mb-3 flex h-9 shrink-0 items-center justify-between gap-4 rounded-xl border px-3 text-[11px] shadow-[0_6px_18px_-14px_color-mix(in_oklab,var(--foreground)_18%,transparent)]">
+    <footer className="shell-status border-border-subtle bg-sidebar/80 text-muted-foreground mx-3 mb-3 flex h-9 shrink-0 items-center justify-between gap-4 rounded-xl border px-3 text-[11px] shadow-[0_6px_18px_-14px_color-mix(in_oklab,var(--foreground)_18%,transparent)]">
       <div className="flex min-w-0 items-center gap-3">
         {orphanCount > 0 && onOpenOrphans && (
           <Hint label="外部改动产生了失联的偏好记录,点击整理">

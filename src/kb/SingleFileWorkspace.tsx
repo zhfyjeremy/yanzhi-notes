@@ -109,18 +109,18 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
   return (
     <>
       <main className="app-shell bg-workspace text-foreground flex h-screen flex-col">
-        <div className="flex min-h-0 flex-1 gap-3 px-3 pt-2 pb-3">
+        <div className="shell-main flex min-h-0 flex-1 gap-3 px-3 pt-2 pb-3">
           {/* 单文件无目录树:大纲放左侧占导航位,比右栏更贴「先结构后正文」 */}
           {!props.focusMode && props.outlineOpen && props.editor && (
             <aside
               aria-label="单文件大纲"
-              className="border-border-subtle bg-sidebar flex w-[240px] shrink-0 flex-col overflow-hidden rounded-2xl border shadow-[0_10px_28px_-20px_color-mix(in_oklab,var(--foreground)_18%,transparent)]"
+              className="shell-panel border-border-subtle bg-sidebar flex w-[240px] shrink-0 flex-col overflow-hidden rounded-2xl border shadow-[0_10px_28px_-20px_color-mix(in_oklab,var(--foreground)_18%,transparent)]"
             >
               <TocPanel editor={props.editor} scrollContainer={props.scrollEl} />
             </aside>
           )}
 
-          <section className="border-border-subtle bg-editor flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-[0_14px_40px_-22px_color-mix(in_oklab,var(--foreground)_32%,transparent)]">
+          <section className="shell-panel border-border-subtle bg-editor flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-[0_14px_40px_-22px_color-mix(in_oklab,var(--foreground)_32%,transparent)]">
             {!props.focusMode && (
               <header className="w-full shrink-0 px-6 pt-6 pb-3">
                 {/* 两行即可:身份条 + 标题/主操作;低频动作收进「更多」 */}

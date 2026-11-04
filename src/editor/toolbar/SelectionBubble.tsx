@@ -41,6 +41,7 @@ import { placeFloatMenu, type FloatMenuPos } from "@/ai/float-menu";
 import type { AiSession } from "@/ai/useAiSession";
 import { selectionText } from "@/ai/apply";
 import { FONT_COLORS } from "../extensions/font-color";
+import { applyLinkAtSelection } from "../apply-link";
 import { cn } from "@/lib/utils";
 
 /**
@@ -211,7 +212,12 @@ export function SelectionBubble({ editor, ai }: SelectionBubbleProps) {
 
   const withMenuSelection = () => {
     const chain = editor.chain().focus();
-    if (menuSelection) chain.setTextSelection(menuSelection);
+    if (menuSelection) {
+      chain.command(({ tr }) => {
+        tr.setSelection(menuSelection);
+        return true;
+      });
+    }
     return chain;
   };
 
@@ -229,10 +235,7 @@ export function SelectionBubble({ editor, ai }: SelectionBubbleProps) {
   };
 
   const applyLink = () => {
-    const href = linkUrl.trim();
-    const chain = withMenuSelection().extendMarkRange("link");
-    if (href) chain.setLink({ href }).run();
-    else chain.unsetLink().run();
+    applyLinkAtSelection(editor, linkUrl, menuSelection);
     setLinkOpen(false);
   };
 
@@ -256,7 +259,7 @@ export function SelectionBubble({ editor, ai }: SelectionBubbleProps) {
     <div ref={wrapRef} className="pointer-events-none absolute inset-0 z-20 overflow-visible">
       {bar && !aiBusy && (
         <div
-          className="pointer-events-auto absolute flex items-center gap-0.5 rounded-lg border border-border-subtle bg-raised px-1 py-0.5 shadow-[0_8px_24px_-12px_color-mix(in_oklab,var(--foreground)_28%,transparent)]"
+          className="chrome-float pointer-events-auto absolute flex items-center gap-0.5 rounded-lg border border-border-subtle bg-raised px-1 py-0.5 shadow-[0_8px_24px_-12px_color-mix(in_oklab,var(--foreground)_28%,transparent)]"
           style={{ top: bar.top, left: bar.left, transform: "translateX(-50%)" }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => e.stopPropagation()}
@@ -374,7 +377,7 @@ export function SelectionBubble({ editor, ai }: SelectionBubbleProps) {
                     variant="ghost"
                     size="sm"
                     onClick={() => {
-                      withMenuSelection().extendMarkRange("link").unsetLink().run();
+                      applyLinkAtSelection(editor, "", menuSelection);
                       setLinkOpen(false);
                     }}
                   >
@@ -440,7 +443,7 @@ export function SelectionBubble({ editor, ai }: SelectionBubbleProps) {
       {pending && (
         <div
           ref={floatRef}
-          className="pointer-events-auto fixed z-50 flex max-h-[min(50vh,20rem)] flex-col gap-0.5 overflow-y-auto rounded-lg border border-border-subtle bg-raised p-1 shadow-md"
+          className="chrome-float pointer-events-auto fixed z-50 flex max-h-[min(50vh,20rem)] flex-col gap-0.5 overflow-y-auto rounded-lg border border-border-subtle bg-raised p-1 shadow-md"
           style={{
             top: aiMenu?.y ?? (bar ? bar.top + 40 : 120),
             left: aiMenu?.x ?? (bar ? bar.left : 120),
@@ -484,7 +487,7 @@ export function SelectionBubble({ editor, ai }: SelectionBubbleProps) {
       {aiMenu && !pending && (
         <div
           ref={floatRef}
-          className="pointer-events-auto fixed z-50 flex min-w-40 flex-col overflow-hidden rounded-lg border border-border-subtle bg-raised p-1 shadow-md"
+          className="chrome-float pointer-events-auto fixed z-50 flex min-w-40 flex-col overflow-hidden rounded-lg border border-border-subtle bg-raised p-1 shadow-md"
           style={{
             top: aiMenu.y,
             left: aiMenu.x,

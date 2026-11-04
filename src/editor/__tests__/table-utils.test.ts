@@ -1,15 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
+import { CellSelection } from "@tiptap/pm/tables";
 import { baseExtensions } from "../extensions";
 import { mdToHtml } from "../markdown/md-instance";
 import { docToMarkdown } from "../markdown/serialize";
-import { getTableContext, setColumnAlign } from "../table-utils";
+import {
+  applyTableStructure,
+  getTableContext,
+  insertTableAxis,
+  setColumnAlign,
+  toStructureAnchor,
+} from "../table-utils";
 
 /**
  * 表格工具条的后端行为(PRD §5.3.9):列对齐整列设置(含表头),
- * 序列化输出 GFM 列级标记(:--- / :---: / ---:)。
- * headless Editor + 光标落进单元格后驱动 getTableContext / setColumnAlign。
+ * 序列化输出 GFM 列级标记(:--- / :---: / ---:);
+ * 行列结构按冻结锚点改,不依赖当下选区。
  */
 
 const TABLE_MD = `| 甲 | 乙 |
@@ -20,8 +27,16 @@ const TABLE_MD = `| 甲 | 乙 |
 收尾段落。
 `;
 
-function makeEditor(): Editor {
-  return new Editor({ extensions: baseExtensions, content: mdToHtml(TABLE_MD) });
+const WIDE_TABLE_MD = `| 甲 | 乙 | 丙 |
+| --- | --- | --- |
+| a | b | c |
+| d | e | f |
+
+收尾段落。
+`;
+
+function makeEditor(md = TABLE_MD): Editor {
+  return new Editor({ extensions: baseExtensions, content: mdToHtml(md) });
 }
 
 /** 收集文档顺序下的全部单元格位置(含表头) */
@@ -41,6 +56,12 @@ function focusCell(editor: Editor, cellPos: number) {
   editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near($pos)));
 }
 
+/** 划选单元格矩形(含端点),模拟鼠标多列选中 */
+function selectCellRange(editor: Editor, anchorCellPos: number, headCellPos: number) {
+  const sel = CellSelection.create(editor.state.doc, anchorCellPos, headCellPos);
+  editor.view.dispatch(editor.state.tr.setSelection(sel));
+}
+
 describe("getTableContext", () => {
   it("表头单元格:识别列下标与对齐", () => {
     const editor = makeEditor();
@@ -48,6 +69,7 @@ describe("getTableContext", () => {
     focusCell(editor, cells[0]); // 表头第 1 列
     const ctx = getTableContext(editor.state);
     expect(ctx?.colIndex).toBe(0);
+    expect(ctx?.colIndexes).toEqual([0]);
     expect(ctx?.rows).toBe(3);
     expect(ctx?.cols).toBe(2);
     expect(ctx?.align).toBe("left");
@@ -60,7 +82,19 @@ describe("getTableContext", () => {
     focusCell(editor, cells[3]); // 第 2 体行第 2 列
     const ctx = getTableContext(editor.state);
     expect(ctx?.colIndex).toBe(1);
+    expect(ctx?.colIndexes).toEqual([1]);
     expect(ctx?.align).toBe("center");
+    editor.destroy();
+  });
+
+  it("划选多列:colIndexes 覆盖选区列,对齐不一致时 align 为 null", () => {
+    const editor = makeEditor();
+    const cells = cellPositions(editor);
+    // 表头 甲(left) → 乙(center)
+    selectCellRange(editor, cells[0], cells[1]);
+    const ctx = getTableContext(editor.state);
+    expect(ctx?.colIndexes).toEqual([0, 1]);
+    expect(ctx?.align).toBeNull();
     editor.destroy();
   });
 
@@ -107,6 +141,96 @@ describe("setColumnAlign", () => {
     setColumnAlign(editor, "center");
     const once = docToMarkdown(editor.state.doc);
     expect(docToMarkdown(editor.state.doc)).toBe(once);
+    editor.destroy();
+  });
+
+  it("划选多列:一次居中全部选中列", () => {
+    const editor = makeEditor(WIDE_TABLE_MD);
+    const cells = cellPositions(editor);
+    // 3 列表头: cells[0..2]; 划选第 1–2 列
+    selectCellRange(editor, cells[0], cells[1]);
+    setColumnAlign(editor, "center");
+
+    expect(docToMarkdown(editor.state.doc)).toContain("| :---: | :---: | --- |");
+    expect(getTableContext(editor.state)?.align).toBe("center");
+    expect(getTableContext(editor.state)?.colIndexes).toEqual([0, 1]);
+    editor.destroy();
+  });
+
+  it("划选多列:还原默认只清选中列", () => {
+    const editor = makeEditor(WIDE_TABLE_MD);
+    const cells = cellPositions(editor);
+    selectCellRange(editor, cells[0], cells[2]);
+    setColumnAlign(editor, "right");
+    selectCellRange(editor, cells[0], cells[1]);
+    setColumnAlign(editor, null);
+
+    expect(docToMarkdown(editor.state.doc)).toContain("| --- | --- | ---: |");
+    editor.destroy();
+  });
+});
+
+/**
+ * 表格工具条「行/列」下拉:radix 失焦后选区常漂走,内置 addColumn* 会失败。
+ * 必须靠打开菜单时冻结的 tablePos/行列下标按坐标改结构。
+ */
+describe("applyTableStructure", () => {
+  it("选区已离开表格时,按锚点仍能插行/插列/删列", () => {
+    const editor = makeEditor();
+    const cells = cellPositions(editor);
+    focusCell(editor, cells[2]); // 体行第 1 列 → row 1, col 0
+    const anchor = toStructureAnchor(getTableContext(editor.state)!);
+
+    // 模拟菜单打开后选区漂到表格外(工具条真实失败路径)
+    const end = editor.state.doc.content.size;
+    editor.view.dispatch(
+      editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(end - 1))),
+    );
+    expect(getTableContext(editor.state)).toBeNull();
+    expect(editor.chain().focus().addRowAfter().run()).toBe(false);
+
+    expect(applyTableStructure(editor, anchor, "addRowAfter")).toBe(true);
+    expect(editor.state.doc.nodeAt(anchor.tablePos)?.childCount).toBe(anchor.rows + 1);
+
+    expect(applyTableStructure(editor, anchor, "addColumnAfter")).toBe(true);
+    expect(editor.state.doc.nodeAt(anchor.tablePos)?.firstChild?.childCount).toBe(anchor.cols + 1);
+
+    expect(applyTableStructure(editor, anchor, "deleteColumn")).toBe(true);
+    expect(editor.state.doc.nodeAt(anchor.tablePos)?.firstChild?.childCount).toBe(anchor.cols);
+    editor.destroy();
+  });
+
+  it("只剩一列时拒删列;删到只剩一行后拒删行", () => {
+    const editor = makeEditor(`| 甲 |
+| --- |
+| a |
+`);
+    const cells = cellPositions(editor);
+    focusCell(editor, cells[0]);
+    const anchor = toStructureAnchor(getTableContext(editor.state)!);
+    expect(anchor.cols).toBe(1);
+    expect(applyTableStructure(editor, anchor, "deleteColumn")).toBe(false);
+    // 表头+体共 2 行,可删一次;再删应拒绝
+    expect(applyTableStructure(editor, anchor, "deleteRow")).toBe(true);
+    expect(applyTableStructure(editor, anchor, "deleteRow")).toBe(false);
+    editor.destroy();
+  });
+
+  it("批量在下方插入多行(选区已离开仍生效)", () => {
+    const editor = makeEditor();
+    const cells = cellPositions(editor);
+    focusCell(editor, cells[2]);
+    const anchor = toStructureAnchor(getTableContext(editor.state)!);
+    const end = editor.state.doc.content.size;
+    editor.view.dispatch(
+      editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(end - 1))),
+    );
+    expect(insertTableAxis(editor, anchor, 3, "row", "after")).toBe(true);
+    expect(editor.state.doc.nodeAt(anchor.tablePos)?.childCount).toBe(anchor.rows + 3);
+    expect(insertTableAxis(editor, anchor, 2, "row", "before")).toBe(true);
+    expect(editor.state.doc.nodeAt(anchor.tablePos)?.childCount).toBe(anchor.rows + 5);
+    expect(insertTableAxis(editor, anchor, 0, "row", "after")).toBe(false);
+    expect(insertTableAxis(editor, anchor, 99, "column", "after")).toBe(false);
     editor.destroy();
   });
 });

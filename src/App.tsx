@@ -1256,7 +1256,7 @@ function App() {
   return (
     <main className="app-shell bg-workspace text-foreground flex h-screen flex-col">
       {/* 顶距略收:紧贴系统菜单栏,两侧/底保留呼吸 */}
-      <div className="flex min-h-0 flex-1 gap-3 px-3 pt-2 pb-3">
+      <div className="shell-main flex min-h-0 flex-1 gap-3 px-3 pt-2 pb-3">
         {!focusMode && (
           <DocTree
             root={kb.kbRoot}
@@ -1267,7 +1267,7 @@ function App() {
             onToggleCollapse={kb.toggleCollapse}
             onOpenDoc={(rel) => void openDocAfterTitle(rel)}
             onCreateDoc={(folder, name) => void handleCreateDoc(folder, name)}
-            onCreateFolder={(folder, name) => void kb.createFolder(folder, name)}
+            onCreateFolder={(folder, name) => kb.createFolder(folder, name)}
             onRenameEntry={(rel, name) => void renameWithToast(rel, name)}
             onRemoveEntry={(rel) => void kb.removeEntry(rel)}
             onReorder={kb.persistSiblingOrder}
@@ -1307,7 +1307,7 @@ function App() {
             onToast={showToast}
           />
         )}
-        <div className="border-border-subtle bg-editor flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-[0_14px_40px_-22px_color-mix(in_oklab,var(--foreground)_32%,transparent)]">
+        <div className="shell-panel border-border-subtle bg-editor flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-[0_14px_40px_-22px_color-mix(in_oklab,var(--foreground)_32%,transparent)]">
           {currentPath ? (
             /* 专注模式:导航按钮收起(纯 chrome,⌘[ ⌘] 仍可用),标题与正文同列对齐
              * (mx-auto EDITOR_COLUMN_MAX px-16,同 EditorContent 容器);常态:导航胶囊放在
@@ -1318,7 +1318,7 @@ function App() {
                   <div
                     role="group"
                     aria-label="文档导航"
-                    className="border-border-subtle bg-raised/55 absolute -left-1 top-1 flex items-center gap-0.5 rounded-lg border p-0.5 shadow-[0_1px_2px_color-mix(in_oklab,var(--workspace)_25%,transparent)]"
+                    className="chrome-nav border-border-subtle bg-raised/55 absolute -left-1 top-1 flex items-center gap-0.5 rounded-lg border p-0.5 shadow-[0_1px_2px_color-mix(in_oklab,var(--workspace)_25%,transparent)]"
                   >
                     <Hint label={`后退 (${formatShortcut(settings.shortcuts.navBack)})`}>
                       <Button
@@ -1386,7 +1386,7 @@ function App() {
         {!focusMode && settings.showRightPanel && kbEditor && (
           <aside
             aria-label="右侧面板"
-            className="border-border-subtle bg-sidebar flex w-[272px] shrink-0 flex-col overflow-hidden rounded-2xl border shadow-[0_10px_28px_-20px_color-mix(in_oklab,var(--foreground)_18%,transparent)]"
+            className="shell-panel border-border-subtle bg-sidebar flex w-[272px] shrink-0 flex-col overflow-hidden rounded-2xl border shadow-[0_10px_28px_-20px_color-mix(in_oklab,var(--foreground)_18%,transparent)]"
           >
             {kb.currentPath && settings.showTags && (
               <TagsPanel
