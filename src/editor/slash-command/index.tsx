@@ -6,7 +6,10 @@ import Suggestion, {
 } from "@tiptap/suggestion";
 import { createRoot, type Root } from "react-dom/client";
 import {
+  Calendar,
+  CalendarClock,
   CircleCheck,
+  Clock,
   Code2,
   Heading1,
   Heading2,
@@ -28,17 +31,19 @@ import {
   Table,
   Text,
   TextQuote,
+  Timer,
   TriangleAlert,
   Sparkles,
   Workflow,
 } from "lucide-react";
 import type { CalloutType } from "../extensions/callout";
+import { formatDateTime, type DateTimeInsertKind } from "./datetime";
 import { AI_ACTIONS, type AiActionId } from "../../ai/actions";
 import { SlashMenu, flattenSlashItems, type SlashCommandDef } from "./SlashMenu";
 
 /**
  * 斜杠 `/` 插入面板(PRD §4.2):输入 `/` 唤起模糊搜索菜单。
- * 菜单 = 文本类 + 卡片类(提示块/公式/代码块/表格/图片/分割线);
+ * 菜单 = 文本类 + 插入类(日期/时间静态文本) + 卡片类(提示块/公式/代码块/表格/图片/分割线);
  * mermaid 等 V2 后续批次解锁后才出现在菜单(PRD:不暴露未解锁项)。
  * UI 交互插件,不进 baseExtensions(不贡献 Schema);定位自算坐标,不引 tippy。
  * 「图片」走文件选择 → assets 落盘(M3):COMMANDS 是模块级静态表拿不到
@@ -107,9 +112,66 @@ const callout = (
     editor.chain().focus().deleteRange(range).setCallout({ type }).run(),
 });
 
+const insertDateTime = (kind: DateTimeInsertKind): SlashCommandDef["action"] => (
+  editor,
+  range,
+) =>
+  editor
+    .chain()
+    .focus()
+    .deleteRange(range)
+    .insertContent(formatDateTime(kind))
+    .run();
+
+const DATE_TIME_COMMANDS: SlashCommandDef[] = [
+  {
+    group: "插入",
+    label: "今日日期（年-月-日）",
+    icon: Calendar,
+    keywords: ["date", "today", "riqi", "jinri", "nianyueri"],
+    action: insertDateTime("date"),
+  },
+  {
+    group: "插入",
+    label: "当前时间（时:分）",
+    icon: Clock,
+    keywords: ["time", "now", "shijian", "shifen"],
+    action: insertDateTime("time"),
+  },
+  {
+    group: "插入",
+    label: "日期和时间（年-月-日 时:分）",
+    icon: CalendarClock,
+    keywords: ["datetime", "riqi shijian", "riqishijian", "nianyueri shifen"],
+    action: insertDateTime("datetime"),
+  },
+  {
+    group: "插入",
+    label: "中文日期（年月日）",
+    icon: Calendar,
+    keywords: ["chinese date", "zhongwen riqi", "nianyueri"],
+    action: insertDateTime("chineseDate"),
+  },
+  {
+    group: "插入",
+    label: "中文日期和时间（年月日 时:分）",
+    icon: CalendarClock,
+    keywords: ["chinese datetime", "zhongwen shijian", "nianyueri shifen"],
+    action: insertDateTime("chineseDatetime"),
+  },
+  {
+    group: "插入",
+    label: "当前时间含秒（时:分:秒）",
+    icon: Timer,
+    keywords: ["seconds", "time seconds", "miao", "jingque shijian"],
+    action: insertDateTime("timeWithSeconds"),
+  },
+];
+
 const COMMANDS: SlashCommandDef[] = [
   callout("info", "信息提示", Info, "xinxi"),
   callout("success", "成功提示", CircleCheck, "chenggong"),
+  ...DATE_TIME_COMMANDS,
   callout("warning", "警告提示", TriangleAlert, "jinggao"),
   callout("caution", "注意提示", OctagonAlert, "zhuyi"),
   {

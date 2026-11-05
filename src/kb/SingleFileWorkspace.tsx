@@ -26,6 +26,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -52,6 +53,8 @@ interface SingleFileWorkspaceProps {
   scrollEl: HTMLDivElement | null;
   showToolbar: boolean;
   cardBorder: boolean;
+  tableCellCopy: boolean;
+  onToggleTableCellCopy: () => void;
   typewriterMode: boolean;
   onToggleTypewriter: () => void;
   shortcuts: ShortcutBindings;
@@ -126,7 +129,7 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
                 {/* 两行即可:身份条 + 标题/主操作;低频动作收进「更多」 */}
                 <div className={`mx-auto flex w-full ${EDITOR_COLUMN_MAX} flex-col gap-2.5`}>
                   <div className="flex min-w-0 items-center gap-2 text-[11px]">
-                    {/* 工作区切换:对齐知识库左栏身份卡,首页/开库不再埋进「更多」 */}
+                    {/* 工作区切换唯一入口:含最近库直开(原右上「打开知识库 ▾」并入此处) */}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button
@@ -138,15 +141,38 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
                           <ChevronDown className="size-3 opacity-70" />
                         </button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start" className="min-w-48">
+                      <DropdownMenuContent align="start" className="min-w-52">
                         <DropdownMenuItem onClick={props.onBackHome}>
                           <House className="size-4" />
                           返回欢迎页
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={props.onOpenKb}>
-                          <FolderOpen className="size-4" />
-                          打开知识库…
-                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        {props.recentRoots.length > 0 ? (
+                          <>
+                            <DropdownMenuLabel className="text-muted-foreground text-[10px] font-normal">
+                              最近知识库
+                            </DropdownMenuLabel>
+                            {props.recentRoots.slice(0, 5).map((root) => (
+                              <DropdownMenuItem
+                                key={root}
+                                title={root}
+                                onClick={() => props.onOpenRecentKb(root)}
+                              >
+                                <FolderOpen className="size-4" />
+                                <span className="min-w-0 truncate">{folderName(root)}</span>
+                              </DropdownMenuItem>
+                            ))}
+                            <DropdownMenuItem onClick={props.onOpenKb}>
+                              <FolderOpen className="size-4" />
+                              浏览其它位置…
+                            </DropdownMenuItem>
+                          </>
+                        ) : (
+                          <DropdownMenuItem onClick={props.onOpenKb}>
+                            <FolderOpen className="size-4" />
+                            打开知识库…
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onClick={props.onNewKb}>
                           <FolderPlus className="size-4" />
                           新建知识库…
@@ -164,48 +190,6 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
                     >
                       {single.filePath}
                     </span>
-                    {/* 不直接弹选文件夹:先选「打开已有 / 新建 / 最近」 */}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          className="text-muted-foreground hover:text-foreground inline-flex shrink-0 cursor-pointer items-center gap-0.5 transition-colors outline-none"
-                        >
-                          打开知识库
-                          <ChevronDown className="size-3 opacity-70" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="min-w-52">
-                        {props.recentRoots.length > 0 ? (
-                          <>
-                            {props.recentRoots.slice(0, 5).map((root) => (
-                              <DropdownMenuItem
-                                key={root}
-                                title={root}
-                                onClick={() => props.onOpenRecentKb(root)}
-                              >
-                                <FolderOpen className="size-4" />
-                                <span className="min-w-0 truncate">{folderName(root)}</span>
-                              </DropdownMenuItem>
-                            ))}
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={props.onOpenKb}>
-                              <FolderOpen className="size-4" />
-                              浏览其它位置…
-                            </DropdownMenuItem>
-                          </>
-                        ) : (
-                          <DropdownMenuItem onClick={props.onOpenKb}>
-                            <FolderOpen className="size-4" />
-                            打开知识库…
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem onClick={props.onNewKb}>
-                          <FolderPlus className="size-4" />
-                          新建知识库…
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
                   </div>
 
                   <div className="flex items-end gap-3">
@@ -279,6 +263,8 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
               onPickAttachment={props.onPickAttachment}
               onOpenAttachment={props.onOpenAttachment}
               cardBorder={props.cardBorder}
+              tableCellCopy={props.tableCellCopy}
+              onToggleTableCellCopy={props.onToggleTableCellCopy}
               showToolbar={props.showToolbar && !props.focusMode}
               typewriter={props.focusMode && props.typewriterMode}
               shortcuts={props.shortcuts}

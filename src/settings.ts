@@ -100,7 +100,7 @@ export function accentPresetOf(id: string | undefined): AccentPreset {
 export interface DeskPreset {
   id: string;
   name: string;
-  /** 设置页色块(浅色台面) */
+  /** 设置页浅色缩略外框;深色预览改用 dark.workspace */
   swatch: string;
   light: {
     workspace: string;
@@ -262,6 +262,8 @@ export interface AppSettings {
   readerParagraphSpacing: number;
   /** §8 编辑器设置:特殊卡片(代码块/表格/图片)显示边框,默认开 */
   cardBorder: boolean;
+  /** §8 编辑器:表格单元格悬停显示复制按钮,默认关(账号/口令类表才需要) */
+  tableCellCopy: boolean;
   /** §8 编辑器:打字机滚动(专注模式子项),默认关;仅专注模式下生效 */
   typewriterMode: boolean;
   /** §8 图片:粘贴自动压缩(WebP 质量 85),默认开 */
@@ -311,6 +313,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   readerLineHeight: 1.75,
   readerParagraphSpacing: 0.75,
   cardBorder: true,
+  tableCellCopy: false,
   typewriterMode: false,
   imageCompress: true,
   launch: "last",
@@ -367,6 +370,7 @@ export function parseSettings(raw: string): AppSettings {
       readerLineHeight: clampNumber(v?.readerLineHeight, 1.75, 1.3, 2.2),
       readerParagraphSpacing: clampNumber(v?.readerParagraphSpacing, 0.75, 0.2, 1.6),
       cardBorder: typeof v?.cardBorder === "boolean" ? v.cardBorder : true,
+      tableCellCopy: typeof v?.tableCellCopy === "boolean" ? v.tableCellCopy : false,
       typewriterMode: typeof v?.typewriterMode === "boolean" ? v.typewriterMode : false,
       imageCompress: typeof v?.imageCompress === "boolean" ? v.imageCompress : true,
       launch: v?.launch === "welcome" ? "welcome" : "last",

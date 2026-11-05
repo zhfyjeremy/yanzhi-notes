@@ -20,7 +20,9 @@ import { EditorToolbar } from "./toolbar/EditorToolbar";
 import { FindReplaceBar } from "./toolbar/FindReplaceBar";
 import { ImageToolbar } from "./toolbar/ImageToolbar";
 import { TableToolbar } from "./toolbar/TableToolbar";
+import { TableCellCopy } from "./toolbar/TableCellCopy";
 import { WikiLinkSuggestExtension, type WikiDocRef } from "./wiki-link-command";
+import { handleWikiLinkPaste } from "./wiki-link-paste";
 import { DEFAULT_SHORTCUTS, shortcutMatches, type ShortcutBindings } from "../shortcuts";
 import { scrollCaretToTypewriterLine } from "./typewriter";
 import { AiChrome } from "../ai/AiChrome";
@@ -65,6 +67,9 @@ interface YanzhiEditorProps {
   locateSignal?: { term: string; seq: number } | null;
   /** §8 编辑器设置:特殊卡片边框;false → 容器挂 yz-flat-cards(边框透明) */
   cardBorder?: boolean;
+  /** §8 编辑器:表格单元格悬停复制,默认关 */
+  tableCellCopy?: boolean;
+  onToggleTableCellCopy?: () => void;
   /** 显示菜单「工具栏」:编辑器顶部格式条,默认显示 */
   showToolbar?: boolean;
   /**
@@ -93,6 +98,8 @@ export function YanzhiEditor({
   onOpenAttachment,
   locateSignal,
   cardBorder = true,
+  tableCellCopy = false,
+  onToggleTableCellCopy,
   showToolbar = true,
   typewriter = false,
   shortcuts = DEFAULT_SHORTCUTS,
@@ -181,7 +188,8 @@ export function YanzhiEditor({
       // 粘贴清洗(PRD §5.7):微信/网页/Word HTML 先洗干净再进 schema
       transformPastedHTML: cleanPastedHtml,
       // 剪贴板里有图片文件 → 直接走 assets 落盘(5.3.7),不吃 HTML 清洗路径
-      handlePaste: (_view, event) => {
+      handlePaste: (view, event) => {
+        if (handleWikiLinkPaste(view, event)) return true;
         const files = imageFilesOf(event.clipboardData?.files);
         if (!files.length || !imageFilesRef.current) return false;
         event.preventDefault();
@@ -380,7 +388,14 @@ export function YanzhiEditor({
           onMouseDown={focusEditorFromBlankArea}
         >
           <EditorContent editor={editor} className="flex flex-1 flex-col" />
-          {editor && <TableToolbar editor={editor} />}
+          {editor && (
+            <TableToolbar
+              editor={editor}
+              cellCopy={tableCellCopy}
+              onToggleCellCopy={onToggleTableCellCopy}
+            />
+          )}
+          {editor && <TableCellCopy editor={editor} enabled={tableCellCopy} />}
           {editor && <ImageToolbar editor={editor} onPreview={setPreviewSrc} />}
           {editor && (
             <SelectionBubble

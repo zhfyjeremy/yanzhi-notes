@@ -2,13 +2,8 @@ import { Check, Loader2, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/hint";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { LoadingDots } from "./LoadingDots";
 import type { TitleAiState } from "./useTitleAiSession";
-
-export interface TitleAiConfirmInfo {
-  host: string;
-  chars: number;
-  clipped: boolean;
-}
 
 interface TitleAiControlProps {
   state: TitleAiState;
@@ -16,17 +11,13 @@ interface TitleAiControlProps {
   currentTitle: string;
   stale: boolean;
   popoverOpen: boolean;
-  confirm: TitleAiConfirmInfo | null;
   onPopoverOpenChange: (open: boolean) => void;
   onStart: () => void;
-  onConfirm: () => void;
   onNeedSettings: () => void;
   onApply: (title: string) => void;
   onCancel: () => void;
   onDismiss: () => void;
 }
-
-const fmt = (n: number) => n.toLocaleString("zh-Hans-CN");
 
 export function TitleAiControl({
   state,
@@ -34,53 +25,67 @@ export function TitleAiControl({
   currentTitle,
   stale,
   popoverOpen,
-  confirm,
   onPopoverOpenChange,
   onStart,
-  onConfirm,
   onNeedSettings,
   onApply,
   onCancel,
   onDismiss,
 }: TitleAiControlProps) {
   const running = state.phase === "running";
+  const hasPanel = state.phase === "running" || state.phase === "result" || state.phase === "error";
 
   return (
-    <>
-      <Popover open={popoverOpen} onOpenChange={onPopoverOpenChange}>
-        <Hint label={running ? "AI 正在起标题" : "AI 起标题"}>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              className="text-muted-foreground hover:text-foreground"
-              aria-busy={running}
-              onClick={() => {
-                if (!ready) {
-                  onNeedSettings();
-                  return;
-                }
-                if (state.phase === "idle" && !popoverOpen) onStart();
-              }}
-            >
-              {running ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="size-3.5" />
-              )}
-            </Button>
-          </PopoverTrigger>
-        </Hint>
-        <PopoverContent align="end" className="w-80 gap-2 text-xs" onOpenAutoFocus={(e) => e.preventDefault()}>
+    <Popover open={popoverOpen} onOpenChange={onPopoverOpenChange}>
+      <Hint label={running ? "AI 正在起标题" : "AI 起标题"}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground hover:text-foreground"
+            aria-busy={running}
+            onClick={() => {
+              if (!ready) {
+                onNeedSettings();
+                return;
+              }
+              if (state.phase === "idle") onStart();
+            }}
+          >
+            {running ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="size-3.5" />
+            )}
+          </Button>
+        </PopoverTrigger>
+      </Hint>
+      {hasPanel && (
+        <PopoverContent
+          align="end"
+          className={
+            state.phase === "running"
+              ? "yz-ai-running-chip w-auto gap-2 rounded-full px-2.5 py-1.5 text-xs"
+              : "w-80 gap-2 text-xs"
+          }
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           {state.phase === "running" && (
-            <div className="flex items-start gap-2">
+            <div
+              className="flex items-center gap-2"
+              role="status"
+              aria-live="polite"
+              aria-label="正在生成标题"
+            >
+              <span className="bg-primary/10 text-primary flex size-5 shrink-0 items-center justify-center rounded-full">
+                <Sparkles className="yz-ai-spark size-3" />
+              </span>
               <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-1.5 font-medium">
-                  <Sparkles className="text-primary size-3.5" />
+                <p className="text-foreground flex items-center gap-1.5 font-medium leading-none">
                   正在生成标题
+                  <LoadingDots />
                 </p>
-                <p className="text-muted-foreground mt-1 leading-4">正在请求：{state.host}</p>
               </div>
               <Button type="button" variant="ghost" size="icon-xs" onClick={() => void onCancel()} aria-label="取消标题生成">
                 <X className="size-3.5" />
@@ -139,38 +144,7 @@ export function TitleAiControl({
             </div>
           )}
         </PopoverContent>
-      </Popover>
-
-          {state.phase === "idle" && confirm && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Sparkles className="text-primary size-3.5" />
-                <span className="font-medium">AI 起标题</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-xs"
-                  className="ml-auto"
-                  onClick={onDismiss}
-                  aria-label="取消 AI 起标题"
-                >
-                  <X className="size-3.5" />
-                </Button>
-              </div>
-              <p className="text-muted-foreground leading-4">
-                将发送当前文档{confirm.clipped ? `前 ${fmt(confirm.chars)} 字` : ` ${fmt(confirm.chars)} 字`}到：
-                <span className="text-foreground font-medium">{confirm.host}</span>。点击候选后才会重命名。
-              </p>
-              <div className="flex justify-end gap-1.5">
-                <Button type="button" variant="outline" size="xs" onClick={onDismiss}>
-                  取消
-                </Button>
-                <Button type="button" size="xs" onClick={onConfirm}>
-                  发送
-                </Button>
-              </div>
-            </div>
-          )}
-    </>
+      )}
+    </Popover>
   );
 }

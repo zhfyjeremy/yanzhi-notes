@@ -23,7 +23,7 @@ import { TemplateWorkbench } from "./TemplateManager";
 import { AssetCleanupDialog } from "./AssetCleanupDialog";
 import { AiSettingsPanel } from "../ai/AiSettingsPanel";
 import type { AppSettings, LaunchMode, ReaderFont, ThemeMode, UiStyle } from "../settings";
-import { ACCENT_PRESETS, DESK_PRESETS, DEFAULT_DESK } from "../settings";
+import { ACCENT_PRESETS, DESK_PRESETS, DEFAULT_DESK, resolvedIsDark } from "../settings";
 import { APP_VERSION } from "../version";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -503,12 +503,36 @@ function AccentPicker({
   );
 }
 
-/** 台面背景:色块内嵌一小条「纸面」,示意台面 vs 宣纸层次 */
-function DeskPicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+/** 跟随 settings.theme(+ OS)解析当前是否深色,供台面缩略图与真实 applyTheme 同口径 */
+function useResolvedDark(theme: ThemeMode): boolean {
+  const [systemDark, setSystemDark] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => setSystemDark(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return resolvedIsDark(theme, systemDark);
+}
+
+/** 台面背景:色块内嵌一小条「纸面」,示意台面 vs 编辑纸层次;深浅随当前主题 */
+function DeskPicker({
+  value,
+  onChange,
+  dark,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  dark: boolean;
+}) {
   return (
     <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="台面背景">
       {DESK_PRESETS.map((p) => {
         const active = value === p.id;
+        const tone = dark ? p.dark : p.light;
         return (
           <button
             key={p.id}
@@ -524,18 +548,21 @@ function DeskPicker({ value, onChange }: { value: string; onChange: (id: string)
           >
             <span
               className="relative flex h-9 w-full items-stretch gap-1 overflow-hidden rounded-md p-1"
-              style={{ backgroundColor: p.swatch }}
+              style={{ backgroundColor: dark ? tone.workspace : p.swatch }}
             >
               <span
                 className="w-[22%] rounded-[3px] opacity-90"
-                style={{ backgroundColor: p.light.sidebar }}
+                style={{ backgroundColor: tone.sidebar }}
               />
-              <span className="bg-white flex-1 rounded-[3px] shadow-sm" />
+              <span
+                className="flex-1 rounded-[3px] shadow-sm"
+                style={{ backgroundColor: tone.editor }}
+              />
               {active && (
                 <Check
                   className="absolute top-1/2 left-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 drop-shadow"
                   strokeWidth={3}
-                  style={{ color: "hsl(25 15% 20%)" }}
+                  style={{ color: dark ? "hsl(40 20% 96%)" : "hsl(25 15% 20%)" }}
                 />
               )}
             </span>
@@ -645,6 +672,7 @@ export function SettingsPage({
 }: SettingsPageProps) {
   const [templateDirty, setTemplateDirty] = useState(false);
   const [pendingTab, setPendingTab] = useState<SettingsTab | null>(null);
+  const deskPreviewDark = useResolvedDark(settings.theme);
   const changeTab = (next: SettingsTab) => {
     if (tab === "templates" && templateDirty && next !== "templates") {
       setPendingTab(next);
@@ -779,10 +807,11 @@ export function SettingsPage({
               </SettingsSection>
               <SettingsSection
                 title="台面背景"
-                hint="工作区外壳与侧栏底色;中间编辑纸面保持宣纸白,不写入 Markdown"
+                hint="工作区外壳与侧栏底色;编辑纸面随主题浅/深,不写入 Markdown"
               >
                 <DeskPicker
                   value={settings.desk}
+                  dark={deskPreviewDark}
                   onChange={(id) => onChange({ desk: id })}
                 />
               </SettingsSection>
@@ -892,6 +921,18 @@ export function SettingsPage({
                     label="特殊卡片显示边框"
                     checked={settings.cardBorder}
                     onCheckedChange={(v) => onChange({ cardBorder: v })}
+                  />
+                </Group>
+              </SettingsSection>
+              <SettingsSection
+                title="表格"
+                hint="也可在表格浮条点复制图标即时开关;默认关,免普通表视觉嘈杂"
+              >
+                <Group>
+                  <SwitchRow
+                    label="单元格悬停显示复制"
+                    checked={settings.tableCellCopy}
+                    onCheckedChange={(v) => onChange({ tableCellCopy: v })}
                   />
                 </Group>
               </SettingsSection>

@@ -8,6 +8,7 @@ import {
   Check,
   ChevronDown,
   Columns3,
+  Copy,
   Rows3,
   Trash2,
 } from "lucide-react";
@@ -49,9 +50,12 @@ const ALIGN_ITEMS = [
 
 interface TableToolbarProps {
   editor: Editor;
+  /** 单元格悬停复制(与设置 tableCellCopy 同源) */
+  cellCopy?: boolean;
+  onToggleCellCopy?: () => void;
 }
 
-export function TableToolbar({ editor }: TableToolbarProps) {
+export function TableToolbar({ editor, cellCopy = false, onToggleCellCopy }: TableToolbarProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [layoutTick, setLayoutTick] = useState(0);
@@ -204,6 +208,27 @@ export function TableToolbar({ editor }: TableToolbarProps) {
           </Button>
         </Hint>
       ))}
+
+      {onToggleCellCopy && (
+        <>
+          <div className="bg-border-subtle mx-1 h-4 w-px shrink-0" />
+          <Hint label={cellCopy ? "关闭单元格复制" : "开启单元格复制"}>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-pressed={cellCopy}
+              className={cn(
+                "text-muted-foreground hover:text-foreground",
+                cellCopy && "bg-selection text-foreground ring-primary/20 hover:text-foreground ring-1",
+              )}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onToggleCellCopy}
+            >
+              <Copy className="size-3.5" />
+            </Button>
+          </Hint>
+        </>
+      )}
 
       <div className="bg-border-subtle mx-1 h-4 w-px shrink-0" />
 

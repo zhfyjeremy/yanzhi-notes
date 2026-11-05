@@ -1,6 +1,7 @@
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Highlight from "@tiptap/extension-highlight";
+import Italic, { starInputRegex, starPasteRegex } from "@tiptap/extension-italic";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import {
@@ -10,6 +11,7 @@ import {
   TableCell,
 } from "@tiptap/extension-table";
 import Placeholder from "@tiptap/extension-placeholder";
+import { markInputRule, markPasteRule } from "@tiptap/core";
 import { WikiLink } from "./extensions/wiki-link";
 import { RawHtml } from "./extensions/raw-html";
 import { CodeBlockCard } from "./extensions/code-block-card";
@@ -19,6 +21,19 @@ import { Details } from "./extensions/details";
 import { Attachment } from "./extensions/attachment";
 import { MathInline, MathBlock } from "./extensions/math";
 import { FontColor } from "./extensions/font-color";
+
+/**
+ * 斜体只用 *…*(与序列化一致)。默认 _…_ 粘贴/输入规则会把 `_SPECIAL_LABEL`
+ * 吃成斜体 SPECIAL + LABEL,标识符下划线静默消失。
+ */
+const ItalicAsteriskOnly = Italic.extend({
+  addInputRules() {
+    return [markInputRule({ find: starInputRegex, type: this.type })];
+  },
+  addPasteRules() {
+    return [markPasteRule({ find: starPasteRegex, type: this.type })];
+  },
+});
 
 /** GFM 表格对齐属性(:--- / :---: / ---:) */
 const textAlignAttr = {
@@ -50,8 +65,10 @@ const TableHeaderAligned = TableHeader.extend({
  */
 export const baseExtensions = [
   // 内置 codeBlock 由 CodeBlockCard 取代(语言选择/复制/行号);Image 由 ImageCard 取代(宽度/对齐 UI);
-  // Link 换成带 title 属性的扩展(标准 md 链接 title 不再静默丢弃,§4.6)
-  StarterKit.configure({ codeBlock: false, link: false }),
+  // Link 换成带 title 属性的扩展(标准 md 链接 title 不再静默丢弃,§4.6);
+  // italic 换 ItalicAsteriskOnly,禁用 _…_ 粘贴/输入规则
+  StarterKit.configure({ codeBlock: false, link: false, italic: false }),
+  ItalicAsteriskOnly,
   Link.extend({
     addAttributes() {
       return {

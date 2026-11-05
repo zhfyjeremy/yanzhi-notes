@@ -20,6 +20,7 @@ import { placeFloatMenu, type FloatMenuPos } from "./float-menu";
 import type { AiSession } from "./useAiSession";
 import { parseWikiSuggestTargets } from "./wiki-suggest";
 import { cn } from "@/lib/utils";
+import { LoadingDots } from "./LoadingDots";
 import { shortcutMatches } from "@/shortcuts";
 
 /**
@@ -41,20 +42,6 @@ interface AiChromeProps {
 type PendingOption = { id: AiActionId; kind: "tone" | "lang" | "math" };
 type FloatingPoint = { top: number; left: number; placement: "top" | "bottom" };
 type CtxMenu = FloatMenuPos & { hasSel: boolean };
-
-function LoadingDots() {
-  return (
-    <span className="inline-flex items-center gap-0.5" aria-hidden>
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="yz-ai-dot bg-primary/70 size-1 rounded-full"
-          style={{ animationDelay: `${i * 0.18}s` }}
-        />
-      ))}
-    </span>
-  );
-}
 
 export function AiChrome({
   editor,

@@ -5,6 +5,7 @@ import {
   ChevronRight,
   CircleAlert,
   CheckSquare2,
+  Copy,
   FileText,
   FolderOpen,
   FolderPlus,
@@ -80,6 +81,10 @@ interface DocTreeProps {
   onMoveEntry: (srcRel: string, destFolderRel: string, orderedPaths?: string[]) => void;
   onSearch: (q: string) => SearchHit[];
   onSearchSelect: (rel: string, term: string) => void;
+  /** 目标是否可安全编码为 [[…]];标题/路径含双链语法不兼容字符时禁用菜单 */
+  canCopyWikiRef: (rel: string) => boolean;
+  /** 复制双链引用:只写系统剪贴板,不读正文、不插入编辑器 */
+  onCopyWikiRef: (rel: string) => void | Promise<void>;
   /** 外部预置搜索词,透传 SearchBox(失效双链「搜索同名文档」) */
   searchPreset?: { term: string; seq: number } | null;
   onRebuildIndex: () => void;
@@ -236,6 +241,8 @@ function TreeRow({
   onEndRename,
   onToggle,
   onOpenDoc,
+  canCopyWikiRef,
+  onCopyWikiRef,
   onCreateDoc,
   onCreateFolder,
   onRenameEntry,
@@ -267,6 +274,8 @@ function TreeRow({
   onEndRename: () => void;
   onToggle: (path: string) => void;
   onOpenDoc: (rel: string) => void;
+  canCopyWikiRef: (rel: string) => boolean;
+  onCopyWikiRef: (rel: string) => void | Promise<void>;
   onCreateDoc: (folderRel: string, title: string) => void;
   onCreateFolder: (folderRel: string, name: string) => void;
   onRenameEntry: (rel: string, name: string) => void;
@@ -553,6 +562,13 @@ function TreeRow({
               <ContextMenuItem onClick={() => onTogglePin(node.path, !pinned)}>
                 <Pin /> {pinned ? "取消置顶" : "置顶"}
               </ContextMenuItem>
+              <ContextMenuItem
+                disabled={!canCopyWikiRef(node.path)}
+                title={canCopyWikiRef(node.path) ? undefined : "标题或路径包含双链不兼容字符"}
+                onClick={() => void onCopyWikiRef(node.path)}
+              >
+                <Copy /> 复制双链引用
+              </ContextMenuItem>
             </>
           )}
           <ContextMenuItem onClick={() => onBeginRename(node.path)}>
@@ -615,6 +631,8 @@ function TreeRow({
               selectionMode={selectionMode}
               onSelectSubtree={onSelectSubtree}
               onOpenDoc={onOpenDoc}
+              canCopyWikiRef={canCopyWikiRef}
+              onCopyWikiRef={onCopyWikiRef}
               onCreateDoc={onCreateDoc}
               onCreateFolder={onCreateFolder}
               onRenameEntry={onRenameEntry}
@@ -649,6 +667,8 @@ export function DocTree({
   onMoveEntry,
   onSearch,
   onSearchSelect,
+  canCopyWikiRef,
+  onCopyWikiRef,
   searchPreset,
   onRebuildIndex,
   onOpenTrash,
@@ -947,6 +967,8 @@ export function DocTree({
                   selectionMode={selectionMode}
                   onSelectSubtree={selectSubtree}
                   onOpenDoc={onOpenDoc}
+                  canCopyWikiRef={canCopyWikiRef}
+                  onCopyWikiRef={onCopyWikiRef}
                   onCreateDoc={onCreateDoc}
                   onCreateFolder={(folder, name) => void handleCreateFolder(folder, name)}
                   onRenameEntry={onRenameEntry}

@@ -6,6 +6,7 @@ import {
   refPatternsFor,
   resolveWikiTarget,
   updateWikiRefs,
+  wikiLinkTextFor,
   wikiTargetFor,
 } from "../wiki-refs";
 
@@ -57,6 +58,22 @@ describe("wiki-refs(双链目标解析与引用联动)", () => {
     const docs = flattenDocs(tree);
     expect(wikiTargetFor(docs, "开始使用.md")).toBe("开始使用");
     expect(wikiTargetFor(docs, "tech/第一篇.md")).toBe("tech/第一篇");
+  });
+
+  it("wikiLinkTextFor:目录树复制双链引用文本,重名用路径并拦截不兼容字符", () => {
+    const docs = flattenDocs(tree);
+    expect(wikiLinkTextFor(docs, "开始使用.md")).toBe("[[开始使用]]");
+    expect(wikiLinkTextFor(docs, "tech/第一篇.md")).toBe("[[tech/第一篇]]");
+    expect(wikiLinkTextFor(docs, "不存在.md")).toBeNull();
+
+    const incompatible = [
+      { path: "a]b.md", name: "a]b" },
+      { path: "a|b.md", name: "a|b" },
+      { path: "a\\b.md", name: "a\\b" },
+    ];
+    expect(wikiLinkTextFor(incompatible, "a]b.md")).toBeNull();
+    expect(wikiLinkTextFor(incompatible, "a|b.md")).toBeNull();
+    expect(wikiLinkTextFor(incompatible, "a\\b.md")).toBeNull();
   });
 });
 

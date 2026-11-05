@@ -56,6 +56,11 @@ describe("settings 解析(PRD §8)", () => {
     expect(parseSettings("{}").typewriterMode).toBe(false);
     expect(parseSettings('{"typewriterMode":"on"}').typewriterMode).toBe(false);
   });
+  it("表格单元格复制:布尔直读,缺失或异型回 false(默认关)", () => {
+    expect(parseSettings('{"tableCellCopy":true}').tableCellCopy).toBe(true);
+    expect(parseSettings("{}").tableCellCopy).toBe(false);
+    expect(parseSettings('{"tableCellCopy":"on"}').tableCellCopy).toBe(false);
+  });
   it("AI 设置:默认关;布尔/URL/模型/温度钳制;Key 不进 settings.json", () => {
     expect(parseSettings("{}").aiEnabled).toBe(false);
     expect(parseSettings("{}").aiProvider).toBe("custom");

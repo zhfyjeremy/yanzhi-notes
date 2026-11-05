@@ -20,6 +20,8 @@ pnpm vitest run -t "lists"                                         # 按名过�
 
 测试跑在 jsdom(prosemirror DOMParser 需要 DOM),配置在 `vitest.config.ts`。
 
+小修改(纯文案、轻量样式、文档整理等未改变行为/类型/解析序列化的改动)不必跑测试;行为改动仍需按风险跑相关测试,编辑器解析/序列化必须跑全量 fixtures。
+
 ## 技术栈锁定(PRD §12,勿擅自升级/替换)
 
 - React 18(不升 19)、TypeScript、Vite、Tauri 2

@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 
 /**
  * 顶部全局搜索(PRD 5.5):左栏树上方搜索框,输入即搜(标题+正文+路径,标题加权),
- * 结果面板展示路径与命中片段(关键词高亮);点击打开文档并定位到首个命中。
+ * 结果面板展示路径与命中片段(关键词高亮);点击打开文档;正文有关键词时再定位到首个命中。
  * 无结果提示换关键词或重建索引(索引损坏的自救入口)。
  */
 
@@ -88,7 +88,8 @@ export function SearchBox({
 
   const open = focused && query.trim().length > 0;
   const openHit = (hit: SearchHit) => {
-    onSelect(hit.path, query.trim());
+    // 标题/路径命中但正文未命中:只打开文档,不把关键词传给文档内查找。
+    onSelect(hit.path, hit.contentMatched ? query.trim() : "");
     setQuery("");
     setFocused(false);
     (document.activeElement as HTMLElement | null)?.blur();

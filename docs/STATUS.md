@@ -1,4 +1,4 @@
-# 项目状态(更新:2026-11-03)
+# 项目状态(更新:2026-11-05)
 
 > 开工前速览:看「下一步」直接干活;细节翻 `docs/PRD-本地离线知识库编辑器.md` 对应章节。文档索引见 `docs/README.md`。
 
@@ -10,7 +10,7 @@
 
 ### M1 编辑器内核 ✅ 已完成(d19d44e)
 
-统一 Schema、YanzhiEditor 组件(md 进/md 出单路径)、格式工具栏、斜杠菜单、md 往返 fixtures 14/14。
+统一 Schema、YanzhiEditor 组件(md 进/md 出单路径)、格式工具栏、斜杠菜单(含日期/时间 6 种静态纯文本格式,本机时区、不自动更新)、md 往返 fixtures 14/14。
 基础轮子:阶段 0 往返管线(e828162)、块编辑模式移除(PRD v1.5,9eb6d7d)、macOS 右键菜单汉化(Info.plist)。
 2026-11-01 交互补充:空白文档的正文区域撑满可视编辑列;点击留白可聚焦。2026-11-03:左右白边按点击高度落到最近一行(不滚文末),上方→文首、下方→文末;正文/链接/按钮仍走 ProseMirror 默认。
 
@@ -21,7 +21,7 @@
 | TOC 大纲面板 | ✅ | 滚动高亮联动、点击跳转、可折叠 |
 | 代码块卡片 | ✅ | hover 语言切换/复制、行号列;`src/editor/extensions/code-block-card.tsx` |
 | Shiki 语法高亮 | ✅ | `src/editor/extensions/code-highlight.ts`,PM decoration + css-variables 语义槽位 → `--code-*` token |
-| 表格编辑工具条 | ✅ | 光标入表浮现:行/列增删下拉 + 整列对齐 + 删表;`table-utils.ts` + `toolbar/TableToolbar.tsx` + 表格基础样式;**列宽拖拽**(`Table.resizable`,colwidth 会话级,GFM 无列宽语法,重开回均分) |
+| 表格编辑工具条 | ✅ | 光标入表浮现:行/列增删下拉 + 整列对齐 + 删表;`table-utils.ts` + `toolbar/TableToolbar.tsx` + 表格基础样式;**列宽拖拽**(`Table.resizable`,colwidth 会话级,GFM 无列宽语法,重开回均分);**单元格悬停复制**(设置/表工具条复制图标同源 `tableCellCopy`,默认关,`TableCellCopy` 浮层,2026-11-05) |
 | 粘贴清洗 | ✅ | `paste-clean.ts`(transformPastedHTML):样式/脚本/私有 XML 丢弃、追踪参数剥离、合并表格降级纯文本、外部任务列表转 taskItem、外部颜色吸附预设色 |
 | 图片卡片 UI | ✅ | 选中图片浮层(宽度档位/对齐/放大 lightbox)+ **左右手柄拖拽改宽**(20%–100%);width/align 会话级不进 md |
 | 文字颜色(语雀式色卡) | ✅ | §10 方言 `<font color>`:色卡 8 色 + 默认清除(`extensions/font-color.ts` + 工具栏 Palette 下拉);粘贴吸附(黑白灰摘除/彩色吸附最近预设色);序列化公共 mark 外提 |
@@ -35,7 +35,7 @@
 | fs 命令层(Rust) | ✅ | `src-tauri/src/kb.rs`:扫描/读/原子写/新建(重名 ` (n)`)/重命名/移入回收站/meta 读写/最近打开(recent.json 含 lastDoc);tauri-plugin-dialog |
 | 后端双实现 | ✅ | `src/kb/backend.ts`:tauri(invoke)/ browser(localStorage mock)同构,`pnpm dev` 纯浏览器可开发 UI |
 | 首启欢迎页 | ✅ | PRD 5.0.1:一句话产品 + 三行说明 + 新建/打开同权重 + 最近打开 + 非空目录「仍要在此创建」确认 |
-| 目录树左栏 | ✅ | 递归渲染/折叠/当前文档高亮;行操作语雀式两级:文件夹 hover「+」下拉(新建文档/子文件夹),重命名/移入回收站进右键菜单;重命名 = 行内编辑;文件夹改名重写当前路径与前进/后退历史;拖拽排序见「排序与折叠」;E2E `folder.js` |
+| 目录树左栏 | ✅ | 递归渲染/折叠/当前文档高亮;行操作语雀式两级:文件夹 hover「+」下拉(新建文档/子文件夹),重命名/移入回收站进右键菜单;文档右键可复制双链引用(唯一名裸写/重名路径写法,不兼容字符禁用;整段纯文本双链粘贴会立即解析成 wikiLink,而非等重开文档);重命名 = 行内编辑;文件夹改名重写当前路径与前进/后退历史;拖拽排序见「排序与折叠」;E2E `folder.js` |
 | 文档打开与自动保存 | ✅ | openDoc(切换前冲刷)+ 2s 去抖落盘(临时文件+原子替换);状态栏保存状态 + 库路径 |
 | 标题 ↔ 文件名 | ✅ | 标题输入框(语雀式,正文上方)= 文件名去 .md;改名 debounce 800ms → rename_entry + 树刷新 |
 | 字数统计 | ✅ | 状态栏:全文常显,有选区显「选区/全文」;中文按字西文按词(`word-count.ts` + 6 用例) |
@@ -46,7 +46,7 @@
 | 重命名联动更新引用 | ✅ | rename 时全库替换 `[[旧名]]`(裸名/路径/别名;文件夹仅 [[…]] 区间内段级替换);Rust `kb.rs` 与 mock `wiki-refs.ts` 同构;改名 toast「已更新 N 处」;当前文档被改写自动重载 |
 | 文档内查找/替换 | ✅ | ⌘F 浮条即时高亮(不区分大小写)/Enter 步进/⌥⌘F 替换行(当前/全部,可撤销);`find-replace.ts` PM plugin + `toolbar/FindReplaceBar.tsx`;E2E 全通(`find.js`) |
 | assets 落盘 | ✅ | 粘贴/拖拽/文件选择(斜杠菜单+工具栏)→ 内容哈希 FNV-1a 16hex 命名 → 文档所在 `assets/` → `./assets/x.png` 相对路径;渲染经 assetProtocol(tauri)/dataURL(mock),md 真源不污染;`asset-src.ts` 解析注册表;**移动文档时 Rust/mock 同步复制被引用资源并改写路径(9.3.4)** |
-| 全局搜索 | ✅ | `search.ts`:FlexSearch 三路索引(标题8/路径4/正文1 加权,位次×权重自算排序),CJK bigram+单字、西文整词;160ms 去抖下拉 + `<mark>` 片段高亮 + ↑↓/Enter;点击打开文档并定位(⌘F 查找条联动);空态「重建索引」+ 树菜单入口;增量更新(保存/新建/改名/删除) |
+| 全局搜索 | ✅ | `search.ts`:FlexSearch 三路索引(标题8/路径4/正文1 加权,位次×权重自算排序),CJK bigram+单字、西文整词;160ms 去抖下拉 + `<mark>` 片段高亮 + ↑↓/Enter;点击打开文档;正文命中才联动⌘F 定位(标题/路径-only 命中只打开不触发文档内查找);空态「重建索引」+ 树菜单入口;增量更新(保存/新建/改名/删除) |
 | 外部监听 | ✅ | Rust notify v8 + 400ms 静默窗去抖 → `kb-fs-event`;前端自写抑制窗 1.5s;无 dirty 静默重载,有 dirty 弹窗「保留我的/载入磁盘版本」 |
 | 回收站 UI | ✅ | `TrashDialog.tsx`:列表(文件夹含篇数)+ 单条/批量恢复/**单条彻底删除/清空**(确认条,destructive 样式);批量恢复遇同名冲突默认恢复为新名称,避免静默覆盖;原路径冲突三选一(覆盖/新名称/取消),KbConflictError 跨端同构。回收站永久保留、无自动清理。入口 = 左栏底部文字项 |
 | 排序与折叠 | ✅ | `meta.ts`:sortIndex 持久化(`.yanzhi/meta.json`,300ms 去抖),HTML5 拖拽排序(before/after 同组改序,into = **移动到文件夹**,文件夹 25/50/25),禁拖自身子树;**跨组 before/after = 移动 + 按落位排序**(orderedPaths 传入 moveEntry 走 `applySiblingOrder`,into 落尾 `moveMetaToTail`);折叠状态持久化。**移动 = Rust `move_entry`**(改父目录、名字不变、同名冲突报错、幂等)+ mock 同构:meta 键/折叠键前缀迁移、路径写法 `[[双链]]` 前缀改写(裸名不动)、当前文档/前进后退历史重写;WKWebView 拖拽需 dragstart `setData` + `dragDropEnabled:false`(踩坑清单) |
@@ -202,6 +202,7 @@
 - 欢迎页最近打开分为「知识库 / 单文件」两组;单文件模式保留可选大纲、格式工具栏、查找替换、主题、排版、导出 md/HTML。
 - 工作区切换闭环:单文件存入知识库后弹「继续编辑单文件 / 保存并打开知识库」,打开后自动定位新文档;取消选择文件时留在当前知识库。
 - 工作区入口归位到左栏顶部库身份卡菜单:「返回欢迎页 / 打开 Markdown 文件 / 打开其它知识库 / 新建知识库」;左栏底部移除工作区按钮,只保留回收站与库内工具,避免混层。
+- 2026-11-05:单文件顶栏去掉右上「打开知识库 ▾」;最近库直开 / 浏览其它位置 / 新建并入「单文件 ▾」,路径只读,标题旁仍为大纲/保存/更多。
 - 修复工作区切换后的旧 Tiptap 实例泄漏:App 按 `kb / single` 标记 editor 归属,卸载中的实例不再进入右栏大纲/状态栏;`TocPanel` 对 `editor.view` 不可用时直接跳过滚动定位与跳转。
 
 验证:`pnpm test` **183/183**、`cargo test` **6/6**、`pnpm build` 通过、`pnpm tauri build --no-bundle` 通过(fileAssociations 配置有效);知识库综合回归 `remaining-v3.js` **19/19**。浏览器单文件回归覆盖轻量入口、左右栏降级、手动保存、未保存关闭确认、最近文件重开、崩溃草稿恢复、拖拽打开、assets 确认与资源随文档转存知识库;追加验证「存入后保存原文件并打开知识库 → 自动定位新文档 → 回首页 → 从知识库进入单文件」闭环。系统「打开方式」与 macOS Opened 事件需打包版真机最终确认。
@@ -290,18 +291,17 @@
 | 斜杠 `/ai` | ✅ | 斜杠菜单 AI 分组,关键词含 ai;未配置时先弹确认「稍后再说 / 去配置」,确认后再打开设置 AI 页 |
 | 结果三按钮 | ✅ | 插入/替换/仅复制(确认后写回);双链建议逐条可点插入;请求中轻量胶囊可取消 |
 | AI-1 动作 | ✅ | 润色/续写/扩写/缩写/改语气/翻译/解释/纠错/总结为要点 |
-| AI-2 结构 | ✅ | 生成大纲/拆段加小标题/提取待办/整理为表格/双链建议(库内文档名过滤) |
-| AI 起标题 | ✅ | 标题栏 Sparkles 入口;先确认发送 host/字数(当前文开头最多 12,000 Unicode 字符),请求中状态栏+气泡可取消;最多 3 候选,本地清洗 Markdown/非法字符/`.md`/长度;点击候选才走 `rename_entry`(联动双链/meta/索引/快照),同名后缀 toast;切文档取消、内容变化禁止应用 |
-| AI-3 卡片 | ✅ | 解释代码(插入)/改写代码(替换节点内容)/生成 Mermaid(选区 NL→围栏)/修正 Mermaid/生成公式(行内\|块级);代码块卡片 hover「AI」入口;`applyMode` 分流回写;多代码块时卡片显式传 `nodePos`,解释插在该块后方 |
+| AI-2 结构 | ✅ | 生成大纲/整理结构(拆段+小标题,保留「拆段/小标题」搜索别名)/提取待办/整理为表格/双链建议(库内文档名过滤) |
+| AI 起标题 | ✅ | 标题栏 Sparkles 入口;点击即请求(状态栏明示 host,当前文开头最多 12,000 Unicode 字符;气泡只显示生成状态并可取消);最多 3 候选,本地清洗 Markdown/非法字符/`.md`/长度;点击候选才走 `rename_entry`(联动双链/meta/索引/快照),同名后缀 toast;切文档取消、内容变化禁止应用。2026-11-05:去掉发送前二次确认;请求中复用选区 AI 的 Sparkles 脉冲 + 三点动画,不展示发送量/host;起标题不再把 max tokens 压到 192(GLM-5.3 等推理模型的 reasoning 会吃掉预算导致最终 content 为空),改用全局 AI 输出上限 |
+| AI-3 卡片 | ✅ | 解释代码(插入)/改写代码(替换节点内容)/生成 Mermaid(选区 NL→围栏)/修正 Mermaid/生成公式(行内\|块级);代码块卡片 hover「AI」入口;`applyMode` 分流回写;多代码块时卡片显式传 `nodePos`,解释插在该块后方。2026-11-05 真机冒烟通过(润色 + 结构 + AI 起标题 + 卡片) |
 
 未做(按 PRD 分期):右侧 AI 面板、AI-4 库级(默认不做)。`⌘/Ctrl+Shift+A` 打开 AI 动作菜单已做(可改键,见快捷键说明)。
 
 ## 下一步开工
 
 1. **托盘真机抽检**:设置开启 → 关窗进托盘 → 左键恢复 → 托盘退出;单文件 dirty 关窗/退出确认;知识库关窗后内容已落盘
-2. **AI 真机冒烟**:润色 + 结构 + AI 起标题 + 卡片(代码块 AI / Mermaid / 公式);本地 Ollama 可选
-3. **M4 尾项**:IME 真机回归;安装包签名/公证
-4. PDF 导出暂缓;只读源码视图明确不做
+2. **M4 尾项**:IME 真机回归;安装包签名/公证
+3. PDF 导出暂缓;只读源码视图明确不做
 
 ## 踩过的坑(新代码前必读)
 
@@ -350,6 +350,7 @@
 - **mermaid 12 全局单例并发 render 互踩**,渲染必须串行队列(promise chain);`initialize` 可重复调用,主题切换(浅 neutral/深 dark)重设即可;懒加载 `import("mermaid")` 生效时 cytoscape/elk/mermaid.core 是独立 chunk,别不小心静态 import 进主 bundle
 - **「当前文档 md」的正确口径是 `dirtyRef.current ?? savedMdRef.current`,别读 markdown state**(历史快照批实录的既有 bug):自动保存落盘后 dirtyRef 清空,而 markdown state 停在 openDoc 时的版本——导出 md/HTML、复制、快照对比全在拿旧文。不能在 flushSave 里 setMarkdown 补同步:markdown prop 变化会触发 YanzhiEditor 整体重载(丢光标/丢撤销栈)。useKb 里 `savedMdRef` 在全部 8 处内容落点(loadDoc/restore/flushSave/空草稿/重命名/移动)同步;新加「取当前内容」的链路一律走 `getMarkdownNow`
 - **md-it token retag 三坑(折叠摘要块实录)**:① 渲染器对 token 属性值**自动 HTML 转义**,`attrSet` 存解码明文即可,先手动 escapeAttr 会双重转义(fixture 对拍抓到 `&amp;amp;`);② 复用 html_block token 当闭标签必须改 `nesting = -1`(原 nesting=0 会被渲染成开标签,整篇嵌套错乱);③ PM renderHTML 的内容洞 `0` **必须是父节点唯一子节点**,`["details", attrs, ["summary",…], 0]` 运行时直接 RangeError 白屏(pageerror 才看到),正文包一层 `["div", {}, 0]`
+- **TipTap 默认斜体 `_…_` 粘贴/输入规则会吞标识符**(实录:`_SPECIAL_LABEL` → 斜体 SPECIAL + LABEL,界面像 SPECIALLABEL);砚知序列化本就用 `*…*`,已换 `ItalicAsteriskOnly` 只保留星号规则(2026-11-05)
 - **md-it 默认 `normalizeLink` 会把非 ASCII 链接目标百分号编码**(附件批实录:`./随笔/第一篇.md` 落盘变 `%E9%9A%8F…`,静默改写用户原文,违反 §4.4)——覆写 `md.normalizeLink = (url) => url` 关闭;`validateLink` 是另一个函数不受影响。同批:**StarterKit 内置的扩展不是项目的直接依赖**,pnpm 严格解析下 import 直接 resolve 失败(`@tiptap/extension-link` 实录),要显式 `pnpm add` 并重启 dev(与 Shiki 依赖同款坑)
 
 ## 遗留小事项

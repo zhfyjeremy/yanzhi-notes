@@ -8,7 +8,7 @@ import type { LucideIcon } from "lucide-react";
  */
 
 export interface SlashCommandDef {
-  group: "文本" | "卡片" | "AI";
+  group: "文本" | "插入" | "卡片" | "AI";
   label: string;
   icon: LucideIcon;
   /** 模糊搜索关键词(中文 label + 拼音/英文) */
@@ -16,7 +16,7 @@ export interface SlashCommandDef {
   action: (editor: import("@tiptap/core").Editor, range: import("@tiptap/core").Range) => void;
 }
 
-const GROUPS = ["文本", "卡片", "AI"] as const;
+const GROUPS = ["文本", "插入", "卡片", "AI"] as const;
 
 /** 菜单展示顺序(分组渲染):键盘导航与点击必须共用同一顺序 */
 export function flattenSlashItems(items: SlashCommandDef[]): SlashCommandDef[] {

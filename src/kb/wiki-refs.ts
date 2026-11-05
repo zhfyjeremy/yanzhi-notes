@@ -49,6 +49,17 @@ export function wikiTargetFor(docs: WikiDoc[], path: string): string {
   return dup ? path.replace(/\.md$/i, "") : name;
 }
 
+/** 当前 [[…]] 方言无法可靠表达的控制符、反斜杠、右方括号与别名分隔符 */
+const WIKI_LINK_FORBIDDEN_RE = /[\\\]|\u0000-\u001f\u007f]/u;
+
+/** 目录树「复制双链引用」用:生成可粘贴文本;不兼容字符返回 null(菜单禁用) */
+export function wikiLinkTextFor(docs: WikiDoc[], path: string): string | null {
+  if (!docs.some((d) => d.path === path)) return null;
+  const target = wikiTargetFor(docs, path);
+  if (!target.trim() || target !== target.trim() || WIKI_LINK_FORBIDDEN_RE.test(target)) return null;
+  return `[[${target}]]`;
+}
+
 interface RefPatterns {
   /** 文档闭式 pattern(含 `[[` 前缀),长键在前 */
   patterns: [string, string][];

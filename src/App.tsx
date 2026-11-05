@@ -26,9 +26,8 @@ import { compressImageFile, isImageFile } from "./kb/image-compress";
 import { useSettings } from "./settings";
 import { useAiSession } from "./ai/useAiSession";
 import { useTitleAiSession } from "./ai/useTitleAiSession";
-import { TitleAiControl, type TitleAiConfirmInfo } from "./ai/TitleAiControl";
+import { TitleAiControl } from "./ai/TitleAiControl";
 import { buildTitleContext, markdownFingerprint } from "./ai/title-suggest";
-import { hostOfBaseUrl } from "./ai/client";
 import { WelcomePage } from "./kb/WelcomePage";
 import { SingleFileWorkspace } from "./kb/SingleFileWorkspace";
 import { useKb } from "./kb/useKb";
@@ -36,8 +35,9 @@ import { useSingleFile } from "./kb/useSingleFile";
 import { isTauriEnv, kbBackend } from "./kb/backend";
 import { setAssetResolver } from "./kb/asset-src";
 import { buildExportHtml } from "./kb/export-html";
+import { copyPlainText } from "./editor/clipboard";
 import { prepareSingleMarkdownForKb } from "./kb/assets";
-import { flattenDocs, wikiTargetFor } from "./kb/wiki-refs";
+import { flattenDocs, wikiLinkTextFor, wikiTargetFor } from "./kb/wiki-refs";
 import type { HistoryEntry } from "./kb/types";
 import { formatShortcut, shortcutMatches } from "./shortcuts";
 import type { BatchRenameItem, BatchResult } from "./kb/batch";
@@ -64,7 +64,6 @@ const docBasename = (rel: string): string =>
   rel.split("/").pop()?.replace(/\.md$/i, "") ?? "";
 
 type EditorScope = "kb" | "single";
-type TitleAiPending = { markdown: string; path: string; info: TitleAiConfirmInfo };
 
 function App() {
   const { settings, update: updateSettings } = useSettings();
@@ -109,7 +108,6 @@ function App() {
   /** /ai 等入口未就绪时先提示,确认后再进设置,避免生硬直跳 */
   const [aiSetupPromptOpen, setAiSetupPromptOpen] = useState(false);
   const [titleAiPopoverOpen, setTitleAiPopoverOpen] = useState(false);
-  const [titleAiPending, setTitleAiPending] = useState<TitleAiPending | null>(null);
   // 单文件大纲默认展开(无目录树,大纲占左导航);与知识库右栏 showOutline 独立
   const [singleOutlineOpen, setSingleOutlineOpen] = useState(true);
   const singleAssetsAllowedRef = useRef(false);
@@ -804,6 +802,11 @@ function App() {
   // 搜索结果点击 → 打开文档;载入完成后再发定位信号(编辑器 setContent 之后)
   const onSearchSelect = useCallback(
     (rel: string, term: string) => {
+      // 标题/路径命中但正文未命中时只打开文档,不触发文档内查找。
+      if (!term) {
+        if (rel !== kb.currentPath) void kb.openDoc(rel);
+        return;
+      }
       pendingLocate.current = term;
       if (rel === kb.currentPath) {
         // 当前文档:markdown 不会变,直接发信号
@@ -901,30 +904,14 @@ function App() {
   const startTitleAi = useCallback(() => {
     const path = currentPathRef.current;
     if (!path?.endsWith(".md")) return;
-    const context = buildTitleContext(kb.getMarkdownNow());
-    if (context.chars < 8) {
+    const markdown = kb.getMarkdownNow();
+    if (buildTitleContext(markdown).chars < 8) {
       showToast("先写一点内容，再让 AI 起标题");
       return;
     }
-    setTitleAiPending({
-      markdown: context.text,
-      path,
-      info: {
-        host: hostOfBaseUrl(settings.aiBaseUrl),
-        chars: Math.min(context.chars, 12000),
-        clipped: context.clipped,
-      },
-    });
     setTitleAiPopoverOpen(true);
-  }, [kb.getMarkdownNow, settings.aiBaseUrl, showToast]);
-
-  const confirmTitleAi = useCallback(() => {
-    const pending = titleAiPending;
-    if (!pending) return;
-    setTitleAiPopoverOpen(true);
-    void titleAi.run({ markdown: pending.markdown, sourcePath: pending.path });
-    setTitleAiPending(null);
-  }, [titleAi, titleAiPending]);
+    void titleAi.run({ markdown, sourcePath: path });
+  }, [kb.getMarkdownNow, titleAi, showToast]);
 
   const applyTitleAi = useCallback(
     (candidate: string) => {
@@ -976,15 +963,16 @@ function App() {
   const changeTitleAiPopoverOpen = useCallback(
     (open: boolean) => {
       setTitleAiPopoverOpen(open);
-      if (!open && titleAi.state.phase === "idle") setTitleAiPending(null);
+      // 请求中关掉气泡 = 取消;结果/错误仅收起,点图标可再看候选。
+      if (!open && titleAi.state.phase === "running") void titleAi.cancel();
     },
-    [titleAi.state.phase],
+    [titleAi],
   );
 
-  // 状态被取消或清空时同步关掉空弹层(状态栏取消/关闭总开关也会走到这里)。
+  // 取消/应用/关总开关回到 idle 时收起空弹层。
   useEffect(() => {
-    if (titleAi.state.phase === "idle" && titleAiPopoverOpen) setTitleAiPopoverOpen(false);
-  }, [titleAi.state.phase, titleAiPopoverOpen]);
+    if (titleAi.state.phase === "idle") setTitleAiPopoverOpen(false);
+  }, [titleAi.state.phase]);
 
   // 切换文档后旧请求不再可用;直接取消，避免继续占用用户配置的模型服务。
   useEffect(() => {
@@ -1133,12 +1121,35 @@ function App() {
     [commitTitleRename, kb.openDoc],
   );
 
-  // `[[` 检索列表:树平铺 + 重名文档算好路径写法目标(PRD §517)
-  const wikiDocRefs = useMemo<WikiDocRef[]>(() => {
-    const docs = flattenDocs(kb.tree);
-    return docs.map((d) => ({ name: d.name, path: d.path, target: wikiTargetFor(docs, d.path) }));
-  }, [kb.tree]);
+  // `[[` 检索列表 / 复制双链引用都基于完整树:标签筛选视图不能丢失重名消歧信息。
+  const wikiDocs = useMemo(() => flattenDocs(kb.tree), [kb.tree]);
+  const wikiDocRefs = useMemo<WikiDocRef[]>(
+    () => wikiDocs.map((d) => ({ name: d.name, path: d.path, target: wikiTargetFor(wikiDocs, d.path) })),
+    [wikiDocs],
+  );
   wikiDocsForAiRef.current = wikiDocRefs;
+
+  const canCopyWikiRef = useCallback(
+    (rel: string) => wikiLinkTextFor(wikiDocs, rel) !== null,
+    [wikiDocs],
+  );
+  const copyWikiRef = useCallback(
+    async (rel: string) => {
+      const text = wikiLinkTextFor(wikiDocs, rel);
+      if (!text) {
+        showToast("标题或路径包含双链不兼容字符");
+        return;
+      }
+      try {
+        await copyPlainText(text);
+        showToast("双链引用已复制");
+      } catch (e) {
+        console.error("[copy-wiki-ref]", e);
+        showToast("复制失败，请重试");
+      }
+    },
+    [showToast, wikiDocs],
+  );
 
   const onOpenWikiLink = useCallback(
     (target: string) => {
@@ -1292,6 +1303,10 @@ function App() {
         scrollEl={scrollEl}
         showToolbar={settings.showToolbar}
         cardBorder={settings.cardBorder}
+        tableCellCopy={settings.tableCellCopy}
+        onToggleTableCellCopy={() =>
+          updateSettings({ tableCellCopy: !settings.tableCellCopy })
+        }
         typewriterMode={settings.typewriterMode}
         onToggleTypewriter={() => updateSettings({ typewriterMode: !settings.typewriterMode })}
         shortcuts={settings.shortcuts}
@@ -1379,6 +1394,8 @@ function App() {
             onMoveEntry={(src, dest, ordered) => void moveWithToast(src, dest, ordered)}
             onSearch={kb.search}
             onSearchSelect={onSearchSelect}
+            canCopyWikiRef={canCopyWikiRef}
+            onCopyWikiRef={copyWikiRef}
             searchPreset={searchPreset}
             onRebuildIndex={() => void kb.rebuildIndex()}
             onOpenTrash={() => setTrashOpen(true)}
@@ -1475,10 +1492,8 @@ function App() {
                             titleAi.state.fingerprint)
                       }
                       popoverOpen={titleAiPopoverOpen}
-                      confirm={titleAiPending?.info ?? null}
                       onPopoverOpenChange={changeTitleAiPopoverOpen}
                       onStart={startTitleAi}
-                      onConfirm={confirmTitleAi}
                       onNeedSettings={promptAiSetup}
                       onApply={applyTitleAi}
                       onCancel={() => {
@@ -1487,7 +1502,6 @@ function App() {
                       }}
                       onDismiss={() => {
                         titleAi.clearResult();
-                        setTitleAiPending(null);
                         setTitleAiPopoverOpen(false);
                       }}
                     />
@@ -1511,6 +1525,10 @@ function App() {
             onOpenAttachment={onOpenAttachment}
             locateSignal={locateSignal}
             cardBorder={settings.cardBorder}
+            tableCellCopy={settings.tableCellCopy}
+            onToggleTableCellCopy={() =>
+              updateSettings({ tableCellCopy: !settings.tableCellCopy })
+            }
             showToolbar={settings.showToolbar && !focusMode}
             typewriter={focusMode && settings.typewriterMode}
             shortcuts={settings.shortcuts}

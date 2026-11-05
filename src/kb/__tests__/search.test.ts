@@ -47,6 +47,18 @@ describe("KbSearchIndex(标题加权 > 路径 > 正文)", () => {
     expect(hits[0].path).toBe("a/正文里有砚知.md"); // 标题+正文双命中
     expect(hits.length).toBeGreaterThanOrEqual(1);
   });
+  it("标记正文是否命中(标题命中但正文未命中时不应触发文档内查找)", () => {
+    const idx = new KbSearchIndex();
+    idx.add("a/设计.md", "这里没有关键词");
+    idx.add("b/普通.md", "正文里有设计");
+    idx.add("c/普通文档.md", "正文没有", ["设计"]);
+    const hits = idx.search("设计");
+    const byPath = new Map(hits.map((h) => [h.path, h]));
+    expect(byPath.get("a/设计.md")?.contentMatched).toBe(false);
+    expect(byPath.get("b/普通.md")?.contentMatched).toBe(true);
+    expect(byPath.get("c/普通文档.md")?.contentMatched).toBe(false);
+  });
+
   it("路径命中排在纯正文命中前", () => {
     const idx = new KbSearchIndex();
     idx.add("tech笔记/普通.md", "提到 flexsearch 一次");

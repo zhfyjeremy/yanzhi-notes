@@ -183,8 +183,9 @@ export const AI_ACTIONS: AiActionDef[] = [
   },
   {
     id: "restructure",
-    label: "拆段加小标题",
-    keywords: ["ai", "restructure", "chaiduan", "拆段", "小标题", "结构"],
+    label: "整理结构",
+    keywords: ["ai", "restructure", "structure", "zhengli", "jiegou", "chaiduan", "拆段", "小标题", "结构化"],
+    runningLabel: "整理结构",
     allowEmptySelection: false,
     bias: "replace",
     group: "structure",

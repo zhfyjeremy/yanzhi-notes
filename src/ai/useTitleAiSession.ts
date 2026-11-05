@@ -3,6 +3,7 @@ import type { AppSettings } from "../settings";
 import { aiChat, cancelAi, hostOfBaseUrl } from "./client";
 import {
   TITLE_AI_SYSTEM,
+  buildTitleContext,
   markdownFingerprint,
   parseAiTitleSuggestions,
   titleSuggestUserPrompt,
@@ -70,7 +71,8 @@ export function useTitleAiSession(
         onToast?.("仅知识库文档支持 AI 起标题");
         return;
       }
-      if (!markdown.trim()) {
+      const context = buildTitleContext(markdown);
+      if (context.chars < 8) {
         onToast?.("先写一点内容，再让 AI 起标题");
         return;
       }
@@ -88,7 +90,7 @@ export function useTitleAiSession(
         candidates: [],
         error: "",
         sourcePath,
-        fingerprint: markdownFingerprint(markdown),
+        fingerprint: markdownFingerprint(context.text),
       });
 
       try {
@@ -96,9 +98,9 @@ export function useTitleAiSession(
           baseUrl: settings.aiBaseUrl,
           model: settings.aiModel,
           system: TITLE_AI_SYSTEM,
-          user: titleSuggestUserPrompt(markdown),
+          user: titleSuggestUserPrompt(context.text),
           temperature: settings.aiTemperature,
-          maxTokens: Math.max(96, Math.min(settings.aiMaxTokens || 192, 192)),
+          maxTokens: settings.aiMaxTokens,
           requestId,
         });
         if (reqRef.current !== requestId) return;

@@ -70,6 +70,8 @@ export interface SearchHit {
   /** 所在文件夹相对路径(库根为空串) */
   dir: string;
   score: number;
+  /** 正文原文是否有关键词;标题/路径/标签命中但正文未命中时,点击只打开不再触发文档内查找 */
+  contentMatched: boolean;
   /** 命中片段(正文无命中时给开头摘要,无高亮) */
   snippet: SnippetSegment[];
 }
@@ -159,9 +161,12 @@ export class KbSearchIndex {
     };
     // suggest:true —— 全 token AND 无果时按 OR 兜底(多字查询部分命中也能出)
     const opt = { limit: LIMIT, suggest: true };
-    bump(this.title.search(q, opt), WEIGHTS.title);
-    bump(this.path.search(q, opt), WEIGHTS.path);
-    bump(this.content.search(q, opt), WEIGHTS.content);
+    const titleIds = this.title.search(q, opt);
+    const pathIds = this.path.search(q, opt);
+    const contentIds = this.content.search(q, opt);
+    bump(titleIds, WEIGHTS.title);
+    bump(pathIds, WEIGHTS.path);
+    bump(contentIds, WEIGHTS.content);
 
     const terms = highlightTerms(q);
     return Array.from(scores.entries())
@@ -173,6 +178,12 @@ export class KbSearchIndex {
         dir: docDir(path),
         score,
         snippet: buildSnippet(this.raws.get(path) ?? "", terms),
+      }))
+      .map((hit) => ({
+        ...hit,
+        // 标签拼在正文索引尾部参与检索,但不能因此触发文档内查找;
+        // 以正文原文片段是否出现高亮为准。
+        contentMatched: hit.snippet.some((seg) => seg.hit),
       }));
   }
 }
