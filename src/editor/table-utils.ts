@@ -1,4 +1,4 @@
-import type { Node as PMNode } from "@tiptap/pm/model";
+import type { Node as PMNode, ResolvedPos } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import {
@@ -105,6 +105,80 @@ export function getTableContext(state: EditorState): TableContext | null {
     rows: table.childCount,
     cols,
     align: uniform ? align : null,
+  };
+}
+
+function cellDepthOf($pos: ResolvedPos): number {
+  for (let d = $pos.depth; d > 0; d--) {
+    const role = $pos.node(d).type.spec.tableRole;
+    if (role === "cell" || role === "header_cell") return d;
+  }
+  return -1;
+}
+
+/** 把文档位置收进单元格内。pos 落在单元格边界前时向内迈一步 */
+function resolveInsideCell(state: EditorState, pos: number): ResolvedPos | null {
+  const max = state.doc.content.size;
+  const clamped = Math.max(0, Math.min(pos, max));
+  const $pos = state.doc.resolve(clamped);
+  if (cellDepthOf($pos) >= 0) return $pos;
+  const after = $pos.nodeAfter;
+  const role = after?.type.spec.tableRole;
+  if ((role === "cell" || role === "header_cell") && clamped < max) {
+    const inner = state.doc.resolve(clamped + 1);
+    if (cellDepthOf(inner) >= 0) return inner;
+  }
+  return null;
+}
+
+/**
+ * 右键落点所在单元格的表格上下文,不读当前选区。
+ * 长表滚到下面时,菜单按点中的那一行/列操作,而不是光标原先所在的行。
+ */
+export function tableContextAtPos(state: EditorState, pos: number): TableContext | null {
+  const $pos = resolveInsideCell(state, pos);
+  if (!$pos) return null;
+  const cellDepth = cellDepthOf($pos);
+  if (cellDepth < 0) return null;
+
+  let rowDepth = -1;
+  let tableDepth = -1;
+  for (let d = cellDepth - 1; d > 0; d--) {
+    const role = $pos.node(d).type.spec.tableRole;
+    if (role === "row" && rowDepth < 0) rowDepth = d;
+    if (role === "table") {
+      tableDepth = d;
+      break;
+    }
+  }
+  if (rowDepth < 0 || tableDepth < 0) return null;
+
+  const table = $pos.node(tableDepth);
+  const rowNode = $pos.node(rowDepth);
+  const cellNode = $pos.node(cellDepth);
+  let rowIndex = -1;
+  table.forEach((row, _offset, index) => {
+    if (row === rowNode) rowIndex = index;
+  });
+  let colIndex = -1;
+  rowNode.forEach((cell, _offset, index) => {
+    if (cell === cellNode) colIndex = index;
+  });
+  const cols = table.firstChild?.childCount ?? 0;
+  if (rowIndex < 0 || colIndex < 0 || cols <= 0) return null;
+
+  const headerCell = table.firstChild?.child(colIndex);
+  const align = (headerCell?.attrs.textAlign as ColumnAlign) ?? null;
+  return {
+    table,
+    tablePos: $pos.before(tableDepth),
+    colIndex,
+    colIndexes: [colIndex],
+    rowIndex,
+    rowIndexes: [rowIndex],
+    rows: table.childCount,
+    cols,
+    align,
   };
 }
 
@@ -227,11 +301,15 @@ export function insertTableAxis(
   return true;
 }
 
-/** 整列设置对齐(含表头);覆盖当前选中的全部列。再次点击同对齐由 UI 层传 null 还原默认 */
-export function setColumnAlign(editor: Editor, align: ColumnAlign): void {
-  const ctx = getTableContext(editor.state);
-  if (!ctx) return;
-  const { table, tablePos, colIndexes } = ctx;
+/** 整列设置对齐(含表头)。colIndexes 为要改的列;不读选区 */
+export function setColumnAlignAt(
+  editor: Editor,
+  tablePos: number,
+  colIndexes: number[],
+  align: ColumnAlign,
+): void {
+  const table = editor.state.doc.nodeAt(tablePos);
+  if (!table || table.type.spec.tableRole !== "table") return;
   const targets = new Set(colIndexes);
   const tr = editor.state.tr;
   // setNodeMarkup 的 pos 需满足 doc.nodeAt(pos) === 目标单元格:
@@ -246,4 +324,21 @@ export function setColumnAlign(editor: Editor, align: ColumnAlign): void {
     });
   });
   if (tr.docChanged) editor.view.dispatch(tr);
+}
+
+/** 整列设置对齐(含表头);覆盖当前选中的全部列。再次点击同对齐由 UI 层传 null 还原默认 */
+export function setColumnAlign(editor: Editor, align: ColumnAlign): void {
+  const ctx = getTableContext(editor.state);
+  if (!ctx) return;
+  setColumnAlignAt(editor, ctx.tablePos, ctx.colIndexes, align);
+}
+
+/** 按表格节点位置删除整表。菜单点击后选区可能已离开单元格 */
+export function deleteTableAt(editor: Editor, tablePos: number): boolean {
+  const table = editor.state.doc.nodeAt(tablePos);
+  if (!table || table.type.spec.tableRole !== "table") return false;
+  editor.view.dispatch(
+    editor.state.tr.delete(tablePos, tablePos + table.nodeSize).scrollIntoView(),
+  );
+  return true;
 }

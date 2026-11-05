@@ -20,6 +20,7 @@ import { EditorToolbar } from "./toolbar/EditorToolbar";
 import { FindReplaceBar } from "./toolbar/FindReplaceBar";
 import { ImageToolbar } from "./toolbar/ImageToolbar";
 import { TableToolbar } from "./toolbar/TableToolbar";
+import { TableContextMenu } from "./toolbar/TableContextMenu";
 import { TableCellCopy } from "./toolbar/TableCellCopy";
 import { WikiLinkSuggestExtension, type WikiDocRef } from "./wiki-link-command";
 import { handleWikiLinkPaste } from "./wiki-link-paste";
@@ -389,11 +390,18 @@ export function YanzhiEditor({
         >
           <EditorContent editor={editor} className="flex flex-1 flex-col" />
           {editor && (
-            <TableToolbar
-              editor={editor}
-              cellCopy={tableCellCopy}
-              onToggleCellCopy={onToggleTableCellCopy}
-            />
+            <>
+              <TableToolbar
+                editor={editor}
+                cellCopy={tableCellCopy}
+                onToggleCellCopy={onToggleTableCellCopy}
+              />
+              <TableContextMenu
+                editor={editor}
+                cellCopy={tableCellCopy}
+                onToggleCellCopy={onToggleTableCellCopy}
+              />
+            </>
           )}
           {editor && <TableCellCopy editor={editor} enabled={tableCellCopy} />}
           {editor && <ImageToolbar editor={editor} onPreview={setPreviewSrc} />}

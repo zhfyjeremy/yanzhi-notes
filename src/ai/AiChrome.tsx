@@ -122,6 +122,8 @@ export function AiChrome({
       if (!enabled) return;
       const t = e.target as HTMLElement;
       if (t.closest("input, textarea, button, a, .yz-code-card")) return;
+      // 单元格右键交给表格菜单(增删行列),不和 AI 菜单叠开
+      if (t.closest("td, th")) return;
       e.preventDefault();
       const { empty, from, to } = editor.state.selection;
       ctxSelectionRef.current = empty ? null : { from, to };

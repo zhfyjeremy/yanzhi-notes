@@ -7,9 +7,12 @@ import { mdToHtml } from "../markdown/md-instance";
 import { docToMarkdown } from "../markdown/serialize";
 import {
   applyTableStructure,
+  deleteTableAt,
   getTableContext,
   insertTableAxis,
   setColumnAlign,
+  setColumnAlignAt,
+  tableContextAtPos,
   toStructureAnchor,
 } from "../table-utils";
 
@@ -231,6 +234,56 @@ describe("applyTableStructure", () => {
     expect(editor.state.doc.nodeAt(anchor.tablePos)?.childCount).toBe(anchor.rows + 5);
     expect(insertTableAxis(editor, anchor, 0, "row", "after")).toBe(false);
     expect(insertTableAxis(editor, anchor, 99, "column", "after")).toBe(false);
+    editor.destroy();
+  });
+});
+
+describe("tableContextAtPos", () => {
+  it("第二行右键落点向下插入,插在该行之后", () => {
+    const editor = makeEditor();
+    const cells = cellPositions(editor);
+    // 表头是第 1 行,cells[2] 是第二行第一格(a)
+    const ctx = tableContextAtPos(editor.state, cells[2] + 1);
+    expect(ctx?.rowIndex).toBe(1);
+    expect(ctx?.colIndex).toBe(0);
+    expect(ctx?.align).toBe("left");
+
+    const cellDom = editor.view.nodeDOM(cells[2]) as HTMLElement;
+    const fromDom = tableContextAtPos(editor.state, editor.view.posAtDOM(cellDom, 0));
+    expect(fromDom?.rowIndex).toBe(1);
+    expect(fromDom?.colIndex).toBe(0);
+
+    expect(applyTableStructure(editor, toStructureAnchor(ctx!), "addRowAfter")).toBe(true);
+    const table = editor.state.doc.nodeAt(ctx!.tablePos);
+    expect(table?.childCount).toBe(4);
+    expect(table?.child(1).textContent).toBe("ab");
+    expect(table?.child(2).textContent).toBe("");
+    expect(table?.child(3).textContent).toBe("cd");
+    editor.destroy();
+  });
+
+  it("第三行、第二列的落点互不串行", () => {
+    const editor = makeEditor();
+    const cells = cellPositions(editor);
+    const row = tableContextAtPos(editor.state, cells[4] + 1);
+    const col = tableContextAtPos(editor.state, cells[3] + 1);
+    expect(row?.rowIndex).toBe(2);
+    expect(row?.colIndex).toBe(0);
+    expect(col?.rowIndex).toBe(1);
+    expect(col?.colIndex).toBe(1);
+    expect(col?.align).toBe("center");
+    expect(tableContextAtPos(editor.state, editor.state.doc.content.size)).toBeNull();
+    editor.destroy();
+  });
+
+  it("按落点列对齐,并按表格位置删表", () => {
+    const editor = makeEditor();
+    const cells = cellPositions(editor);
+    const ctx = tableContextAtPos(editor.state, cells[3] + 1)!;
+    setColumnAlignAt(editor, ctx.tablePos, [ctx.colIndex], "right");
+    expect(docToMarkdown(editor.state.doc)).toContain("| :--- | ---: |");
+    expect(deleteTableAt(editor, ctx.tablePos)).toBe(true);
+    expect(docToMarkdown(editor.state.doc)).not.toContain("|");
     editor.destroy();
   });
 });

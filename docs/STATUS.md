@@ -21,7 +21,7 @@
 | TOC 大纲面板 | ✅ | 滚动高亮联动、点击跳转、可折叠 |
 | 代码块卡片 | ✅ | hover 语言切换/复制、行号列;`src/editor/extensions/code-block-card.tsx` |
 | Shiki 语法高亮 | ✅ | `src/editor/extensions/code-highlight.ts`,PM decoration + css-variables 语义槽位 → `--code-*` token |
-| 表格编辑工具条 | ✅ | 光标入表浮现:行/列增删下拉 + 整列对齐 + 删表;`table-utils.ts` + `toolbar/TableToolbar.tsx` + 表格基础样式;**列宽拖拽**(`Table.resizable`,colwidth 会话级,GFM 无列宽语法,重开回均分);**单元格悬停复制**(设置/表工具条复制图标同源 `tableCellCopy`,默认关,`TableCellCopy` 浮层,2026-11-05) |
+| 表格编辑工具条 | ✅ | 光标入表浮现:行/列增删下拉 + 整列对齐 + 删表;`table-utils.ts` + `toolbar/TableToolbar.tsx` + 表格基础样式;**列宽拖拽**(`Table.resizable`,colwidth 会话级,GFM 无列宽语法,重开回均分);**单元格悬停复制**(设置/表工具条复制图标同源 `tableCellCopy`,默认关,`TableCellCopy` 浮层);**单元格右键**(`TableContextMenu`,按点中的行/列插删行列、对齐、删表,长表不用滚回浮条,2026-11-05) |
 | 粘贴清洗 | ✅ | `paste-clean.ts`(transformPastedHTML):样式/脚本/私有 XML 丢弃、追踪参数剥离、合并表格降级纯文本、外部任务列表转 taskItem、外部颜色吸附预设色 |
 | 图片卡片 UI | ✅ | 选中图片浮层(宽度档位/对齐/放大 lightbox)+ **左右手柄拖拽改宽**(20%–100%);width/align 会话级不进 md |
 | 文字颜色(语雀式色卡) | ✅ | §10 方言 `<font color>`:色卡 8 色 + 默认清除(`extensions/font-color.ts` + 工具栏 Palette 下拉);粘贴吸附(黑白灰摘除/彩色吸附最近预设色);序列化公共 mark 外提 |
