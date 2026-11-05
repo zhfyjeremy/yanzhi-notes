@@ -21,7 +21,7 @@
 | TOC 大纲面板 | ✅ | 滚动高亮联动、点击跳转、可折叠 |
 | 代码块卡片 | ✅ | hover 语言切换/复制、行号列;`src/editor/extensions/code-block-card.tsx` |
 | Shiki 语法高亮 | ✅ | `src/editor/extensions/code-highlight.ts`,PM decoration + css-variables 语义槽位 → `--code-*` token |
-| 表格编辑工具条 | ✅ | 光标入表浮现:行/列增删下拉 + 整列对齐 + 删表;`table-utils.ts` + `toolbar/TableToolbar.tsx` + 表格基础样式;**列宽拖拽**(`Table.resizable`,colwidth 会话级,GFM 无列宽语法,重开回均分);**单元格悬停复制**(设置/表工具条复制图标同源 `tableCellCopy`,默认关,`TableCellCopy` 浮层);**单元格右键**(`TableContextMenu`,按点中的行/列插删行列、对齐、删表,长表不用滚回浮条,2026-11-05) |
+| 表格编辑工具条 | ✅ | 光标入表浮现:行/列增删下拉 + 整列对齐 + 删表;`table-utils.ts` + `toolbar/TableToolbar.tsx` + 表格基础样式;**列宽拖拽**(`Table.resizable`,colwidth 会话级,GFM 无列宽语法,重开回均分);**单元格悬停复制**(设置/表工具条复制图标同源 `tableCellCopy`,默认关,`TableCellCopy` 浮层);**单元格右键**(`TableContextMenu`,按点中的行/列插删行列、对齐、删表,长表不用滚回浮条,2026-11-05;同日换 Radix 多级菜单并统一 `context-menu`/`dropdown-menu` 视觉) |
 | 粘贴清洗 | ✅ | `paste-clean.ts`(transformPastedHTML):样式/脚本/私有 XML 丢弃、追踪参数剥离、合并表格降级纯文本、外部任务列表转 taskItem、外部颜色吸附预设色 |
 | 图片卡片 UI | ✅ | 选中图片浮层(宽度档位/对齐/放大 lightbox)+ **左右手柄拖拽改宽**(20%–100%);width/align 会话级不进 md |
 | 文字颜色(语雀式色卡) | ✅ | §10 方言 `<font color>`:色卡 8 色 + 默认清除(`extensions/font-color.ts` + 工具栏 Palette 下拉);粘贴吸附(黑白灰摘除/彩色吸附最近预设色);序列化公共 mark 外提 |
@@ -244,7 +244,7 @@
 | 行内公式 `$…$` | 6.1.3/§10 | ✅ | md-it inline 规则(before escape,`$$` 让块级):`$` 紧贴非空白才触发、不跨行;latex 走 `encodeURIComponent` 进 `data-latex` 属性(避免 HTML 转义歧义);`mathInline` atom inline 节点 + KaTeX renderToString NodeView,双击进源码编辑;input rule `$E=mc^2$ ` 打完即转 |
 | 独立公式块 `$$…$$` | 6.1.3/§10 | ✅ | md-it core 规则:整段 `$$…$$` retag 为 div;**latex 从 inline token 原始 content 提取而非 children**(`\frac` 等反斜杠命令会被 CommonMark 转义规则吃掉);序列化统一 `$$/latex/$$` 三行(单行 `$$E$$` 归一化);`mathBlock` atom block 节点 + hover 编辑按钮;空行打 `$$` input rule 即转卡片;斜杠菜单「公式/行内公式」;fixture `math.md`(多行/引用内/紧贴边界/金额不触发);E2E `math.js` 9/9 + `math-font.js`(KaTeX 字体全同源加载,无外部请求) |
 | 插入即编辑的焦点 race | — | ✅ 已绕开 | 空 latex 自动进编辑态的设计与插入命令的 `chain().focus()` 抢焦点(时序不稳,E2E/probe 两行为);改为占位「空公式」+ 双击/hover 按钮进入,交互少一步 magic 但稳定 |
-| 斜杠菜单可点击 | — | ✅ 顺带修 | 菜单项原本只支持键盘 Enter(鼠标点击无响应);且 COMMANDS 数组序与分组渲染序不一致时 Enter 会执行错误命令(callout 插入到数组头后暴露)。修法:`flattenSlashItems()` 统一键盘/点击/渲染三方口径,点击直接传 item 对象 |
+| 斜杠菜单可点击/二级分组 | — | ✅ 顺带修 | 菜单项原本只支持键盘 Enter(鼠标点击无响应);且 COMMANDS 数组序与分组渲染序不一致时 Enter 会执行错误命令(callout 插入到数组头后暴露)。修法统一键盘/点击/渲染三方口径,点击直接传 item 对象。2026-11-05:菜单视觉对齐 `chrome-float`/`raised`/紧凑 item;无搜索时标题、列表、日期时间、提示块、公式、AI 收进二级菜单,支持左右键/Escape 与 hover;有搜索时仍平铺命中叶子命令,`/h1` 等熟手路径保持一步执行 |
 
 验证:134/134 单测(新增 callout/math fixtures)、`pnpm build` 过、`callout.js` 7/7、`math.js` 9/9、`callout-style.js`(4 类型浅/深色各自区分)、`math-font.js`(离线字体)。E2E 脚本均在 `/tmp/yanzhi-drive/`。
 
@@ -286,7 +286,7 @@
 | --- | --- | --- |
 | 设置「AI 助手」 | ✅ | 总开关/Base URL/模型(温度与 max tokens 保留内部默认值,设置页不展示);三步配置流(服务商→Key 连接→选择模型),`GET /models` 拉取列表,失败回落内置模型/手填;顶部按未开启/检查 Key/连接/选模型/待测试/配置成功展示阶段进度,关闭总开关时收起配置;Kimi Coding 走 Anthropic Messages;契约条(左侧主色描边);Key 进系统钥匙串(`keyring`)+App Data 0600 本机缓存,不进 settings.json/知识库 |
 | 请求层 | ✅ | Rust `ai_chat`/`ai_test_connection`/`ai_cancel`/`ai_list_models`(reqwest+可取消);仅 https 或本机 http;浏览器 mock=localStorage+fetch |
-| 选区浮动条 | ✅ | `SelectionBubble`:未开 AI 时格式全开(粗体/斜体/高亮/颜色/链接);AI 就绪时收起斜体与颜色,露出润色/扩写/缩写 +「更多 ▾」;文案 `whitespace-nowrap` 防竖排;`AiChrome` 承接结果条与右键 |
+| 选区浮动条 | ✅ | `SelectionBubble`:未开 AI 时格式全开(粗体/斜体/高亮/颜色/链接);AI 就绪时收起斜体与颜色,露出润色/扩写/缩写 +「更多 ▾」(2026-11-05 迁 Radix Dropdown,语气/语言/公式走二级菜单并统一菜单视觉);文案 `whitespace-nowrap` 防竖排;`AiChrome` 承接结果条与右键 |
 | 右键 AI 子菜单 | ✅ | 选区右键;无选区可续写;「更多/右键」按上下文分写作/结构/卡片 |
 | 斜杠 `/ai` | ✅ | 斜杠菜单 AI 分组,关键词含 ai;未配置时先弹确认「稍后再说 / 去配置」,确认后再打开设置 AI 页 |
 | 结果三按钮 | ✅ | 插入/替换/仅复制(确认后写回);双链建议逐条可点插入;请求中轻量胶囊可取消 |

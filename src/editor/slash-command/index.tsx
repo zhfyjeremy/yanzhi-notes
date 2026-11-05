@@ -39,7 +39,13 @@ import {
 import type { CalloutType } from "../extensions/callout";
 import { formatDateTime, type DateTimeInsertKind } from "./datetime";
 import { AI_ACTIONS, type AiActionId } from "../../ai/actions";
-import { SlashMenu, flattenSlashItems, type SlashCommandDef } from "./SlashMenu";
+import {
+  SlashMenu,
+  flattenSlashMenuNodes,
+  type SlashCommandDef,
+  type SlashMenuNode,
+  type SlashSubmenuDef,
+} from "./SlashMenu";
 
 /**
  * 斜杠 `/` 插入面板(PRD §4.2):输入 `/` 唤起模糊搜索菜单。
@@ -168,7 +174,7 @@ const DATE_TIME_COMMANDS: SlashCommandDef[] = [
   },
 ];
 
-const COMMANDS: SlashCommandDef[] = [
+export const COMMANDS: SlashCommandDef[] = [
   callout("info", "信息提示", Info, "xinxi"),
   callout("success", "成功提示", CircleCheck, "chenggong"),
   ...DATE_TIME_COMMANDS,
@@ -341,6 +347,88 @@ function filterCommands(query: string): SlashCommandDef[] {
   );
 }
 
+/**
+ * 无搜索时把长尾命令收进二级菜单;有搜索时仍平铺命中叶子命令,
+ * `/h1`、`/todo`、`/translate` 等熟手路径保持一步执行。
+ */
+const SUBMENUS: (Omit<SlashSubmenuDef, "children"> & {
+  match: (item: SlashCommandDef) => boolean;
+})[] = [
+  {
+    id: "heading",
+    group: "文本",
+    label: "标题",
+    icon: Heading2,
+    match: (item) => item.group === "文本" && /^h[1-6]$/.test(item.keywords[0] ?? ""),
+  },
+  {
+    id: "list",
+    group: "文本",
+    label: "列表",
+    icon: List,
+    match: (item) => item.group === "文本" && item.label.endsWith("列表"),
+  },
+  {
+    id: "date-time",
+    group: "插入",
+    label: "日期和时间",
+    icon: Calendar,
+    match: (item) => item.group === "插入",
+  },
+  {
+    id: "callout",
+    group: "卡片",
+    label: "提示块",
+    icon: Info,
+    match: (item) => item.keywords.includes("callout"),
+  },
+  {
+    id: "math",
+    group: "卡片",
+    label: "公式",
+    icon: Sigma,
+    match: (item) => item.group === "卡片" && item.keywords.includes("math"),
+  },
+  {
+    id: "ai",
+    group: "AI",
+    label: "AI 动作",
+    icon: Sparkles,
+    match: (item) => item.group === "AI",
+  },
+];
+
+export function buildSlashMenuNodes(items: SlashCommandDef[], query: string): SlashMenuNode[] {
+  if (query.trim()) return items.map((item) => ({ kind: "item", item }));
+
+  const submenuByItem = new Map<SlashCommandDef, (typeof SUBMENUS)[number]>();
+  for (const item of items) {
+    const submenu = SUBMENUS.find((def) => def.match(item));
+    if (submenu) submenuByItem.set(item, submenu);
+  }
+
+  const emitted = new Set<string>();
+  const nodes: SlashMenuNode[] = [];
+  for (const item of items) {
+    const submenu = submenuByItem.get(item);
+    if (!submenu) {
+      nodes.push({ kind: "item", item });
+      continue;
+    }
+    if (emitted.has(submenu.id)) continue;
+    emitted.add(submenu.id);
+    nodes.push({
+      kind: "submenu",
+      id: submenu.id,
+      group: submenu.group,
+      label: submenu.label,
+      icon: submenu.icon,
+      children: items.filter((child) => submenuByItem.get(child)?.id === submenu.id),
+    });
+  }
+  return nodes;
+}
+
 const MENU_WIDTH = 240;
 const MENU_MAX_HEIGHT = 320;
 const VIEWPORT_MARGIN = 8;
@@ -352,9 +440,14 @@ interface MenuState {
   container: HTMLDivElement;
   items: SlashCommandDef[];
   selectedIndex: number;
+  selectedRootIndex: number;
+  openCategory: string | null;
   props: SuggestionProps<SlashCommandDef>;
   /** 鼠标点击项执行后收起菜单 */
   pick: (item: SlashCommandDef) => void;
+  openCategoryById: (id: string, rootIndex: number) => void;
+  closeCategory: () => void;
+  hoverIndex: (index: number, scope: "root" | "child") => void;
 }
 
 function positionMenu(container: HTMLDivElement, props: SuggestionProps<SlashCommandDef>) {
@@ -377,29 +470,59 @@ function renderMenu(state: MenuState) {
   positionMenu(state.container, state.props);
   state.root.render(
     <SlashMenu
-      items={state.items}
+      nodes={buildSlashMenuNodes(state.items, state.props.query)}
       selectedIndex={state.selectedIndex}
+      selectedRootIndex={state.selectedRootIndex}
+      openCategory={state.openCategory}
       onPick={state.pick}
+      onOpenCategory={state.openCategoryById}
+      onHoverIndex={state.hoverIndex}
     />,
   );
 }
 
+function navigationNodes(state: MenuState): SlashMenuNode[] {
+  const nodes = flattenSlashMenuNodes(buildSlashMenuNodes(state.items, state.props.query));
+  if (!state.openCategory) return nodes;
+  const category = nodes.find(
+    (node): node is { kind: "submenu" } & SlashSubmenuDef =>
+      node.kind === "submenu" && node.id === state.openCategory,
+  );
+  return category ? category.children.map((item) => ({ kind: "item", item }) as const) : nodes;
+}
+
 function handleMenuKeyDown(state: MenuState, event: KeyboardEvent): boolean {
+  const nodes = navigationNodes(state);
+
+  if (event.key === "Escape" && state.openCategory) {
+    state.closeCategory();
+    return true;
+  }
+  if (event.key === "ArrowLeft" && state.openCategory) {
+    state.closeCategory();
+    return true;
+  }
   if (event.key === "ArrowUp") {
-    state.selectedIndex =
-      (state.selectedIndex - 1 + state.items.length) % state.items.length;
+    state.selectedIndex = (state.selectedIndex - 1 + nodes.length) % nodes.length;
     renderMenu(state);
     return true;
   }
   if (event.key === "ArrowDown") {
-    state.selectedIndex = (state.selectedIndex + 1) % state.items.length;
+    state.selectedIndex = (state.selectedIndex + 1) % nodes.length;
     renderMenu(state);
     return true;
   }
-  if (event.key === "Enter") {
-    // Enter 的序号口径与菜单渲染一致(分组扁平化)
-    const item = flattenSlashItems(state.items)[state.selectedIndex];
-    if (item) item.action(state.props.editor, state.props.range);
+
+  const current = nodes[state.selectedIndex];
+  if (
+    (event.key === "ArrowRight" || event.key === "Enter") &&
+    current?.kind === "submenu"
+  ) {
+    state.openCategoryById(current.id, state.selectedIndex);
+    return true;
+  }
+  if (event.key === "Enter" && current?.kind === "item") {
+    state.pick(current.item);
     return true;
   }
   return false;
@@ -460,6 +583,41 @@ export const SlashMenuExtension = Extension.create<{
             if (state) item.action(state.props.editor, state.props.range);
             destroy();
           };
+          const openCategoryById = (id: string, rootIndex: number) => {
+            if (!state) return;
+            if (state.openCategory === id) {
+              if (state.selectedRootIndex !== rootIndex) {
+                state.selectedRootIndex = rootIndex;
+                renderMenu(state);
+              }
+              return;
+            }
+            state.openCategory = id;
+            state.selectedRootIndex = rootIndex;
+            state.selectedIndex = 0;
+            renderMenu(state);
+          };
+          const closeCategory = () => {
+            if (!state?.openCategory) return;
+            state.openCategory = null;
+            state.selectedIndex = state.selectedRootIndex;
+            renderMenu(state);
+          };
+          const hoverIndex = (index: number, scope: "root" | "child") => {
+            if (!state) return;
+            if (scope === "root") {
+              const shouldClose = !!state.openCategory;
+              if (!shouldClose && state.selectedIndex === index) return;
+              state.openCategory = null;
+              state.selectedIndex = index;
+              state.selectedRootIndex = index;
+              renderMenu(state);
+              return;
+            }
+            if (state.selectedIndex === index) return;
+            state.selectedIndex = index;
+            renderMenu(state);
+          };
 
           return {
             onStart: (props) => {
@@ -473,22 +631,31 @@ export const SlashMenuExtension = Extension.create<{
                 container,
                 items: filterCommands(props.query),
                 selectedIndex: 0,
+                selectedRootIndex: 0,
+                openCategory: null,
                 props,
                 pick,
+                openCategoryById,
+                closeCategory,
+                hoverIndex,
               };
               renderMenu(state);
             },
             onUpdate: (props) => {
               if (!state) return;
+              const queryChanged = state.props.query !== props.query;
               state.props = props;
               state.items = filterCommands(props.query);
-              if (!state.items.length) {
+              state.openCategory = null;
+              if (queryChanged || !state.items.length) {
                 state.selectedIndex = 0;
+                state.selectedRootIndex = 0;
               } else {
-                state.selectedIndex = Math.min(
-                  state.selectedIndex,
-                  state.items.length - 1,
-                );
+                const nodeCount = flattenSlashMenuNodes(
+                  buildSlashMenuNodes(state.items, props.query),
+                ).length;
+                state.selectedIndex = Math.min(state.selectedIndex, nodeCount - 1);
+                state.selectedRootIndex = Math.min(state.selectedRootIndex, nodeCount - 1);
               }
               renderMenu(state);
             },

@@ -388,20 +388,23 @@ export function YanzhiEditor({
           }`}
           onMouseDown={focusEditorFromBlankArea}
         >
-          <EditorContent editor={editor} className="flex flex-1 flex-col" />
-          {editor && (
+          {editor ? (
             <>
+              <TableContextMenu
+                editor={editor}
+                cellCopy={tableCellCopy}
+                onToggleCellCopy={onToggleTableCellCopy}
+              >
+                <EditorContent editor={editor} className="flex flex-1 flex-col" />
+              </TableContextMenu>
               <TableToolbar
                 editor={editor}
                 cellCopy={tableCellCopy}
                 onToggleCellCopy={onToggleTableCellCopy}
               />
-              <TableContextMenu
-                editor={editor}
-                cellCopy={tableCellCopy}
-                onToggleCellCopy={onToggleTableCellCopy}
-              />
             </>
+          ) : (
+            <EditorContent editor={editor} className="flex flex-1 flex-col" />
           )}
           {editor && <TableCellCopy editor={editor} enabled={tableCellCopy} />}
           {editor && <ImageToolbar editor={editor} onPreview={setPreviewSrc} />}

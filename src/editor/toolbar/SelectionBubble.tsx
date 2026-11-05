@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/core";
 import type { Selection } from "@tiptap/pm/state";
 import { useEditorState } from "@tiptap/react";
@@ -19,7 +19,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -37,7 +41,6 @@ import {
   visibleAiActions,
   type AiActionId,
 } from "@/ai/actions";
-import { placeFloatMenu, type FloatMenuPos } from "@/ai/float-menu";
 import type { AiSession } from "@/ai/useAiSession";
 import { selectionText } from "@/ai/apply";
 import { FONT_COLORS } from "../extensions/font-color";
@@ -51,7 +54,7 @@ import { cn } from "@/lib/utils";
  */
 
 type FloatingPoint = { top: number; left: number };
-type PendingOption = { id: AiActionId; kind: "tone" | "lang" | "math" };
+type AiOptionKind = NonNullable<(typeof AI_ACTIONS)[number]["option"]>;
 
 /** AI 开启时行内露出的常用动作;其余进「更多」 */
 const AI_QUICK: AiActionId[] = ["polish", "expand", "shorten"];
@@ -95,10 +98,11 @@ export function SelectionBubble({ editor, ai }: SelectionBubbleProps) {
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [menuSelection, setMenuSelection] = useState<Selection | null>(null);
-  const [aiMenu, setAiMenu] = useState<FloatMenuPos | null>(null);
-  const [pending, setPending] = useState<PendingOption | null>(null);
+  const [aiMenuOpen, setAiMenuOpen] = useState(false);
+  // onOpenChange 的 state 更新是异步的;PM transaction 可能抢在 commit 前进来。
+  // 必须同步 ref 先挡住 schedule() 开头的 setBar(null),否则 trigger 卸载后菜单关闭事件丢失。
+  const aiMenuOpenRef = useRef(false);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const floatRef = useRef<HTMLDivElement>(null);
   const pointerDownRef = useRef(false);
   const lockedSelRef = useRef<{ from: number; to: number } | null>(null);
 
@@ -123,7 +127,9 @@ export function SelectionBubble({ editor, ai }: SelectionBubbleProps) {
       setBar(null);
     };
     const position = () => {
-      if (editor.isDestroyed || aiBusy || linkOpen || pending) {
+      // Radix 打开菜单会转移焦点,PM 可能补一次 selection/focus transaction;
+      // 此时不能重算/清空气泡,否则 trigger 被卸载,菜单会闪开即关。
+      if (editor.isDestroyed || aiBusy || linkOpen || aiMenuOpenRef.current) {
         if (aiBusy) setBar(null);
         return;
       }
@@ -157,6 +163,7 @@ export function SelectionBubble({ editor, ai }: SelectionBubbleProps) {
       });
     };
     const schedule = (delay = 220) => {
+      if (aiMenuOpenRef.current) return;
       hide();
       if (pointerDownRef.current) return;
       timer = window.setTimeout(position, delay);
@@ -164,8 +171,6 @@ export function SelectionBubble({ editor, ai }: SelectionBubbleProps) {
     const onPointerDown = () => {
       pointerDownRef.current = true;
       hide();
-      setAiMenu(null);
-      if (!linkOpen) setPending(null);
     };
     const onPointerUp = () => {
       if (!pointerDownRef.current) return;
@@ -184,27 +189,7 @@ export function SelectionBubble({ editor, ai }: SelectionBubbleProps) {
       editor.view.dom.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [ai?.enabled, editor, aiBusy, linkOpen, pending]);
-
-  useEffect(() => {
-    if (!aiMenu && !pending) return;
-    const close = () => {
-      setAiMenu(null);
-      setPending(null);
-    };
-    const onScroll = (e: Event) => {
-      // 菜单自身滚动(有滚动条时滚轮)不要关掉;编辑器/页面滚动才关
-      const t = e.target;
-      if (t instanceof Node && floatRef.current?.contains(t)) return;
-      close();
-    };
-    window.addEventListener("click", close);
-    window.addEventListener("scroll", onScroll, true);
-    return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("scroll", onScroll, true);
-    };
-  }, [aiMenu, pending]);
+  }, [ai?.enabled, editor, aiBusy, linkOpen]);
 
   const snapshotMenuSelection = (open: boolean) => {
     if (open) setMenuSelection(editor.state.selection);
@@ -241,19 +226,15 @@ export function SelectionBubble({ editor, ai }: SelectionBubbleProps) {
 
   const triggerAi = (id: AiActionId, option?: string) => {
     if (!ai?.enabled) return;
-    const def = AI_ACTIONS.find((a) => a.id === id)!;
-    if (def.option && !option) {
-      setPending({ id, kind: def.option });
-      return;
-    }
-    setAiMenu(null);
-    setPending(null);
     setBar(null);
     void ai.session.run(editor, id, option, lockedSelRef.current ?? undefined);
   };
 
   const aiOn = !!ai?.enabled;
   const moreActions = visibleAiActions(editor, true).filter((a) => !AI_QUICK.includes(a.id));
+
+  const aiOptions = (kind: AiOptionKind) =>
+    kind === "tone" ? TONE_OPTIONS : kind === "math" ? MATH_OPTIONS : LANG_OPTIONS;
 
   return (
     <div ref={wrapRef} className="pointer-events-none absolute inset-0 z-20 overflow-visible">
@@ -410,124 +391,77 @@ export function SelectionBubble({ editor, ai }: SelectionBubbleProps) {
                   </button>
                 );
               })}
-              <Hint label="更多 AI 动作">
-                <button
-                  type="button"
-                  className={cn(
-                    "text-muted-foreground hover:bg-hover hover:text-foreground inline-flex h-7 shrink-0 cursor-pointer items-center gap-0.5 rounded-md px-1.5 text-[11px] whitespace-nowrap",
-                    aiMenu && "bg-selection text-foreground ring-primary/20 ring-1",
-                  )}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    setAiMenu((cur) =>
-                      cur
-                        ? null
-                        : placeFloatMenu(r, {
-                            estimatedHeight: 420,
-                            width: 176,
-                          }),
-                    );
-                    setPending(null);
-                  }}
+              <DropdownMenu
+                onOpenChange={(open) => {
+                  aiMenuOpenRef.current = open;
+                  setAiMenuOpen(open);
+                  snapshotMenuSelection(open);
+                }}
+              >
+                <Hint label="更多 AI 动作">
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className={cn(
+                        "text-muted-foreground hover:bg-hover hover:text-foreground inline-flex h-7 shrink-0 cursor-pointer items-center gap-0.5 rounded-md px-1.5 text-[11px] whitespace-nowrap",
+                        aiMenuOpen && "bg-selection text-foreground ring-primary/20 ring-1",
+                      )}
+                      onMouseDown={(e) => e.preventDefault()}
+                    >
+                      更多
+                      <ChevronDown className="size-3 opacity-70" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </Hint>
+                <DropdownMenuContent
+                  align="end"
+                  className="w-44"
+                  onCloseAutoFocus={restoreEditorFocus}
                 >
-                  更多
-                  <ChevronDown className="size-3 opacity-70" />
-                </button>
-              </Hint>
+                  {moreActions.map((a, i) => {
+                    const prev = moreActions[i - 1];
+                    return (
+                      <div key={a.id}>
+                        {prev && prev.group !== a.group ? (
+                          <DropdownMenuSeparator />
+                        ) : null}
+                        {i === 0 || prev?.group !== a.group ? (
+                          <DropdownMenuLabel>
+                            {AI_GROUP_LABEL[a.group]}
+                          </DropdownMenuLabel>
+                        ) : null}
+                        {a.option ? (
+                          <DropdownMenuSub>
+                            <DropdownMenuSubTrigger>{a.label}</DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent className="w-36">
+                              {aiOptions(a.option).map((opt) => (
+                                <DropdownMenuItem
+                                  key={opt}
+                                  onSelect={() => triggerAi(a.id, opt)}
+                                >
+                                  {opt}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuSubContent>
+                          </DropdownMenuSub>
+                        ) : (
+                          <DropdownMenuItem onSelect={() => triggerAi(a.id)}>
+                            {a.id === "translate" ? (
+                              <Languages className="text-muted-foreground size-3.5" />
+                            ) : null}
+                            {a.label}
+                          </DropdownMenuItem>
+                        )}
+                      </div>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           )}
         </div>
       )}
 
-      {pending && (
-        <div
-          ref={floatRef}
-          className="chrome-float pointer-events-auto fixed z-50 flex max-h-[min(50vh,20rem)] flex-col gap-0.5 overflow-y-auto rounded-lg border border-border-subtle bg-raised p-1 shadow-md"
-          style={{
-            top: aiMenu?.y ?? (bar ? bar.top + 40 : 120),
-            left: aiMenu?.x ?? (bar ? bar.left : 120),
-            transform: aiMenu?.placement === "top" ? "translateY(-100%)" : undefined,
-          }}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <p className="text-muted-foreground px-2 py-1 text-[10px]">
-            {pending.kind === "tone"
-              ? "选择语气"
-              : pending.kind === "math"
-                ? "公式形态"
-                : "目标语言"}
-          </p>
-          {(pending.kind === "tone"
-            ? TONE_OPTIONS
-            : pending.kind === "math"
-              ? MATH_OPTIONS
-              : LANG_OPTIONS
-          ).map((opt) => (
-            <button
-              key={opt}
-              type="button"
-              className="hover:bg-hover cursor-pointer rounded-md px-2.5 py-1.5 text-left text-[12px]"
-              onClick={() => triggerAi(pending.id, opt)}
-            >
-              {opt}
-            </button>
-          ))}
-          <button
-            type="button"
-            className="text-muted-foreground hover:bg-hover cursor-pointer rounded-md px-2.5 py-1 text-left text-[11px]"
-            onClick={() => setPending(null)}
-          >
-            取消
-          </button>
-        </div>
-      )}
-
-      {aiMenu && !pending && (
-        <div
-          ref={floatRef}
-          className="chrome-float pointer-events-auto fixed z-50 flex min-w-40 flex-col overflow-hidden rounded-lg border border-border-subtle bg-raised p-1 shadow-md"
-          style={{
-            top: aiMenu.y,
-            left: aiMenu.x,
-            maxHeight: aiMenu.maxHeight,
-            transform: aiMenu.placement === "top" ? "translateY(-100%)" : undefined,
-          }}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <p className="text-primary flex shrink-0 items-center gap-1 bg-raised px-2 py-1 text-[10px] font-medium">
-            <Sparkles className="size-3" />
-            更多 AI
-          </p>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {moreActions.map((a, i) => {
-              const prev = moreActions[i - 1];
-              const showSep = prev && prev.group !== a.group;
-              return (
-                <div key={a.id}>
-                  {showSep ? (
-                    <p className="text-muted-foreground px-2 pt-1.5 pb-0.5 text-[10px]">
-                      {AI_GROUP_LABEL[a.group]}
-                    </p>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="hover:bg-hover flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] whitespace-nowrap"
-                    onClick={() => triggerAi(a.id)}
-                  >
-                    {a.id === "translate" ? (
-                      <Languages className="size-3.5 shrink-0 opacity-60" />
-                    ) : null}
-                    {a.label}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
