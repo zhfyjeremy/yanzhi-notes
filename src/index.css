@@ -283,23 +283,29 @@ body {
   box-shadow: none !important;
 }
 
-/* 工具栏:去掉居中胶囊,改成贴顶通栏 + 底部分隔线 */
+/* 工具栏:底部分隔线仍通栏;按钮落在正文同宽的列里,不再贴面板左缘 */
+.chrome-toolbar-align {
+  display: contents;
+}
+
 :root[data-ui-style="flat"] .chrome-toolbar-host {
   height: 2.5rem !important;
-  justify-content: stretch !important;
   padding: 0 !important;
   border-bottom: 1px solid var(--border);
 }
 
+:root[data-ui-style="flat"] .chrome-toolbar-align {
+  display: flex;
+  align-items: center;
+}
+
 :root[data-ui-style="flat"] .chrome-toolbar {
-  width: 100% !important;
-  max-width: none !important;
   height: 100% !important;
   border-radius: 0 !important;
   border: none !important;
   box-shadow: none !important;
   background: transparent !important;
-  padding-inline: 0.75rem !important;
+  padding-inline: 0 !important;
 }
 
 /* 标题旁后退/前进:去抬升,圆角对齐 hover */

@@ -24,6 +24,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EDITOR_COLUMN_MAX } from "../layout";
 import { Hint } from "@/components/hint";
 import {
   DropdownMenu,
@@ -181,7 +182,8 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
 
   return (
     <div role="toolbar" aria-label="格式工具栏" className="yz-toolbar chrome-toolbar-host bg-editor flex h-14 shrink-0 items-center justify-center px-4">
-      {/* 卡片:居中胶囊;平铺:chrome-toolbar 改成通栏底边线(见 index.css) */}
+      {/* 卡片:display:contents,胶囊仍由 host 居中。平铺:变成正文同宽的列,按钮对齐文字而不是贴面板左缘 */}
+      <div className={`chrome-toolbar-align mx-auto h-full w-full min-w-0 px-16 ${EDITOR_COLUMN_MAX}`}>
       <div className="chrome-toolbar border-border-subtle bg-raised flex h-9 w-fit max-w-full min-w-0 items-center gap-0.5 overflow-x-auto rounded-[10px] border px-1.5 shadow-sm">
       {/* 标题下拉 */}
       <DropdownMenu onOpenChange={snapshotMenuSelection}>
@@ -415,6 +417,7 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
       <ToolButton title="重做" disabled={!state.canRedo} onClick={() => editor.chain().focus().redo().run()}>
         <Redo2 className="size-4" />
       </ToolButton>
+      </div>
       </div>
     </div>
   );
