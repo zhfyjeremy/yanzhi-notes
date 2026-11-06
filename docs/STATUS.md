@@ -1,4 +1,4 @@
-# 项目状态(更新:2026-11-05)
+# 项目状态(更新:2026-11-06)
 
 > 开工前速览:看「下一步」直接干活;细节翻 `docs/PRD-本地离线知识库编辑器.md` 对应章节。文档索引见 `docs/README.md`。
 
@@ -21,7 +21,7 @@
 | TOC 大纲面板 | ✅ | 滚动高亮联动、点击跳转、可折叠 |
 | 代码块卡片 | ✅ | hover 语言切换/复制、行号列;`src/editor/extensions/code-block-card.tsx` |
 | Shiki 语法高亮 | ✅ | `src/editor/extensions/code-highlight.ts`,PM decoration + css-variables 语义槽位 → `--code-*` token |
-| 表格编辑工具条 | ✅ | 光标入表浮现:行/列增删下拉 + 整列对齐 + 删表;`table-utils.ts` + `toolbar/TableToolbar.tsx` + 表格基础样式;**列宽拖拽**(`Table.resizable`,colwidth 会话级,GFM 无列宽语法,重开回均分);**单元格悬停复制**(设置/表工具条复制图标同源 `tableCellCopy`,默认关,`TableCellCopy` 浮层);**单元格右键**(`TableContextMenu`,按点中的行/列插删行列、对齐、删表,长表不用滚回浮条,2026-11-05;同日换 Radix 多级菜单并统一 `context-menu`/`dropdown-menu` 视觉) |
+| 表格编辑工具条 | ✅ | 光标入表浮现:行/列增删下拉 + 整列对齐 + 删表;`table-utils.ts` + `toolbar/TableToolbar.tsx` + 表格基础样式;**列宽拖拽**(`Table.resizable`,colwidth 会话级,GFM 无列宽语法,重开回均分);**单元格悬停复制**(设置/表工具条复制图标同源 `tableCellCopy`,默认关,`TableCellCopy` 浮层);**单元格右键**(`TableContextMenu`,按点中的行/列插删行列、对齐、删表,右键分「行操作」「列操作」「单元格」三组:行/列用数量框+勾选插入,「单元格」下「复制内容」复制当前格纯文本;悬停复制开关只留工具条/设置,2026-11-06;前一日换 Radix 多级菜单并统一 `context-menu`/`dropdown-menu` 视觉) |
 | 粘贴清洗 | ✅ | `paste-clean.ts`(transformPastedHTML):样式/脚本/私有 XML 丢弃、追踪参数剥离、合并表格降级纯文本、外部任务列表转 taskItem、外部颜色吸附预设色 |
 | 图片卡片 UI | ✅ | 选中图片浮层(宽度档位/对齐/放大 lightbox)+ **左右手柄拖拽改宽**(20%–100%);width/align 会话级不进 md |
 | 文字颜色(语雀式色卡) | ✅ | §10 方言 `<font color>`:色卡 8 色 + 默认清除(`extensions/font-color.ts` + 工具栏 Palette 下拉);粘贴吸附(黑白灰摘除/彩色吸附最近预设色);序列化公共 mark 外提 |
@@ -132,7 +132,7 @@
 - 新增语义化 surface tokens:`workspace / sidebar / editor / raised / hover / selection / border-subtle`;主色预设和自定义主色通过 `selection` 自动混色,不再把 `accent` 同时用于悬停、选中和品牌强调。
 - 三栏改为「深墨外壳 + 宣纸编辑面」:左右栏与编辑面有明确色差,浅色和深色主题共用同一语义层级。
 - 目录当前项改为轻浮起导航胶囊(raised + 低强度主色描边 + 主色文件图标),去掉偏表格化的左色条;批量选择仍保持轻量选中底,不产生暗红大色块。
-- 正文列用 `EDITOR_COLUMN_MAX`(`max-w-3xl xl:max-w-4xl 2xl:max-w-5xl`)随屏放宽;格式工具栏改为 `w-fit` 居中胶囊,不随正文列拉长成空条;窄纸张按外层容器宽分层隐藏低频操作,极端宽度内滚兜底;表格上下文工具条独立为浮层。
+- 正文列用 `EDITOR_COLUMN_MAX`(`max-w-3xl`,2026-11-06 起全屏不再放宽到 4xl/5xl);格式工具栏改为 `w-fit` 居中胶囊,不随正文列拉长成空条;窄纸张按外层容器宽分层隐藏低频操作,极端宽度内滚兜底;表格上下文工具条独立为浮层。
 - 标签/大纲/反向链接/历史分区统一标题层级、间距和计数样式;状态栏重排为左侧字数/专注、右侧保存状态/路径。
 - 设置窗口同步使用新 surface 与 selection token;自定义主题和深浅色切换统一生效。
 - 设置窗口左侧导航与主界面目录选中态统一:轻浮起胶囊 + 低强度主色描边 + 主色图标,去掉左色条。
@@ -244,7 +244,7 @@
 | 行内公式 `$…$` | 6.1.3/§10 | ✅ | md-it inline 规则(before escape,`$$` 让块级):`$` 紧贴非空白才触发、不跨行;latex 走 `encodeURIComponent` 进 `data-latex` 属性(避免 HTML 转义歧义);`mathInline` atom inline 节点 + KaTeX renderToString NodeView,双击进源码编辑;input rule `$E=mc^2$ ` 打完即转 |
 | 独立公式块 `$$…$$` | 6.1.3/§10 | ✅ | md-it core 规则:整段 `$$…$$` retag 为 div;**latex 从 inline token 原始 content 提取而非 children**(`\frac` 等反斜杠命令会被 CommonMark 转义规则吃掉);序列化统一 `$$/latex/$$` 三行(单行 `$$E$$` 归一化);`mathBlock` atom block 节点 + hover 编辑按钮;空行打 `$$` input rule 即转卡片;斜杠菜单「公式/行内公式」;fixture `math.md`(多行/引用内/紧贴边界/金额不触发);E2E `math.js` 9/9 + `math-font.js`(KaTeX 字体全同源加载,无外部请求) |
 | 插入即编辑的焦点 race | — | ✅ 已绕开 | 空 latex 自动进编辑态的设计与插入命令的 `chain().focus()` 抢焦点(时序不稳,E2E/probe 两行为);改为占位「空公式」+ 双击/hover 按钮进入,交互少一步 magic 但稳定 |
-| 斜杠菜单可点击/二级分组 | — | ✅ 顺带修 | 菜单项原本只支持键盘 Enter(鼠标点击无响应);且 COMMANDS 数组序与分组渲染序不一致时 Enter 会执行错误命令(callout 插入到数组头后暴露)。修法统一键盘/点击/渲染三方口径,点击直接传 item 对象。2026-11-05:菜单视觉对齐 `chrome-float`/`raised`/紧凑 item;无搜索时标题、列表、日期时间、提示块、公式、AI 收进二级菜单,支持左右键/Escape 与 hover;有搜索时仍平铺命中叶子命令,`/h1` 等熟手路径保持一步执行 |
+| 斜杠菜单可点击/二级分组 | — | ✅ 顺带修 | 菜单项原本只支持键盘 Enter(鼠标点击无响应);且 COMMANDS 数组序与分组渲染序不一致时 Enter 会执行错误命令(callout 插入到数组头后暴露)。修法统一键盘/点击/渲染三方口径,点击直接传 item 对象。2026-11-05:菜单视觉对齐 `chrome-float`/`raised`/紧凑 item;无搜索时标题、列表、日期时间、提示块、公式、AI 收进二级菜单,支持左右键/Escape 与 hover;有搜索时仍平铺命中叶子命令,`/h1` 等熟手路径保持一步执行。2026-11-06:二级菜单改用 `DropdownMenu`,贴边翻转和悬停桥交给 Radix;编辑器保持焦点,`/` 过滤不中断 |
 
 验证:134/134 单测(新增 callout/math fixtures)、`pnpm build` 过、`callout.js` 7/7、`math.js` 9/9、`callout-style.js`(4 类型浅/深色各自区分)、`math-font.js`(离线字体)。E2E 脚本均在 `/tmp/yanzhi-drive/`。
 
@@ -318,6 +318,7 @@
 - **无浏览器工具时的 UI 验证**:`chromium-cli` 不在时,`/tmp/yanzhi-drive` 里有 playwright-core + 系统 Chrome(`channel:"chrome"`)驱动脚本,`pnpm dev` 起来后 `node drive.js` 可复用
 - **updateAttributes 空区间**:collapsed TextSelection 下 `updateAttributes` 按 `[from,to)` 找节点,空区间命不中目标且**不报错**;浮层按钮链路要先 `setNodeSelection(pos)`(ImageToolbar 踩过)
 - **jsdom 的 innerHTML 会把 U+00A0 序列化成 `&nbsp;` 实体文本**,文本级 `split("nbsp字符")` 匹配不到,实体和字符两种形态都要处理(paste-clean 踩过)
+- **斜杠菜单二级不要自绘绝对定位**(2026-11-06):自绘子菜单会被主菜单 `overflow` 裁切,贴边不翻转,父子之间的空隙会把 hover 弄丢。展示改用 `DropdownMenu` 的 Sub。菜单必须 `modal={false}` 并拦住 `onOpenAutoFocus` / `onFocusOutside` / `onPointerDownOutside`,否则焦点离开编辑器,`/` 后面的过滤会中断
 - **radix 菜单会移动焦点,PM 失焦期间不消费 DOM 选区变化**:菜单类(trigger+item)对行内 mark 的操作不能依赖 `chain().focus()` 恢复选区——`onOpenChange(true)` 时快照 `editor.state.selection`,命令前 `setTextSelection(快照)`;trigger 加 `onMouseDown preventDefault`。菜单打开瞬间焦点在 content 上,关闭时 radix 还焦点,均会干扰
 - **PM 的 code mark 吞外层 mark**(DOMParser 行为):`<strong><code>` / `<font><code>` 解析后 code 文本只带 code,外层格式全丢,序列化时 font 被拆开。方言边界:行内代码内无格式,`font-color.test.ts` 锁定降级形态
 - **headless 驱动的文本选择不可靠**:加粗/设色后段落换行变化,boundingbox 中心三击会点进行间隙(选中 `\n`);双击坐标随上方异步内容漂移。验证行内命令用键盘(Home + Shift+End)或"选区保留期间连续操作"(color11.js 模式),别重选。另:hover 才显示的容器(`hidden group-hover:flex`)内容不进 `innerText`,断言其内文本用 DOM 存在性(`page.$()`)别用 innerText;`$$eval` 只接受一个附加参数,多参包对象传;**radix DropdownMenu/ContextMenu 的 trigger 靠 pointerdown 打开,`$eval el.click()` 无效**——用真实 `hover()` + `click()` 序列(playwright 会驱动真实 :hover,radix 菜单本身 portal 可见可点,比自绘浮层好测),右键用 `click({ button: 'right' })`

@@ -1,10 +1,22 @@
-import { useEffect, useRef, useState } from "react";
-import { ChevronRight, type LucideIcon } from "lucide-react";
+import { useEffect } from "react";
+import type { LucideIcon } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 /**
- * 斜杠 `/` 插入面板的菜单视图(纯渲染)。
- * 键盘导航与过滤在 suggestion 扩展侧(src/editor/slash-command/index.ts),
- * 这里按 group 分组展示、高亮当前选中项,并承担二级菜单的 hover 展开。
+ * 斜杠 `/` 插入面板的菜单视图。
+ * 键盘导航与过滤在 suggestion 扩展侧;展示用 DropdownMenu,
+ * 二级菜单的贴边翻转和悬停桥交给 Radix,不再自绘绝对定位。
+ * 编辑器必须保住焦点,`/` 后的过滤字符才能继续输入,所以菜单非模态且不抢焦点。
  */
 
 export interface SlashCommandDef {
@@ -30,7 +42,17 @@ export type SlashMenuNode =
 
 const GROUPS = ["文本", "插入", "卡片", "AI"] as const;
 
-/** 键盘导航顺序:菜单渲染也必须按这个扁平化结果写 data-index */
+/** Radix 悬停会把焦点送进菜单项。嵌套在 focus 事件里立刻还焦点会被浏览器丢掉,放到下一帧 */
+function keepEditorFocus() {
+  requestAnimationFrame(() => {
+    const editor = document.querySelector(".ProseMirror");
+    if (editor instanceof HTMLElement && document.activeElement !== editor) {
+      editor.focus({ preventScroll: true });
+    }
+  });
+}
+
+/** 键盘导航顺序:菜单渲染也必须按这个扁平化结果编号 */
 export function flattenSlashMenuNodes(nodes: SlashMenuNode[]): SlashMenuNode[] {
   return GROUPS.flatMap((group) =>
     nodes.filter((node) => (node.kind === "item" ? node.item.group : node.group) === group),
@@ -39,155 +61,187 @@ export function flattenSlashMenuNodes(nodes: SlashMenuNode[]): SlashMenuNode[] {
 
 export function SlashMenu({
   nodes,
+  anchor,
   selectedIndex,
   selectedRootIndex,
   openCategory,
   onPick,
   onOpenCategory,
+  onCloseCategory,
   onHoverIndex,
+  onMenuKeyDown,
+  onDismiss,
 }: {
   nodes: SlashMenuNode[];
+  /** 光标所在行,DropdownMenu 以此为锚点 */
+  anchor: { left: number; top: number; height: number };
   /** 未开二级 = 根层当前项;已开二级 = 子菜单当前项 */
   selectedIndex: number;
   /** 二级打开时仍保留并高亮根层父项,ArrowLeft 返回到原父项 */
   selectedRootIndex: number;
   openCategory: string | null;
-  /** 鼠标点击直接执行该项(键盘 Enter 走 onKeyDown) */
+  /** 鼠标点击直接执行该项(键盘 Enter 走 onMenuKeyDown) */
   onPick: (item: SlashCommandDef) => void;
   onOpenCategory: (id: string, rootIndex: number) => void;
+  /** 只关仍打开的那个二级;id 对不上说明已经切到别的分类 */
+  onCloseCategory: (id: string) => void;
   onHoverIndex: (index: number, scope: "root" | "child") => void;
+  /** 焦点偶尔进菜单时,方向键仍走和编辑器同一套导航 */
+  onMenuKeyDown: (event: KeyboardEvent) => boolean;
+  onDismiss: () => void;
 }) {
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [submenuPos, setSubmenuPos] = useState({
-    top: 0,
-    maxHeight: 320,
-    side: "right" as "left" | "right",
-  });
   const orderedNodes = flattenSlashMenuNodes(nodes);
-  const openNode = orderedNodes.find(
-    (node): node is { kind: "submenu" } & SlashSubmenuDef =>
-      node.kind === "submenu" && node.id === openCategory,
-  );
 
-  // 键盘导航时选中项保持在可视区
+  // 键盘导航时选中项保持在可视区。二级在 Portal 里,不能在主菜单里 query
   useEffect(() => {
-    menuRef.current
-      ?.querySelector(`[data-index="${selectedIndex}"]`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [selectedIndex]);
-
-  // 子菜单与主菜单同视觉体系,但不能放进滚动容器内,否则会被 overflow 裁掉
-  useEffect(() => {
-    if (!openNode) return;
-    const row = menuRef.current?.querySelector(`[data-submenu-id="${openNode.id}"]`);
-    const menu = menuRef.current;
-    if (!(row instanceof HTMLElement) || !menu) return;
-    const rowRect = row.getBoundingClientRect();
-    const menuRect = menu.getBoundingClientRect();
-    const side = menuRect.right + 236 <= window.innerWidth ? "right" : "left";
-    const below = window.innerHeight - rowRect.top - 8;
-    setSubmenuPos({
-      top: rowRect.top - menuRect.top,
-      maxHeight: Math.max(120, Math.min(320, below)),
-      side,
+    if (!nodes.length) return;
+    const frame = requestAnimationFrame(() => {
+      const scope = openCategory
+        ? document.querySelector(`[data-slash-scope="child"][data-slash-category="${openCategory}"]`)
+        : document.querySelector('[data-slash-scope="root"]');
+      const row = scope?.querySelector(`[data-nav-index="${selectedIndex}"]`);
+      if (row instanceof HTMLElement) row.scrollIntoView({ block: "nearest" });
     });
-  }, [openNode?.id]);
+    return () => cancelAnimationFrame(frame);
+  }, [nodes.length, openCategory, selectedIndex]);
 
   // 过滤无结果时整体隐藏(避免 URL/日期等场景弹出空框)
   if (!nodes.length) return null;
 
   let indexCursor = -1;
+  const rootSelected = (index: number) =>
+    index === (openCategory ? selectedRootIndex : selectedIndex);
 
   return (
-    <div ref={menuRef} className="relative">
-      <div className="chrome-float text-foreground max-h-80 w-60 overflow-y-auto rounded-lg border border-border-subtle bg-raised p-1 shadow-md ring-0">
+    <DropdownMenu open modal={false} onOpenChange={() => {}}>
+      <DropdownMenuTrigger asChild>
+        <span
+          aria-hidden
+          tabIndex={-1}
+          className="pointer-events-none fixed w-px"
+          style={{ left: anchor.left, top: anchor.top, height: anchor.height }}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        data-slash-scope="root"
+        side="bottom"
+        align="start"
+        sideOffset={10}
+        collisionPadding={8}
+        className="!w-60"
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        onInteractOutside={(event) => event.preventDefault()}
+        onPointerDownOutside={(event) => event.preventDefault()}
+        onFocusOutside={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => event.preventDefault()}
+        onMouseDown={(event) => event.preventDefault()}
+        onFocus={keepEditorFocus}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            if (!onMenuKeyDown(event.nativeEvent)) onDismiss();
+            return;
+          }
+          if (onMenuKeyDown(event.nativeEvent)) event.preventDefault();
+        }}
+      >
         {GROUPS.map((group) => {
-          const groupNodes = orderedNodes.filter((node) => (node.kind === "item" ? node.item.group : node.group) === group);
+          const groupNodes = orderedNodes.filter(
+            (node) => (node.kind === "item" ? node.item.group : node.group) === group,
+          );
           if (!groupNodes.length) return null;
           return (
-            <div key={group} className="mb-0.5">
-              <div className="text-muted-foreground px-2 py-1 text-[10px] font-medium">{group}</div>
+            <DropdownMenuGroup key={group}>
+              <DropdownMenuLabel>{group}</DropdownMenuLabel>
               {groupNodes.map((node) => {
                 indexCursor += 1;
                 const index = indexCursor;
-                const selected =
-                  index === (openNode ? selectedRootIndex : selectedIndex);
+                const selected = rootSelected(index);
                 if (node.kind === "item") {
                   return (
-                    <div
+                    <DropdownMenuItem
                       key={node.item.label}
-                      data-index={index}
-                      onClick={() => onPick(node.item)}
-                      onMouseEnter={() => onHoverIndex(index, "root")}
-                      className={
-                        selected
-                          ? "bg-hover text-foreground flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px]"
-                          : "hover:bg-hover flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px]"
-                      }
+                      data-nav-index={index}
                       data-selected={selected}
+                      className={selected ? "bg-hover text-foreground" : undefined}
+                      onPointerEnter={() => onHoverIndex(index, "root")}
+                      onPointerMove={(event) => event.preventDefault()}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        onPick(node.item);
+                      }}
                     >
-                      <node.item.icon className="text-muted-foreground size-3.5" />
+                      <node.item.icon className="text-muted-foreground" />
                       {node.item.label}
-                    </div>
+                    </DropdownMenuItem>
                   );
                 }
 
                 return (
-                  <div
+                  <DropdownMenuSub
                     key={node.id}
-                    data-index={index}
-                    data-submenu-id={node.id}
-                    onClick={() => onOpenCategory(node.id, index)}
-                    onMouseEnter={() => onOpenCategory(node.id, index)}
-                    className={
-                      openNode?.id === node.id || selected
-                        ? "bg-hover text-foreground flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px]"
-                        : "hover:bg-hover flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px]"
-                    }
-                    data-selected={selected}
+                    open={openCategory === node.id}
+                    onOpenChange={(next) => {
+                      if (next) onOpenCategory(node.id, index);
+                      else onCloseCategory(node.id);
+                    }}
                   >
-                    <node.icon className="text-muted-foreground size-3.5" />
-                    <span className="min-w-0 flex-1">{node.label}</span>
-                    <ChevronRight className="text-muted-foreground ml-auto size-3.5" />
-                  </div>
+                    <DropdownMenuSubTrigger
+                      data-nav-index={index}
+                      data-selected={selected}
+                      className={selected ? "bg-hover text-foreground" : undefined}
+                      onPointerEnter={() => onOpenCategory(node.id, index)}
+                      onPointerMove={(event) => event.preventDefault()}
+                    >
+                      <node.icon className="text-muted-foreground" />
+                      {node.label}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent
+                      data-slash-scope="child"
+                      data-slash-category={node.id}
+                      collisionPadding={8}
+                      // 按最长标签撑开宽度,避免「中文日期和时间…」这类文案折行
+                      className="!max-h-80 !w-max !min-w-56 !overflow-y-auto"
+                      onInteractOutside={(event) => event.preventDefault()}
+                      onPointerDownOutside={(event) => event.preventDefault()}
+                      onFocusOutside={(event) => event.preventDefault()}
+                      onEscapeKeyDown={(event) => event.preventDefault()}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onFocus={keepEditorFocus}
+                    >
+                      {node.children.map((item, childIndex) => {
+                        const childSelected = openCategory === node.id && childIndex === selectedIndex;
+                        return (
+                          <DropdownMenuItem
+                            key={item.label}
+                            data-nav-index={childIndex}
+                            data-selected={childSelected}
+                            className={
+                              childSelected
+                                ? "bg-hover text-foreground whitespace-nowrap"
+                                : "whitespace-nowrap"
+                            }
+                            onPointerEnter={() => onHoverIndex(childIndex, "child")}
+                            onPointerMove={(event) => event.preventDefault()}
+                            onSelect={(event) => {
+                              event.preventDefault();
+                              onPick(item);
+                            }}
+                          >
+                            <item.icon className="text-muted-foreground" />
+                            {item.label}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
                 );
               })}
-            </div>
+            </DropdownMenuGroup>
           );
         })}
-      </div>
-
-      {openNode ? (
-        <div
-          className="chrome-float text-foreground absolute z-50 max-h-80 w-56 overflow-y-auto rounded-lg border border-border-subtle bg-raised p-1 shadow-md ring-0"
-          style={{
-            top: submenuPos.top,
-            maxHeight: submenuPos.maxHeight,
-            left: submenuPos.side === "right" ? "100%" : undefined,
-            right: submenuPos.side === "left" ? "100%" : undefined,
-            marginLeft: submenuPos.side === "right" ? 4 : undefined,
-            marginRight: submenuPos.side === "left" ? 4 : undefined,
-          }}
-        >
-          {openNode.children.map((item, index) => (
-            <div
-              key={item.label}
-              data-index={index}
-              onClick={() => onPick(item)}
-              onMouseEnter={() => onHoverIndex(index, "child")}
-              className={
-                openNode && index === selectedIndex
-                  ? "bg-hover text-foreground flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px]"
-                  : "hover:bg-hover flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px]"
-              }
-              data-selected={index === selectedIndex}
-            >
-              <item.icon className="text-muted-foreground size-3.5" />
-              {item.label}
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

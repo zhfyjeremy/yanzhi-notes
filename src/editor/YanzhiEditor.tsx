@@ -390,11 +390,7 @@ export function YanzhiEditor({
         >
           {editor ? (
             <>
-              <TableContextMenu
-                editor={editor}
-                cellCopy={tableCellCopy}
-                onToggleCellCopy={onToggleTableCellCopy}
-              >
+              <TableContextMenu editor={editor}>
                 <EditorContent editor={editor} className="flex flex-1 flex-col" />
               </TableContextMenu>
               <TableToolbar

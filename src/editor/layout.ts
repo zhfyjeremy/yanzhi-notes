@@ -1,6 +1,5 @@
 /**
- * 正文列最大宽度(知识库/单文件/工具栏共用)。
- * 小窗保持舒适行宽;大屏逐步放宽,避免全屏两侧空旷。
- * 非语雀「超宽」——仍有上限,长文可读性优先。
+ * 正文列最大宽度(知识库/单文件/帮助共用)。
+ * 固定在舒适行宽(48rem,含左右留白),全屏不再放宽,避免一行过长。
  */
-export const EDITOR_COLUMN_MAX = "max-w-3xl xl:max-w-4xl 2xl:max-w-5xl";
+export const EDITOR_COLUMN_MAX = "max-w-3xl";

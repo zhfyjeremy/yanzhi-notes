@@ -35,8 +35,15 @@ function DropdownMenuContent({
   className,
   align = "start",
   sideOffset = 4,
+  onOpenAutoFocus,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Content> & {
+  /**
+   * 公开类型把这项 Omit 掉了,MenuContentImpl 运行时仍会读。
+   * preventDefault 可阻止菜单打开时抢走焦点。
+   */
+  onOpenAutoFocus?: (event: Event) => void
+}) {
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
@@ -45,6 +52,8 @@ function DropdownMenuContent({
         align={align}
         className={cn("chrome-float z-50 max-h-(--radix-dropdown-menu-content-available-height) w-(--radix-dropdown-menu-trigger-width) min-w-40 origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-lg border border-border-subtle bg-raised p-1 text-foreground shadow-md ring-0 duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:overflow-hidden data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95", className )}
         {...props}
+        // MenuContentProps 故意不暴露这项,实现会把它交给 FocusScope
+        {...{ onOpenAutoFocus } as React.ComponentProps<typeof DropdownMenuPrimitive.Content>}
       />
     </DropdownMenuPrimitive.Portal>
   )

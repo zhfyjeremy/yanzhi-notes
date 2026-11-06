@@ -1,6 +1,7 @@
 import { Extension, type Editor, type Range } from "@tiptap/core";
 import { PluginKey } from "@tiptap/pm/state";
 import Suggestion, {
+  exitSuggestion,
   type SuggestionOptions,
   type SuggestionProps,
 } from "@tiptap/suggestion";
@@ -429,12 +430,6 @@ export function buildSlashMenuNodes(items: SlashCommandDef[], query: string): Sl
   return nodes;
 }
 
-const MENU_WIDTH = 240;
-const MENU_MAX_HEIGHT = 320;
-const VIEWPORT_MARGIN = 8;
-/** 浮层与触发文字行的上下呼吸间距 */
-const MENU_GAP = 10;
-
 interface MenuState {
   root: Root;
   container: HTMLDivElement;
@@ -446,37 +441,40 @@ interface MenuState {
   /** 鼠标点击项执行后收起菜单 */
   pick: (item: SlashCommandDef) => void;
   openCategoryById: (id: string, rootIndex: number) => void;
-  closeCategory: () => void;
+  closeCategory: (id?: string) => void;
   hoverIndex: (index: number, scope: "root" | "child") => void;
+  dismiss: () => void;
 }
 
-function positionMenu(container: HTMLDivElement, props: SuggestionProps<SlashCommandDef>) {
-  // 3.32 的 props.clientRect 默认为 null,用 coordsAtPos 兜底自算
+/** 3.32 的 props.clientRect 默认为 null,用 coordsAtPos 兜底。菜单贴边交给 DropdownMenu */
+function cursorAnchor(props: SuggestionProps<SlashCommandDef>) {
   const rect =
     props.clientRect?.() ??
     (() => {
       const coords = props.editor.view.coordsAtPos(props.range.from);
       return new DOMRect(coords.left, coords.top, 0, coords.bottom - coords.top);
     })();
-  const left = Math.min(rect.left, window.innerWidth - MENU_WIDTH - VIEWPORT_MARGIN);
-  const below = rect.bottom + MENU_MAX_HEIGHT + VIEWPORT_MARGIN <= window.innerHeight;
-  container.style.left = `${Math.max(VIEWPORT_MARGIN, left)}px`;
-  container.style.top = below
-    ? `${rect.bottom + MENU_GAP}px`
-    : `${Math.max(VIEWPORT_MARGIN, rect.top - MENU_MAX_HEIGHT - MENU_GAP)}px`;
+  return {
+    left: rect.left,
+    top: rect.top,
+    height: Math.max(1, rect.height || rect.bottom - rect.top),
+  };
 }
 
 function renderMenu(state: MenuState) {
-  positionMenu(state.container, state.props);
   state.root.render(
     <SlashMenu
       nodes={buildSlashMenuNodes(state.items, state.props.query)}
+      anchor={cursorAnchor(state.props)}
       selectedIndex={state.selectedIndex}
       selectedRootIndex={state.selectedRootIndex}
       openCategory={state.openCategory}
       onPick={state.pick}
       onOpenCategory={state.openCategoryById}
+      onCloseCategory={state.closeCategory}
       onHoverIndex={state.hoverIndex}
+      onMenuKeyDown={(event) => handleMenuKeyDown(state, event)}
+      onDismiss={state.dismiss}
     />,
   );
 }
@@ -491,7 +489,7 @@ function navigationNodes(state: MenuState): SlashMenuNode[] {
   return category ? category.children.map((item) => ({ kind: "item", item }) as const) : nodes;
 }
 
-function handleMenuKeyDown(state: MenuState, event: KeyboardEvent): boolean {
+function handleMenuKeyDown(state: MenuState, event: { key: string }): boolean {
   const nodes = navigationNodes(state);
 
   if (event.key === "Escape" && state.openCategory) {
@@ -555,10 +553,11 @@ export const SlashMenuExtension = Extension.create<{
   },
 
   addProseMirrorPlugins() {
+    // 同一 editor 挂多个 suggestion([[双链检索)时必须独立 key,默认 suggestion$ 是模块级单例会冲突
+    const slashMenuKey = new PluginKey("slashMenuSuggest");
     return [
       Suggestion({
-        // 同一 editor 挂多个 suggestion([[双链检索)时必须独立 key,默认 suggestion$ 是模块级单例会冲突
-        pluginKey: new PluginKey("slashMenuSuggest"),
+        pluginKey: slashMenuKey,
         editor: this.editor,
         ...this.options.suggestion,
         items: ({ query }) => filterCommands(query),
@@ -597,8 +596,9 @@ export const SlashMenuExtension = Extension.create<{
             state.selectedIndex = 0;
             renderMenu(state);
           };
-          const closeCategory = () => {
+          const closeCategory = (id?: string) => {
             if (!state?.openCategory) return;
+            if (id && state.openCategory !== id) return;
             state.openCategory = null;
             state.selectedIndex = state.selectedRootIndex;
             renderMenu(state);
@@ -618,13 +618,17 @@ export const SlashMenuExtension = Extension.create<{
             state.selectedIndex = index;
             renderMenu(state);
           };
+          const dismiss = () => {
+            const editor = state?.props.editor;
+            if (!editor) return;
+            exitSuggestion(editor.view, slashMenuKey);
+          };
 
           return {
             onStart: (props) => {
-              // container 自身承担 fixed 定位(left/top 由 positionMenu 设置);
-              // 不能只给子菜单 fixed 类——坐标和定位必须在同一个元素上
+              // 锚点挂在这里;菜单本体由 DropdownMenu portal 到 body,并跟光标行定位
               const container = document.createElement("div");
-              container.className = "fixed z-50";
+              container.className = "pointer-events-none fixed z-50";
               document.body.appendChild(container);
               state = {
                 root: createRoot(container),
@@ -638,6 +642,7 @@ export const SlashMenuExtension = Extension.create<{
                 openCategoryById,
                 closeCategory,
                 hoverIndex,
+                dismiss,
               };
               renderMenu(state);
             },

@@ -3,7 +3,6 @@ import type { Editor } from "@tiptap/react";
 import { TextSelection } from "@tiptap/pm/state";
 import {
   ContextMenu,
-  ContextMenuCheckboxItem,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuLabel,
@@ -15,20 +14,23 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "../../components/ui/context-menu";
+import { copyPlainText } from "../clipboard";
 import {
   applyTableStructure,
   deleteTableAt,
+  insertTableAxis,
   setColumnAlignAt,
   tableContextAtPos,
   toStructureAnchor,
   type ColumnAlign,
   type TableStructureAnchor,
-  type TableStructureOp,
 } from "../table-utils";
+import { TableCountInsertRow } from "./TableCountInsertRow";
 
 /**
- * 表格右键菜单:工具条上的行列增删、整列对齐、单元格复制、删除表格。
+ * 表格右键菜单:「单元格」复制内容 +「行操作」/「列操作」(数量框插入/删除)+ 对齐 + 删表。
  * 落点按鼠标所在单元格,不按打开前的光标。长表滚到下面时不用再滚回顶部点浮条。
+ * 插入行/列与表工具条同款:标签 + 数量框 + 勾选确认。
  * ContextMenuTrigger 包住编辑器区域,但只在 hover 单元格时启用;
  * 非表格右键继续交给 AI 菜单或系统默认菜单。
  */
@@ -41,14 +43,14 @@ const ALIGN_ITEMS: { key: Exclude<ColumnAlign, null>; label: string }[] = [
 
 interface TableContextMenuProps {
   editor: Editor;
-  cellCopy?: boolean;
-  onToggleCellCopy?: () => void;
   children: ReactNode;
 }
 
 type TableMenuContext = {
   anchor: TableStructureAnchor;
   align: ColumnAlign;
+  /** 右键落点格的纯文本;空格禁用「复制内容」 */
+  cellText: string;
 };
 
 function cellFromEvent(event: { target: EventTarget | null }, root: HTMLElement): HTMLTableCellElement | null {
@@ -61,14 +63,15 @@ function cellFromEvent(event: { target: EventTarget | null }, root: HTMLElement)
   return cell;
 }
 
-export function TableContextMenu({
-  editor,
-  cellCopy = false,
-  onToggleCellCopy,
-  children,
-}: TableContextMenuProps) {
-  // 不用受控 open:让 Radix 在真实 contextmenu 上取鼠标坐标定位。
+function cellPlainText(cell: HTMLTableCellElement): string {
+  return (cell.innerText || cell.textContent || "").replace(/\u00a0/g, " ").trim();
+}
+
+export function TableContextMenu({ editor, children }: TableContextMenuProps) {
+  // 受控 open:数量插入确认后要立刻关掉菜单(自定义行不会触发 Radix Item select)。
   // hover 状态先解除 trigger disabled,避免非表格区域出现空菜单。
+  const [open, setOpen] = useState(false);
+  const [openSeq, setOpenSeq] = useState(0);
   const [overTable, setOverTable] = useState(false);
   const [context, setContext] = useState<TableMenuContext | null>(null);
 
@@ -105,10 +108,21 @@ export function TableContextMenu({
     setContext({
       anchor: toStructureAnchor(tableContext),
       align: tableContext.align,
+      cellText: cellPlainText(cell),
     });
+    setOpenSeq((seq) => seq + 1);
   };
 
-  const run = (op: TableStructureOp) => {
+  const closeMenu = () => setOpen(false);
+
+  const insertAxis = (axis: "row" | "column", where: "before" | "after", count: number) => {
+    if (!context) return;
+    insertTableAxis(editor, context.anchor, count, axis, where);
+    editor.commands.focus();
+    closeMenu();
+  };
+
+  const deleteAxis = (op: "deleteRow" | "deleteColumn") => {
     if (!context) return;
     applyTableStructure(editor, context.anchor, op);
     editor.commands.focus();
@@ -120,8 +134,21 @@ export function TableContextMenu({
     editor.commands.focus();
   };
 
+  const copyCell = () => {
+    if (!context?.cellText) return;
+    void copyPlainText(context.cellText).then(() => {
+      editor.commands.focus();
+    });
+  };
+
   return (
-    <ContextMenu>
+    <ContextMenu
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setContext(null);
+      }}
+    >
       <ContextMenuTrigger
         asChild
         disabled={!overTable}
@@ -133,40 +160,49 @@ export function TableContextMenu({
       >
         {children}
       </ContextMenuTrigger>
-      <ContextMenuContent aria-label="表格" className="min-w-40 gap-0.5">
-        <ContextMenuLabel className="px-2 py-1 text-[10px]">表格</ContextMenuLabel>
+      <ContextMenuContent aria-label="表格" className="min-w-56 gap-0.5">
         {context ? (
           <>
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>插入行</ContextMenuSubTrigger>
-              <ContextMenuSubContent>
-                <ContextMenuItem onSelect={() => run("addRowBefore")}>在上方插入行</ContextMenuItem>
-                <ContextMenuItem onSelect={() => run("addRowAfter")}>在下方插入行</ContextMenuItem>
-              </ContextMenuSubContent>
-            </ContextMenuSub>
+            <ContextMenuLabel className="px-2 py-1 text-[10px]">行操作</ContextMenuLabel>
+            {/* openSeq 每次右键递增,数量框回到默认 1 */}
+            <TableCountInsertRow
+              key={`row-before-${openSeq}`}
+              label="在上方插入行"
+              onCommit={(n) => insertAxis("row", "before", n)}
+            />
+            <TableCountInsertRow
+              key={`row-after-${openSeq}`}
+              label="在下方插入行"
+              onCommit={(n) => insertAxis("row", "after", n)}
+            />
             <ContextMenuItem
               disabled={context.anchor.rows <= 1}
-              onSelect={() => run("deleteRow")}
+              onSelect={() => deleteAxis("deleteRow")}
             >
               删除行
             </ContextMenuItem>
             <ContextMenuSeparator />
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>插入列</ContextMenuSubTrigger>
-              <ContextMenuSubContent>
-                <ContextMenuItem onSelect={() => run("addColumnBefore")}>
-                  在左侧插入列
-                </ContextMenuItem>
-                <ContextMenuItem onSelect={() => run("addColumnAfter")}>
-                  在右侧插入列
-                </ContextMenuItem>
-              </ContextMenuSubContent>
-            </ContextMenuSub>
+            <ContextMenuLabel className="px-2 py-1 text-[10px]">列操作</ContextMenuLabel>
+            <TableCountInsertRow
+              key={`col-before-${openSeq}`}
+              label="在左侧插入列"
+              onCommit={(n) => insertAxis("column", "before", n)}
+            />
+            <TableCountInsertRow
+              key={`col-after-${openSeq}`}
+              label="在右侧插入列"
+              onCommit={(n) => insertAxis("column", "after", n)}
+            />
             <ContextMenuItem
               disabled={context.anchor.cols <= 1}
-              onSelect={() => run("deleteColumn")}
+              onSelect={() => deleteAxis("deleteColumn")}
             >
               删除列
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuLabel className="px-2 py-1 text-[10px]">单元格</ContextMenuLabel>
+            <ContextMenuItem disabled={!context.cellText} onSelect={copyCell}>
+              复制内容
             </ContextMenuItem>
             <ContextMenuSub>
               <ContextMenuSubTrigger>对齐方式</ContextMenuSubTrigger>
@@ -186,20 +222,6 @@ export function TableContextMenu({
                 </ContextMenuRadioGroup>
               </ContextMenuSubContent>
             </ContextMenuSub>
-            {onToggleCellCopy ? (
-              <>
-                <ContextMenuSeparator />
-                <ContextMenuCheckboxItem
-                  checked={cellCopy}
-                  onSelect={() => {
-                    onToggleCellCopy();
-                    editor.commands.focus();
-                  }}
-                >
-                  单元格复制
-                </ContextMenuCheckboxItem>
-              </>
-            ) : null}
             <ContextMenuSeparator />
             <ContextMenuItem
               variant="destructive"
