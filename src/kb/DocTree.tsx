@@ -111,6 +111,7 @@ interface DocTreeProps {
   onBatchMove: (rels: string[], destFolder: string) => Promise<BatchResult>;
   onBatchSetTags: (rels: string[], add: string[], remove: string[]) => Promise<BatchResult>;
   onBatchRename: (items: BatchRenameItem[]) => Promise<BatchResult>;
+  onBatchTrash: (rels: string[]) => Promise<BatchResult>;
   onToast: (message: string) => void;
 }
 
@@ -360,15 +361,16 @@ function TreeRow({
             aria-current={active ? "page" : undefined}
             className={cn(
               "chrome-tree-row group relative flex w-full items-center gap-1.5 rounded-lg py-1 pr-2 text-left text-[13px] transition-colors",
-              // 当前文档用 raised 白底+主色描边:selection 混色叠在 sidebar 上几乎看不出
+              // 当前文档用 raised 白底+主色描边;批量选择时关掉胶囊/左色条,避免和勾选框挤成紫边残影
               // (平铺风格由 [data-ui-style=flat] .chrome-tree-row-active 改成左条选中)
-              active
-                ? "chrome-tree-row-active bg-raised text-foreground ring-primary/35 shadow-[0_1px_2px_color-mix(in_oklab,var(--workspace)_45%,transparent)] ring-1"
-                : selected
-                  ? "bg-selection text-foreground"
+              selected
+                ? "bg-selection text-foreground"
+                : active && !selectionMode
+                  ? "chrome-tree-row-active bg-raised text-foreground ring-primary/35 shadow-[0_1px_2px_color-mix(in_oklab,var(--workspace)_45%,transparent)] ring-1"
                   : node.isDir
                     ? "hover:bg-raised/60 text-foreground/90 font-medium"
                     : "hover:bg-raised/55 text-foreground/80",
+              active && selectionMode && !selected && "text-foreground",
               node.isDir ? "min-h-9" : "min-h-8",
               hint === "into" && "bg-primary/10 ring-primary/35 ring-1",
             )}
@@ -445,14 +447,14 @@ function TreeRow({
             }}
           >
             {node.isDir || !selectionMode ? (
-              <span className="size-3.5 shrink-0" />
+              <span className="size-5 shrink-0" aria-hidden />
             ) : (
               <button
                 type="button"
                 aria-label={selected ? `取消选择「${node.name}」` : `选择「${node.name}」`}
                 aria-pressed={selected}
                 className={cn(
-                  "text-muted-foreground hover:text-primary flex size-3.5 shrink-0 cursor-pointer items-center justify-center",
+                  "text-muted-foreground hover:text-primary flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-md",
                   selected && "text-primary",
                 )}
                 onClick={(e) => {
@@ -460,7 +462,11 @@ function TreeRow({
                   onToggleSelect(node.path, false);
                 }}
               >
-                {selected ? <CheckSquare2 className="size-3.5" /> : <Square className="size-3.5" />}
+                {selected ? (
+                  <CheckSquare2 className="size-3.5" strokeWidth={2} />
+                ) : (
+                  <Square className="size-3.5" strokeWidth={2} />
+                )}
               </button>
             )}
             {node.isDir ? (
@@ -688,6 +694,7 @@ export function DocTree({
   onBatchMove,
   onBatchSetTags,
   onBatchRename,
+  onBatchTrash,
   onToast,
 }: DocTreeProps) {
   const dragPath = useRef<string | null>(null);
@@ -841,6 +848,7 @@ export function DocTree({
             onMove={onBatchMove}
             onSetTags={onBatchSetTags}
             onRename={onBatchRename}
+            onTrash={onBatchTrash}
             onToast={onToast}
           />
         ) : (

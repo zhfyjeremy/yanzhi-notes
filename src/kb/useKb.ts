@@ -775,7 +775,50 @@ export function useKb(settings: AppSettings) {
         console.error("[kb] 删除失败:", e);
       }
     },
-    [flushSave, openDoc, persistMeta, refreshTree, refreshTrashCount],
+    [flushSave, openDoc, persistMeta, refreshTree, refreshTrashCount, refreshTrashRefs],
+  );
+
+  /** 批量移入回收站:只处理 .md;一次 flush / 刷树 / 索引清理。 */
+  const removeEntries = useCallback(
+    async (rels: string[]): Promise<BatchResult> => {
+      const root = rootRef.current;
+      if (!root) return { ok: 0, failed: rels.length, errors: ["未打开知识库"] };
+      await flushSave();
+      const unique = [...new Set(rels.filter((rel) => rel.toLowerCase().endsWith(".md")))];
+      let ok = 0;
+      const errors: string[] = [];
+      for (const rel of unique) {
+        try {
+          markSelfWrite();
+          await kbBackend.moveToTrash(root, rel);
+          metaRef.current = removeMetaKeys(metaRef.current, rel, false);
+          searchRef.current.remove(rel);
+          wikiRefIdx.current.remove(rel);
+          ok++;
+        } catch (e) {
+          errors.push(`「${rel}」移入回收站失败:${String(e)}`);
+        }
+      }
+      if (ok) {
+        persistMeta();
+        void refreshTrashCount();
+        void refreshTrashRefs();
+        await refreshTree();
+        const cur = pathRef.current;
+        if (cur && unique.includes(cur)) {
+          const nodes = await kbBackend.scanTree(root);
+          const first = firstDoc(nodes);
+          if (first) await openDoc(first);
+          else {
+            setCurrentPath(null);
+            setMarkdown("# 未命名文档\n");
+            savedMdRef.current = "# 未命名文档\n";
+          }
+        }
+      }
+      return { ok, failed: unique.length - ok, errors };
+    },
+    [flushSave, openDoc, persistMeta, refreshTree, refreshTrashCount, refreshTrashRefs],
   );
 
   /** 重命名 + 双链引用联动(5.1):flushSave 后由后端扫全库替换;
@@ -1281,6 +1324,7 @@ export function useKb(settings: AppSettings) {
     createDoc,
     createFolder,
     removeEntry,
+    removeEntries,
     renameEntry,
     moveEntry,
     search,

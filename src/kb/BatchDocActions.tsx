@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowRightLeft, Hash, ListFilter, MoreHorizontal, PenLine, X } from "lucide-react";
+import { ArrowRightLeft, Hash, ListFilter, MoreHorizontal, PenLine, Trash2, X } from "lucide-react";
 import type { TreeNode } from "./types";
 import {
   foldersOf,
@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
-type Mode = "move" | "tags" | "rename";
+type Mode = "move" | "tags" | "rename" | "trash";
 
 interface BatchDocActionsProps {
   selected: string[];
@@ -39,6 +39,7 @@ interface BatchDocActionsProps {
   onMove: (rels: string[], destFolder: string) => Promise<BatchResult>;
   onSetTags: (rels: string[], add: string[], remove: string[]) => Promise<BatchResult>;
   onRename: (items: BatchRenameItem[]) => Promise<BatchResult>;
+  onTrash: (rels: string[]) => Promise<BatchResult>;
   onToast: (message: string) => void;
 }
 
@@ -52,6 +53,7 @@ export function BatchDocActions({
   onMove,
   onSetTags,
   onRename,
+  onTrash,
   onToast,
 }: BatchDocActionsProps) {
   const [mode, setMode] = useState<Mode | null>(null);
@@ -114,22 +116,31 @@ export function BatchDocActions({
     }
   };
 
+  const runTrash = async () => {
+    setBusy(true);
+    try {
+      finish(await onTrash(selected), "已移入回收站");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
-      <div className="bg-selection flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-0.5 text-xs ring-1 ring-primary/10">
+      <div className="flex h-9 min-w-0 items-center gap-1 px-0.5 text-xs">
         <Hint label="退出选择模式">
           <Button
             size="icon-sm"
             variant="ghost"
             aria-label="退出批量选择"
-            className="text-muted-foreground size-6 shrink-0"
+            className="text-muted-foreground hover:text-foreground size-7 shrink-0"
             onClick={onClear}
           >
             <X className="size-3.5" />
           </Button>
         </Hint>
-        <span className="text-primary min-w-0 flex-1 truncate font-medium tabular-nums">
-          已选 {selected.length} 篇
+        <span className="text-foreground min-w-0 flex-1 truncate font-medium tabular-nums">
+          已选 <span className="text-primary">{selected.length}</span> 篇
         </span>
         <DropdownMenu>
           <Hint label="批量操作">
@@ -137,7 +148,7 @@ export function BatchDocActions({
               <button
                 type="button"
                 aria-label="批量操作"
-                className="text-muted-foreground hover:text-foreground hover:bg-hover flex size-6 shrink-0 cursor-pointer items-center justify-center rounded"
+                className="text-muted-foreground hover:text-foreground hover:bg-hover flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md"
               >
                 <MoreHorizontal className="size-4" />
               </button>
@@ -154,6 +165,14 @@ export function BatchDocActions({
               <PenLine /> 批量重命名…
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              disabled={!selected.length}
+              onClick={() => setMode("trash")}
+            >
+              <Trash2 /> 移入回收站…
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onSelectAll}>
               {allSelected ? "取消全选" : "选择全部"}
             </DropdownMenuItem>
@@ -165,10 +184,18 @@ export function BatchDocActions({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {mode === "move" ? "批量移动" : mode === "tags" ? "批量标签" : "批量重命名"}
+              {mode === "move"
+                ? "批量移动"
+                : mode === "tags"
+                  ? "批量标签"
+                  : mode === "trash"
+                    ? "移入回收站"
+                    : "批量重命名"}
             </DialogTitle>
             <DialogDescription>
-              {selected.length} 篇文档。双链路径引用会随移动或改名同步更新。
+              {mode === "trash"
+                ? `将 ${selected.length} 篇文档移入回收站,之后可在回收站恢复。`
+                : `${selected.length} 篇文档。双链路径引用会随移动或改名同步更新。`}
             </DialogDescription>
           </DialogHeader>
 
@@ -288,6 +315,7 @@ export function BatchDocActions({
               取消
             </Button>
             <Button
+              variant={mode === "trash" ? "destructive" : "default"}
               disabled={
                 busy ||
                 (mode === "rename" && (renamePlan.errors.length > 0 || renamePlan.items.every((i) => i.rel === i.newRel)))
@@ -295,10 +323,11 @@ export function BatchDocActions({
               onClick={() => {
                 if (mode === "move") void runMove();
                 else if (mode === "tags") void runTags();
+                else if (mode === "trash") void runTrash();
                 else void runRename();
               }}
             >
-              {busy ? "处理中…" : "应用"}
+              {busy ? "处理中…" : mode === "trash" ? "移入回收站" : "应用"}
             </Button>
           </DialogFooter>
         </DialogContent>

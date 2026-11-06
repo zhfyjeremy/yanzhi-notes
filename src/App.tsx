@@ -1052,6 +1052,11 @@ function App() {
     [kb.renameEntry, showToast],
   );
 
+  const batchTrashDocs = useCallback(
+    (rels: string[]) => kb.removeEntries(rels),
+    [kb.removeEntries],
+  );
+
   // 新建文档(7.5):知识库有模板(.yanzhi/templates/*.md)时先弹选择器;无模板零打扰直建。
   // 模板目录读取失败按无模板处理,不能挡住新建
   const handleCreateDoc = useCallback(
@@ -1426,6 +1431,7 @@ function App() {
             onBatchMove={batchMoveDocs}
             onBatchSetTags={batchSetDocTags}
             onBatchRename={batchRenameDocs}
+            onBatchTrash={batchTrashDocs}
             onToast={showToast}
           />
         )}
