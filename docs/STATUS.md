@@ -166,6 +166,7 @@
 ## 欢迎页与三栏工作台(2026-11-01)✅
 
 - 应用图标定稿为用户提供设计稿的「现状版」:保留原蓝色砚台表达,按蓝色主体实际边界全出血裁切,左右/上下中心边缘无白边,圆角外背景透明;源文件 `src-tauri/icons/icon-source.png`,已生成 macOS `.icns`、Windows `.ico`、桌面 PNG 与 Store 图标,欢迎页品牌区复用 512px 生成图。概念稿与「砚台现状 / 墨黑」对比稿保留在 `docs/icon-concepts/`。
+- 2026-11-06:应用/安装包 logo 仍是「MD 纸张 + 蓝笔托盘」(`icon-source.png`)。蓝圆角文档卡只做文件图标,窗口和快捷方式继续用应用 logo。Tauri 的 `fileAssociations` 没有独立图标字段。Windows:NSIS 在 `APP_ASSOCIATE` 之后改 `Software\Classes\Markdown\DefaultIcon` 指向 `file-icon.ico`(`windows/file-icon.nsh`);已安装程序启动时若关联命令指向 `yanzhi-notes.exe`,会把图标写到该 exe 旁边(`file_icon.rs`)。macOS:`src-tauri/Info.plist` 覆盖 `CFBundleDocumentTypes`,给 `.md` / `.markdown` 加上 `CFBundleTypeIconFile=file-icon`,图标文件是 `Contents/Resources/file-icon.icns`。
 - 欢迎页改为单栏宣纸引导卡:「新建知识库 / 打开知识库 / 打开 Markdown 文件」三个真实动作同等权重;单文件编辑不再藏在次级虚线卡中。
 - 存储事实从可点击感卡片降级为分隔线下的纯文本说明(本地文件夹 / 标准 .md / 复制即备份),避免和动作卡混淆;移除右侧「我的知识库」目录结构示意,释放首屏空间。
 - 最近打开从纵向路径列表改为横向卡片(最多各 5 个),显示名称与父目录,并分为「知识库 / Markdown 文件」两组。

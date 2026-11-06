@@ -1,4 +1,5 @@
 mod ai;
+mod file_icon;
 mod kb;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -682,6 +683,7 @@ pub fn run() {
             if let Some(path) = pending {
                 *app.state::<StartupSingleFile>().0.lock().unwrap() = Some(path);
             }
+            file_icon::sync_installed_file_icon(app.handle());
             build_app_menu(app.handle())?;
             Ok(())
         })

@@ -5514,6 +5514,7 @@ dependencies = [
  "tauri-plugin-window-state",
  "tokio",
  "url",
+ "winreg",
 ]
 
 [[package]]

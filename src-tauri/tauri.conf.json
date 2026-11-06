@@ -30,9 +30,19 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": {
+      "icons/file-icon.ico": "file-icon.ico",
+      "icons/file-icon.icns": "file-icon.icns"
+    },
+    "macOS": {
+      "infoPlist": "Info.plist"
+    },
     "windows": {
       "wix": {
         "language": "zh-CN"
+      },
+      "nsis": {
+        "installerHooks": "windows/file-icon.nsh"
       }
     },
     "fileAssociations": [
