@@ -35,7 +35,8 @@
       "icons/file-icon.icns": "file-icon.icns"
     },
     "macOS": {
-      "infoPlist": "Info.plist"
+      "infoPlist": "Info.plist",
+      "signingIdentity": "-"
     },
     "windows": {
       "wix": {

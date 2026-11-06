@@ -62,7 +62,8 @@ jobs:
         env:
           # CI=true makes the bundler skip the Finder layout, so the DMG opens as a plain folder and the app runs in place.
           TAURI_BUNDLER_DMG_IGNORE_CI: "true"
-        run: pnpm tauri build --target universal-apple-darwin --bundles app,dmg --no-sign
+        # Keep the app-level ad-hoc signature in tauri.conf.json; --no-sign leaves only a linker signature, so macOS TCC cannot persist folder access grants.
+        run: pnpm tauri build --target universal-apple-darwin --bundles app,dmg
 
       - name: Build Windows x64 app
         if: matrix.platform == 'windows-x64'

@@ -277,7 +277,7 @@
 | --- | --- | --- |
 | 设置开关 | ✅ | 通用 →「关闭窗口时保持后台」,默认关;`settings.closeToTray` |
 | 系统托盘 | ✅ | Tauri `tray-icon`:开设置即建托盘;左键打开主窗;菜单「打开砚知 / 退出砚知」;**单实例**(`tauri-plugin-single-instance`,2026-11-03):关到托盘后再点桌面图标唤起已有窗,不新开进程/托盘;二次启动带 `.md` 转前台打开 |
-| 关窗行为 | ✅ | 开:冲刷后 `hide`;关:走真退出。`CloseRequested` 一律先 prevent 再由前端分支 |
+| 关窗行为 | ✅ | 开:冲刷后隐藏;关:走真退出。`CloseRequested` 一律先 prevent 再由前端分支。2026-11-06 修复 macOS 全屏关到托盘黑屏:不再直接 `window.hide`(全屏 space 会残留黑屏),改走 `NSApplication.hide/show` |
 | 真退出 | ✅ | 菜单退出 / 托盘退出 → `ExitRequested` 拦下发 `yz-app-quit` → 前端确认后 `quit_app`(QuitArmed) |
 | 保存策略 | ✅ | 知识库 `flushSave` 静默落盘;单文件 dirty 弹保存/放弃/继续(挂后台放弃=重载磁盘版清 dirty) |
 

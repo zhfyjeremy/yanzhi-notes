@@ -13,6 +13,9 @@ struct CloseToTray(AtomicBool);
 struct QuitArmed(AtomicBool);
 
 fn show_main_window_inner(app: &tauri::AppHandle) {
+    // macOS 若用 NSApplication.hide 收到托盘,单独 window.show 不会自动 unhide 应用。
+    #[cfg(target_os = "macos")]
+    let _ = app.show();
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
@@ -89,10 +92,22 @@ fn show_main_window(app: tauri::AppHandle) {
 
 #[tauri::command]
 fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
-    let w = app
-        .get_webview_window("main")
-        .ok_or_else(|| "主窗口不存在".to_string())?;
-    w.hide().map_err(|e| e.to_string())
+    // macOS 直接 orderOut 全屏窗会留下一个空的黑色全屏 Space。走系统级 App Hide,
+    // 让 macOS 收起完整 fullscreen space;托盘恢复时先 App Show 再拉起主窗。
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app
+            .get_webview_window("main")
+            .ok_or_else(|| "主窗口不存在".to_string())?;
+        app.hide().map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let w = app
+            .get_webview_window("main")
+            .ok_or_else(|| "主窗口不存在".to_string())?;
+        w.hide().map_err(|e| e.to_string())
+    }
 }
 
 /// 前端冲刷/确认完成后真正退出(武装 QuitArmed,避免 ExitRequested 再拦一次)
