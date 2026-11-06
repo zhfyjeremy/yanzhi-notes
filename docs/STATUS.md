@@ -190,7 +190,7 @@
 ## CI 双端打包(2026-11-01)✅
 
 - 新增 `.github/workflows/desktop-release.yml`:支持 `workflow_dispatch` 手动打包与 `v*` tag 自动发布。
-- macOS `macos-14` 构建 `universal-apple-darwin`,产出未签名 Universal `.dmg`。构建时设 `TAURI_BUNDLER_DMG_IGNORE_CI=true`,否则 Actions 的 `CI=true` 会跳过安装盘排版,打开后只能直接运行应用。Windows `windows-latest` 构建 `x86_64-pc-windows-msvc`,`--bundles nsis`,只产出 NSIS `.exe`。
+- macOS `macos-15` 构建 `universal-apple-darwin`,产出未签名 Universal `.dmg`。构建时设 `TAURI_BUNDLER_DMG_IGNORE_CI=true`,否则 Actions 的 `CI=true` 会跳过安装盘排版,打开后只能直接运行应用。Windows `windows-latest` 构建 `x86_64-pc-windows-msvc`,`--bundles nsis`,只产出 NSIS `.exe`。
 - 双平台并行构建,产物分别上传 Actions artifacts;tag 触发时合并产物并自动创建 GitHub Release。当前未接入代码签名与公证,正式分发仍需补 Apple Developer ID、公证与 Windows 代码签名密钥。
 - 2026-11-03 修复 Windows MSI 在 GitHub Actions 的 WiX `LGHT0311`:中文 `productName` 搭配默认 `en-US` 会落到 code page 1252,现设 `bundle.windows.wix.language = zh-CN`;同时将 workflow actions 升级到 Node.js 24 runtime;待重新触发 Actions 验证。
 
