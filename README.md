@@ -14,10 +14,36 @@
 ```bash
 pnpm install        # 前端依赖
 pnpm tauri dev      # 开发模式(首次 Rust 编译较慢)
-pnpm tauri build    # 打包安装程序
 ```
 
 依赖:Node.js ≥ 20、pnpm、Rust stable(`rustup`)。
+
+## 打包
+
+### macOS Universal(app + dmg)
+
+```bash
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+TAURI_BUNDLER_DMG_IGNORE_CI=true pnpm tauri build --target universal-apple-darwin --bundles app,dmg
+```
+
+产物:
+
+```text
+src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+```
+
+### Windows x64(NSIS 安装器)
+
+```bash
+pnpm tauri build --target x86_64-pc-windows-msvc --bundles nsis
+```
+
+产物:
+
+```text
+src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+```
 
 > 国内网络:`src-tauri/.cargo/config.toml` 已配置 crates.io 镜像,代理可用时可删除。
 

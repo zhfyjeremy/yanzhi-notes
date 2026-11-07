@@ -1,9 +1,12 @@
 //! Windows 上把 .md / .markdown 的文件图标指到安装目录里的 file-icon.ico。
 //! 应用本身的窗口、任务栏、快捷方式仍用 exe 图标。
 
+#[cfg(windows)]
 use std::path::{Path, PathBuf};
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+#[cfg(windows)]
+use tauri::Manager;
 
 /// 已安装的砚知被设为默认打开方式时,把该关联的 DefaultIcon 改成文档卡。
 /// 开发进程的 exe 路径对不上现有关联时什么都不写。
