@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { useEditorState } from "@tiptap/react";
-import { AlignCenter, AlignLeft, Link2, Maximize2 } from "lucide-react";
+import { AlignCenter, AlignLeft, FolderOpen, Link2, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/hint";
 import { Input } from "@/components/ui/input";
@@ -26,9 +26,11 @@ interface ImageToolbarProps {
   editor: Editor;
   /** lightbox 打开时由 App 层渲染全屏预览 */
   onPreview?: (src: string | null) => void;
+  /** 从文件替换当前图片:选图 → 落 assets → 返回新 src(取消 null) */
+  onReplaceImage?: () => Promise<string | null>;
 }
 
-export function ImageToolbar({ editor, onPreview }: ImageToolbarProps) {
+export function ImageToolbar({ editor, onPreview, onReplaceImage }: ImageToolbarProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [layoutTick, setLayoutTick] = useState(0);
@@ -210,6 +212,24 @@ export function ImageToolbar({ editor, onPreview }: ImageToolbarProps) {
           </div>
         </PopoverContent>
       </Popover>
+
+      {onReplaceImage && (
+        <Hint label="从文件替换">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground hover:text-foreground"
+            onClick={() => {
+              void (async () => {
+                const src = await onReplaceImage();
+                if (src) setAttrs({ src });
+              })();
+            }}
+          >
+            <FolderOpen className="size-3.5" />
+          </Button>
+        </Hint>
+      )}
 
       <Hint label="放大预览">
         {/* 预览走渲染解析(./assets 相对引用 → asset:/dataURL),不能直接给 md 原始 src */}

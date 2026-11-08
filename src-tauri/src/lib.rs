@@ -268,11 +268,13 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .items(&recent_file_refs)
         .submenu_native_icon(NativeIcon::MultipleDocuments)
         .build()?;
-    // 保存/另存为/关闭/存入知识库 = 单文件专用;知识库页灰掉避免「点了没反应」
+    // 另存为/关闭/存入知识库 = 单文件专用;知识库页灰掉避免「点了没反应」
     let flags = *app.state::<ViewFlags>().0.lock().unwrap();
     let single = flags.single_file;
-    let save_single =
-        MenuItem::with_id(app, "yz_save_single", "保存", single, Some("CmdOrCtrl+S"))?;
+    // 保存 = 两种模式都可用:单文件写回原文件;知识库立即冲刷自动保存的待写内容
+    // (自动保存 2s 去抖,⌘S 给「立刻落盘」的确定感;原先知识库态灰掉是因为点了没反应)
+    let save_label = if single { "保存" } else { "立即保存" };
+    let save_doc = MenuItem::with_id(app, "yz_save_doc", save_label, true, Some("CmdOrCtrl+S"))?;
     let save_single_as = MenuItem::with_id(
         app,
         "yz_save_single_as",
@@ -329,7 +331,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .item(&recent_menu)
         .item(&recent_file_menu)
         .separator()
-        .item(&save_single)
+        .item(&save_doc)
         .item(&save_single_as)
         .item(&close_single)
         .item(&save_single_to_kb)
@@ -555,7 +557,8 @@ async fn open_aux_window(
         return Ok(());
     }
     let (title, w, h, resizable) = match label.as_str() {
-        "shortcuts" => ("快捷键说明", 460.0, 600.0, false),
+        // 快捷键说明:规格表布局(标题带 + 可改键卡片 + 双列固定条目),加宽并允许用户调整
+        "shortcuts" => ("快捷键说明", 800.0, 780.0, true),
         "help" => ("使用文档", 820.0, 620.0, true),
         "graph" => ("文档图谱", 1080.0, 760.0, true),
         _ => ("设置", 780.0, 560.0, true),
@@ -710,8 +713,8 @@ pub fn run() {
                 serde_json::json!({ "action": "open" })
             } else if id == "yz_open_single" {
                 serde_json::json!({ "action": "open-single" })
-            } else if id == "yz_save_single" {
-                serde_json::json!({ "action": "save-single" })
+            } else if id == "yz_save_doc" {
+                serde_json::json!({ "action": "save-doc" })
             } else if id == "yz_save_single_as" {
                 serde_json::json!({ "action": "save-single-as" })
             } else if id == "yz_close_single" {

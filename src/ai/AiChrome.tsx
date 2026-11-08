@@ -117,18 +117,7 @@ export function AiChrome({
 
   // 右键菜单 + ⌘/Ctrl+Shift+A 动作菜单
   useEffect(() => {
-    const dom = editor.view.dom;
-    const onCtx = (e: MouseEvent) => {
-      if (!enabled) return;
-      const t = e.target as HTMLElement;
-      if (t.closest("input, textarea, button, a, .yz-code-card")) return;
-      // 单元格右键交给表格菜单(增删行列),不和 AI 菜单叠开
-      if (t.closest("td, th")) return;
-      e.preventDefault();
-      const { empty, from, to } = editor.state.selection;
-      ctxSelectionRef.current = empty ? null : { from, to };
-      openActionMenuAt(e.clientX, e.clientY, !empty);
-    };
+    // 右键不再由 AI 层接管:统一走文档右键菜单(EditorContextMenu,含 AI 分组)
     const onKey = (e: KeyboardEvent) => {
       if (!shortcutMatches(e, menuShortcut)) return;
       const t = e.target as HTMLElement | null;
@@ -166,13 +155,11 @@ export function AiChrome({
       e.preventDefault();
       close();
     };
-    dom.addEventListener("contextmenu", onCtx);
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("keydown", onEsc);
     window.addEventListener("click", close);
     window.addEventListener("scroll", onScroll, true);
     return () => {
-      dom.removeEventListener("contextmenu", onCtx);
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("keydown", onEsc);
       window.removeEventListener("click", close);

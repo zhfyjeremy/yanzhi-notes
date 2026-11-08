@@ -40,6 +40,7 @@ import { prepareSingleMarkdownForKb } from "./kb/assets";
 import { flattenDocs, wikiLinkTextFor, wikiTargetFor } from "./kb/wiki-refs";
 import type { HistoryEntry } from "./kb/types";
 import { formatShortcut, shortcutMatches } from "./shortcuts";
+import { focusGlobalSearch } from "./kb/search-focus";
 import type { BatchRenameItem, BatchResult } from "./kb/batch";
 import {
   Dialog,
@@ -72,6 +73,13 @@ function App() {
   const [editor, setEditor] = useState<Editor | null>(null);
   const [editorScope, setEditorScope] = useState<EditorScope | null>(null);
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  /* ---- 上次光标/滚动位置记忆(按文档;内存 Map + meta 落盘) ----
+   * 内存 Map 记当前会话的位置(切文档时按旧路径取回);
+   * 切文档/窗口失焦时写进 meta,下次开同一篇恢复到上次的位置。
+   * 搜索结果跳转与双链跳转不恢复(用户要看的是命中处,不是上次位置)。 */
+  const cursorMapRef = useRef(new Map<string, { pos: number; scrollTop: number }>());
+  const prevPathRef = useRef<string | null>(null);
+  const skipRestoreRelRef = useRef<string | null>(null);
   const [title, setTitle] = useState("");
   const [focusMode, setFocusMode] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -254,6 +262,20 @@ function App() {
     },
     [runSinglePending, single.active, single.dirty],
   );
+
+  /**
+   * 知识库模式「立即保存」(原生菜单 ⌘S / 前端快捷键共用):
+   * 冲刷自动保存的待写内容并给明确反馈——自动保存是 2s 去抖,
+   * 用户按 ⌘S 是想要「已经存了」的确定感,原先按了毫无反应。
+   */
+  const saveKbNow = useCallback(() => {
+    if (!kb.currentPath) {
+      showToast("未打开文档");
+      return;
+    }
+    const pending = kb.saveState === "dirty";
+    void kb.flushSave().then(() => showToast(pending ? "已保存" : "已是最新"));
+  }, [kb.currentPath, kb.flushSave, kb.saveState, showToast]);
 
   const singlePendingDescription = useMemo(() => {
     if (!singlePending) return "";
@@ -455,8 +477,10 @@ function App() {
         requestSingleAction({ kind: "open-picker" });
       } else if (action === "open-recent-single" && path) {
         requestSingleAction({ kind: "open-path", path });
-      } else if (action === "save-single") {
+      } else if (action === "save-doc") {
+        // 单文件=写回原文件;知识库=立即冲刷待写内容
         if (single.active) void single.save();
+        else saveKbNow();
       } else if (action === "save-single-as") {
         if (single.active) void single.saveAs();
       } else if (action === "close-single") {
@@ -747,6 +771,19 @@ function App() {
         void single.save();
         return;
       }
+      // 知识库模式 ⌘S:立即冲刷自动保存待写内容(macOS 走原生菜单项,见 lib.rs yz_save_doc)
+      if (
+        bridgeMenuShortcuts &&
+        !single.active &&
+        (e.metaKey || e.ctrlKey) &&
+        !e.altKey &&
+        !e.shiftKey &&
+        e.code === "KeyS"
+      ) {
+        e.preventDefault();
+        saveKbNow();
+        return;
+      }
       if (
         bridgeMenuShortcuts &&
         single.active &&
@@ -757,6 +794,11 @@ function App() {
       ) {
         e.preventDefault();
         void single.saveAs();
+        return;
+      }
+      if (shortcutMatches(e, settings.shortcuts.search)) {
+        e.preventDefault();
+        focusGlobalSearch();
         return;
       }
       if (shortcutMatches(e, settings.shortcuts.focus)) {
@@ -781,7 +823,7 @@ function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [editor, kb.navBack, kb.navForward, openSettings, requestSingleAction, settings.shortcuts, single.active, single.save, single.saveAs]);
+  }, [editor, kb.navBack, kb.navForward, openSettings, requestSingleAction, saveKbNow, settings.shortcuts, single.active, single.save, single.saveAs]);
 
   const handleSingleReady = useCallback((e: Editor) => {
     setEditor(e);
@@ -813,6 +855,7 @@ function App() {
         setLocateSignal({ term, seq: ++locateSeq.current });
         pendingLocate.current = null;
       } else {
+        skipRestoreRelRef.current = rel; // 跳命中处,不恢复上次位置
         void kb.openDoc(rel);
       }
     },
@@ -1159,6 +1202,7 @@ function App() {
   const onOpenWikiLink = useCallback(
     (target: string) => {
       void kb.openWikiLink(target).then((rel) => {
+        if (rel) skipRestoreRelRef.current = rel; // 跳目标文档,不恢复上次位置
         // 失效链接(5.2.1-5):提示 + 「搜索同名文档」快捷入口,不自动瞎跳
         if (!rel) setWikiDead(target);
       });
@@ -1168,6 +1212,62 @@ function App() {
 
   // 稳定函数引用(扩展 options 在 useEditor 时定型,内部闭包读 ref)
   const getWikiDocs = useCallback(() => wikiDocRefs, [wikiDocRefs]);
+
+  /* ---- 上次光标/滚动位置:记录 / 落盘 / 恢复 ---- */
+  // 记录:选区或滚动变化 → 内存 Map(按当前文档)
+  useEffect(() => {
+    if (!editor || !kb.currentPath) return;
+    const rel = kb.currentPath;
+    const record = () => {
+      cursorMapRef.current.set(rel, {
+        pos: editor.state.selection.from,
+        scrollTop: scrollEl?.scrollTop ?? 0,
+      });
+    };
+    editor.on("selectionUpdate", record);
+    editor.on("update", record);
+    const el = scrollEl;
+    el?.addEventListener("scroll", record, { passive: true });
+    return () => {
+      editor.off("selectionUpdate", record);
+      editor.off("update", record);
+      el?.removeEventListener("scroll", record);
+    };
+  }, [editor, kb.currentPath, scrollEl]);
+
+  // 切文档:旧文档的位置落 meta
+  useEffect(() => {
+    const prev = prevPathRef.current;
+    const rel = kb.currentPath;
+    if (prev && prev !== rel) {
+      const c = cursorMapRef.current.get(prev);
+      if (c) kb.saveCursor(prev, c.pos, c.scrollTop);
+    }
+    prevPathRef.current = rel;
+  }, [kb.currentPath, kb.saveCursor]);
+
+  // 窗口失焦:当前文档位置落 meta(关窗/切应用不丢位置)
+  useEffect(() => {
+    const onBlur = () => {
+      const rel = kb.currentPath;
+      if (!rel) return;
+      const c = cursorMapRef.current.get(rel);
+      if (c) kb.saveCursor(rel, c.pos, c.scrollTop);
+    };
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, [kb.currentPath, kb.saveCursor]);
+
+  /** 打开文档后取回上次位置(内存优先,再回落 meta);搜索/双链跳转不恢复 */
+  const getRestoreCursor = useCallback(() => {
+    const rel = kb.currentPath;
+    if (!rel) return null;
+    if (skipRestoreRelRef.current === rel) {
+      skipRestoreRelRef.current = null;
+      return null;
+    }
+    return cursorMapRef.current.get(rel) ?? kb.getCursor(rel) ?? null;
+  }, [kb.currentPath, kb.getCursor]);
 
   /* ---- 图片落盘(5.3.7/9.3):粘贴/拖拽 → 可选压缩 → assets → 插入 ---- */
   const onImageFiles = useCallback(
@@ -1191,6 +1291,11 @@ function App() {
     [editor, kb.saveImageFiles, showToast, settings.imageCompress],
   );
   const onPickImage = useCallback(() => kb.importImagesFromPicker(), [kb.importImagesFromPicker]);
+  /** 图片工具条「从文件替换」:选图 → 落 assets → 返回新 src(取消 null) */
+  const onReplaceImage = useCallback(async (): Promise<string | null> => {
+    const srcs = await kb.importImagesFromPicker();
+    return srcs?.[0] ?? null;
+  }, [kb.importImagesFromPicker]);
 
   const onSingleImageFiles = useCallback(
     async (files: File[]): Promise<string[]> => {
@@ -1527,6 +1632,10 @@ function App() {
             onOpenWikiLink={onOpenWikiLink}
             onImageFiles={onImageFiles}
             onPickImage={onPickImage}
+            onReplaceImage={onReplaceImage}
+            getRestoreCursor={getRestoreCursor}
+            onExportMd={onExportMd}
+            onExportHtml={onExportHtml}
             onPickAttachment={onPickAttachment}
             onOpenAttachment={onOpenAttachment}
             locateSignal={locateSignal}

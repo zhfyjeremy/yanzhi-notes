@@ -1,8 +1,10 @@
 import type { Editor } from "@tiptap/react";
 import { useEditorState } from "@tiptap/react";
+import { Fragment } from "react";
 import { CircleAlert, Eye, EyeOff } from "lucide-react";
 import { Hint } from "@/components/hint";
-import { countWords } from "../editor/word-count";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { countDocStats, countWords } from "../editor/word-count";
 
 /**
  * 状态栏(PRD §3):自动保存状态、当前文档名、库路径、字数统计(全文/选区)、专注模式入口。
@@ -23,6 +25,32 @@ interface StatusBarProps {
   /** AI 请求中显示目标 host(§7.8);null = 无请求 */
   aiHost?: string | null;
   onCancelAi?: () => void;
+}
+
+/** 文档统计弹窗内容(字数/字符/段落/图片/表格/预计阅读) */
+function DocStatsRows({ editor }: { editor: Editor }) {
+  const stats = useEditorState({
+    editor,
+    selector: ({ editor }) => countDocStats(editor.state.doc),
+  });
+  const rows: [string, string][] = [
+    ["字数", `${stats.words}`],
+    ["字符(不含空格)", `${stats.chars}`],
+    ["段落", `${stats.paragraphs}`],
+    ["图片", `${stats.images}`],
+    ["表格", `${stats.tables}`],
+    ["预计阅读", `${stats.readMinutes} 分钟`],
+  ];
+  return (
+    <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
+      {rows.map(([label, value]) => (
+        <Fragment key={label}>
+          <span className="text-muted-foreground">{label}</span>
+          <span className="tabular-nums text-right">{value}</span>
+        </Fragment>
+      ))}
+    </div>
+  );
 }
 
 function WordCount({ editor }: { editor: Editor }) {
@@ -70,7 +98,21 @@ export function StatusBar({
             </button>
           </Hint>
         )}
-        {editor && <span className="text-foreground/65"><WordCount editor={editor} /></span>}
+        {editor && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                className="text-foreground/65 hover:text-foreground hover:bg-hover rounded-md px-1 py-0.5"
+                title="点击查看文档统计"
+              >
+                <WordCount editor={editor} />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-52 p-2.5">
+              <DocStatsRows editor={editor} />
+            </PopoverContent>
+          </Popover>
+        )}
         <Hint label="专注模式 (⌘/Ctrl+Shift+F)">
           <button
             className="hover:text-foreground hover:bg-hover flex items-center gap-1 rounded-md px-1.5 py-1"

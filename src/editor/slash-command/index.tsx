@@ -73,6 +73,11 @@ export function setSlashAttachmentPicker(fn: SlashAttachmentPicker | null): void
   attachmentPicker = fn;
 }
 
+/** 触发图片选择(右键菜单「插入 → 图片」复用斜杠菜单的落盘链路) */
+export function pickSlashImage(editor: Editor): void {
+  imagePicker?.(editor);
+}
+
 type SlashAiHandler = (editor: Editor, actionId: AiActionId) => void;
 let aiHandler: SlashAiHandler | null = null;
 

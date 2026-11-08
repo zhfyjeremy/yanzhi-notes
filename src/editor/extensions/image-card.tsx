@@ -4,7 +4,8 @@ import { NodeSelection, Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { NodeViewProps } from "@tiptap/react";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
+import { ImageOff } from "lucide-react";
 import { resolveRenderSrc } from "@/kb/asset-src";
 
 /**
@@ -13,6 +14,8 @@ import { resolveRenderSrc } from "@/kb/asset-src";
  * 序列化零改动,md 真源不被渲染 URL 污染。
  * width/align 是视图层属性,不进 md 序列化(方言表无宽度语法,不擅自扩方言;
  * M3 已定:持久化不做,会话级视图属性,见 STATUS 决策记录)。
+ * 资源加载失败(路径写错 / 文件被外部删除 / assets 迁移漏了)不留空白框:
+ * 渲染成 Typora 式「破图图标 + 图片地址」,地址即 md 原文(src),便于用户照着修。
  * 独占段落的图片居中由段落级 decoration 实现(inline img 自身无法居中)。
  * 选中时可拖左右手柄连续改宽(仍写 width 百分比 attrs)。
  */
@@ -41,6 +44,20 @@ const centerParagraphsPlugin = new Plugin({
   },
 });
 
+/**
+ * 加载失败判定(纯函数,单测锁定):
+ * - 空地址直接算失败(没有 src 的图片节点就是坏图);
+ * - failedSrc 与当前解析地址相同才算失败 —— 用户改了图片地址后自动重试,不再挂着旧失败态。
+ */
+export function isBrokenImage(rawSrc: string, renderSrc: string, failedSrc: string | null): boolean {
+  return !rawSrc.trim() || failedSrc === renderSrc;
+}
+
+/** 失败占位展示的地址文案(md 原文,用户照着就能修) */
+export function brokenImageLabel(rawSrc: string): string {
+  return rawSrc.trim() || "(空图片地址)";
+}
+
 function parseWidthPct(width: unknown, fallbackPx: number, editorWidth: number): number {
   if (typeof width === "string" && width.endsWith("%")) {
     const n = Number.parseFloat(width);
@@ -56,6 +73,15 @@ function ImageCardView({ node, selected, updateAttributes, editor }: NodeViewPro
   const { src, alt, width } = node.attrs;
   const imgRef = useRef<HTMLImageElement | null>(null);
   const draggingRef = useRef(false);
+  /** 加载失败的解析后 URL;与当前 renderSrc 相同才算失败(改了地址即自动重试) */
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const rawSrc = String(src ?? "");
+  const renderSrc = resolveRenderSrc(rawSrc);
+  const broken = isBrokenImage(rawSrc, renderSrc, failedSrc);
+  /** 悬停提示:alt + 解析后的真实地址(tauri 下 asset:// 绝对路径,便于定位文件) */
+  const brokenTitle = [alt, renderSrc !== rawSrc ? renderSrc : null]
+    .filter(Boolean)
+    .join(" · ");
 
   const startResize = useCallback(
     (edge: "left" | "right") => (event: React.PointerEvent<HTMLSpanElement>) => {
@@ -96,20 +122,34 @@ function ImageCardView({ node, selected, updateAttributes, editor }: NodeViewPro
 
   // 宽度加在卡片上而非 img:避免「img 百分比 + inline-block 父级」循环算宽,
   // 父级被撑满正文宽、图只占一半时,右侧手柄漂在空白里。
+  // 加载失败时不再套 width%(占位是文字,按正文宽截断更合适)。
   return (
     <NodeViewWrapper
       as="span"
       className="yz-img-card"
       data-selected={selected || undefined}
-      style={width ? { width } : undefined}
+      style={width && !broken ? { width } : undefined}
     >
-      <img
-        ref={imgRef}
-        src={resolveRenderSrc(String(src ?? ""))}
-        alt={alt ?? ""}
-        draggable={false}
-      />
-      {selected && (
+      {broken ? (
+        <span
+          className="yz-img-broken"
+          contentEditable={false}
+          title={brokenTitle || undefined}
+        >
+          <ImageOff className="size-3.5 shrink-0 text-destructive" aria-hidden />
+          <span className="yz-img-broken-text">{brokenImageLabel(rawSrc)}</span>
+        </span>
+      ) : (
+        <img
+          ref={imgRef}
+          key={renderSrc}
+          src={renderSrc}
+          alt={alt ?? ""}
+          draggable={false}
+          onError={() => setFailedSrc(renderSrc)}
+        />
+      )}
+      {selected && !broken && (
         <>
           <span
             className="yz-img-handle yz-img-handle-w"

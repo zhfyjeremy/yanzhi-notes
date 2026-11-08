@@ -1033,6 +1033,30 @@ export function useKb(settings: AppSettings) {
     [persistMeta],
   );
 
+  /* ---- 上次光标/滚动位置(打开文档时恢复;meta 层,不影响正文) ---- */
+
+  /** 记录某文档的上次编辑位置(切文档/失焦时落 meta) */
+  const saveCursor = useCallback(
+    (rel: string, pos: number, scrollTop: number) => {
+      const cur = metaRef.current.docs[rel]?.cursor;
+      if (cur && cur.pos === pos && cur.scrollTop === scrollTop) return;
+      const docs = {
+        ...metaRef.current.docs,
+        [rel]: { ...metaRef.current.docs[rel], cursor: { pos, scrollTop } },
+      };
+      metaRef.current = { ...metaRef.current, docs };
+      persistMeta();
+    },
+    [persistMeta],
+  );
+
+  /** 读取某文档的上次编辑位置(无记录返回 null) */
+  const getCursor = useCallback(
+    (rel: string): { pos: number; scrollTop: number } | null =>
+      metaRef.current.docs[rel]?.cursor ?? null,
+    [],
+  );
+
   /** V3 批量加/减标签:一次重建树与索引,避免逐篇多次渲染。 */
   const setTagsMany = useCallback(
     (rels: string[], add: string[], remove: string[]) => {
@@ -1335,6 +1359,8 @@ export function useKb(settings: AppSettings) {
     togglePinned,
     setTags,
     setTagsMany,
+    saveCursor,
+    getCursor,
     allTags,
     tagCounts,
     currentTags,

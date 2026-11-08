@@ -4,6 +4,7 @@ import type { SearchHit } from "./search";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/hint";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { setSearchFocusHandler } from "./search-focus";
 
 /**
  * 顶部全局搜索(PRD 5.5):左栏树上方搜索框,输入即搜(标题+正文+路径,标题加权),
@@ -39,6 +40,15 @@ export function SearchBox({
   onTagFilter,
 }: SearchBoxProps) {
   const [query, setQuery] = useState("");
+
+  // ⌘/Ctrl+P 聚焦搜索框(快捷键在 App 层,信号走模块级 handler 跨层)
+  useEffect(() => {
+    setSearchFocusHandler(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+    return () => setSearchFocusHandler(null);
+  }, []);
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [focused, setFocused] = useState(false);
   const [active, setActive] = useState(0);

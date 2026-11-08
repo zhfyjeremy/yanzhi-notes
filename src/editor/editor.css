@@ -533,6 +533,62 @@
   box-shadow: 0 0 0 2px var(--primary);
 }
 
+/* 标题层级徽标(光标所在标题的左侧留白):H1–H6 小签;
+   绝对定位挂在标题左侧(padding 区),不占行内空间 → 标题文字不抖动 */
+.yz-editor-doc h1,
+.yz-editor-doc h2,
+.yz-editor-doc h3,
+.yz-editor-doc h4,
+.yz-editor-doc h5,
+.yz-editor-doc h6 {
+  position: relative;
+}
+
+.yz-editor-doc .yz-heading-badge {
+  position: absolute;
+  right: 100%;
+  margin-right: 0.6em;
+  top: 0.67em; /* 首行文字的垂直中线(line-height 1.35 → 0.675em) */
+  transform: translateY(-50%);
+  padding: 0.15em 0.35em;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--muted);
+  font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace);
+  font-size: 10px;
+  line-height: 1.2;
+  color: var(--muted-foreground);
+  user-select: none;
+  pointer-events: none;
+}
+
+/* 图片加载失败(Typora 式):破图图标 + 图片地址(md 原文);
+   虚线框提示"这里本该有图",地址过长按卡片宽截断(原生 title 给全) */
+.yz-editor-doc .yz-img-broken {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 0.2em 0.55em;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--raised);
+  color: var(--muted-foreground);
+  font-size: 0.85em;
+  line-height: 1.5;
+  vertical-align: middle;
+  cursor: default;
+}
+
+.yz-editor-doc .yz-img-broken-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
 /* 选中后左右拖宽手柄(会话级 width%) */
 .yz-editor-doc .yz-img-handle {
   position: absolute;
@@ -606,18 +662,12 @@
   outline: 1px solid color-mix(in oklab, var(--foreground) 30%, transparent);
 }
 
-/* 正文链接(含双链)统一 --link(比 UI 主色深一档保证长文 AA);双链 hover 下划线;单击跳转(应用层 handleClick) */
+/* 正文链接(含双链)统一 --link(比 UI 主色深一档保证长文 AA);下划线 + 手型提示可点击 */
 .yz-editor-doc a {
   color: var(--link);
-}
-
-.yz-editor-doc a[data-type="wiki-link"] {
   cursor: pointer;
-  text-decoration: none;
-}
-
-.yz-editor-doc a[data-type="wiki-link"]:hover {
   text-decoration: underline;
+  text-underline-offset: 0.16em;
 }
 
 /* Placeholder(Tiptap 首段空态) */

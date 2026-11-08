@@ -11,6 +11,11 @@ export interface DocMeta {
   pinned?: boolean;
   /** 文档标签(6.3-2;不进正文,只存 meta) */
   tags?: string[];
+  /**
+   * 上次编辑位置(打开文档时恢复光标与滚动;纯视图偏好,删了不影响正文)。
+   * pos = PM 文档内位置(内容变了会越界,恢复时按 doc 大小夹紧)。
+   */
+  cursor?: { pos: number; scrollTop: number };
 }
 export interface FolderMeta {
   sortIndex?: number;
@@ -249,6 +254,16 @@ export interface OrphanMetaEntry {
 }
 
 /** 扫描失联条目;不做静默丢弃(5.2-4) */
+/** meta 里只剩上次光标(无标签/置顶/排序) → 视为无意义的失联条目 */
+function isCursorOnly(meta: DocMeta): boolean {
+  return (
+    !meta.tags?.length &&
+    !meta.pinned &&
+    meta.sortIndex === undefined &&
+    !!meta.cursor
+  );
+}
+
 export function findOrphanMeta(meta: KbMeta, tree: TreeNode[]): OrphanMetaEntry[] {
   const docPaths = new Set<string>();
   const dirPaths = new Set<string>();
@@ -261,7 +276,8 @@ export function findOrphanMeta(meta: KbMeta, tree: TreeNode[]): OrphanMetaEntry[
   walk(tree);
   const out: OrphanMetaEntry[] = [];
   for (const [k, v] of Object.entries(meta.docs)) {
-    if (!docPaths.has(k)) out.push({ path: k, isDir: false, meta: v });
+    // 只剩「上次光标」的条目不算失联偏好(纯视图状态,不值得打扰用户去整理)
+    if (!docPaths.has(k) && !isCursorOnly(v)) out.push({ path: k, isDir: false, meta: v });
   }
   for (const [k, v] of Object.entries(meta.folders)) {
     if (!dirPaths.has(k)) out.push({ path: k, isDir: true, meta: v });

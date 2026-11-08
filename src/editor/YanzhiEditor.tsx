@@ -21,8 +21,11 @@ import { FindReplaceBar } from "./toolbar/FindReplaceBar";
 import { ImageToolbar } from "./toolbar/ImageToolbar";
 import { TableToolbar } from "./toolbar/TableToolbar";
 import { TableContextMenu } from "./toolbar/TableContextMenu";
+import { EditorContextMenu } from "./toolbar/EditorContextMenu";
 import { TableCellCopy } from "./toolbar/TableCellCopy";
 import { WikiLinkSuggestExtension, type WikiDocRef } from "./wiki-link-command";
+import { HeadingBadge } from "./extensions/heading-badge";
+import { MoveBlock } from "./extensions/move-block";
 import { handleWikiLinkPaste } from "./wiki-link-paste";
 import { DEFAULT_SHORTCUTS, shortcutMatches, type ShortcutBindings } from "../shortcuts";
 import { scrollCaretToTypewriterLine } from "./typewriter";
@@ -31,6 +34,7 @@ import { setCardAiHandler } from "../ai/card-bridge";
 import { SelectionBubble } from "./toolbar/SelectionBubble";
 import { EDITOR_COLUMN_MAX } from "./layout";
 import type { AiSession } from "../ai/useAiSession";
+import { TextSelection } from "@tiptap/pm/state";
 import "./editor.css";
 
 /**
@@ -60,12 +64,19 @@ interface YanzhiEditorProps {
   onImageFiles?: (files: File[]) => Promise<string[]>;
   /** 斜杠菜单「图片」的文件选择入口(返回 src 列表,取消 null) */
   onPickImage?: () => Promise<string[] | null>;
+  /** 图片工具条「从文件替换」:选图落 assets 后返回新 src(取消 null) */
+  onReplaceImage?: () => Promise<string | null>;
   /** 斜杠菜单「附件」的文件选择入口(返回名称+相对路径列表,取消 null;6.1.5) */
   onPickAttachment?: () => Promise<{ name: string; href: string }[] | null>;
   /** 点击附件卡唤起系统打开(应用层解析库内路径并提示失败;6.1.5) */
   onOpenAttachment?: (href: string) => void;
   /** 全局搜索定位信号(打开文档后跳首个命中并高亮,seq 保证同文档也能触发) */
   locateSignal?: { term: string; seq: number } | null;
+  /**
+   * 打开文档后取回上次光标/滚动位置(应用层从内存/meta 取)。
+   * 必须在 setContent **之前**取:换文档会重置选区,取晚了只剩起始位置。
+   */
+  getRestoreCursor?: () => { pos: number; scrollTop: number } | null;
   /** §8 编辑器设置:特殊卡片边框;false → 容器挂 yz-flat-cards(边框透明) */
   cardBorder?: boolean;
   /** §8 编辑器:表格单元格悬停复制,默认关 */
@@ -80,10 +91,40 @@ interface YanzhiEditorProps {
   typewriter?: boolean;
   /** V3 可自定义全局快捷键 */
   shortcuts?: ShortcutBindings;
+  /** 导出当前文档(右键菜单「文档」分组) */
+  onExportMd?: () => void;
+  onExportHtml?: () => void;
   /** AI BYOK(§7.8):总开关开且测试通过后才挂浮动条/右键;/ai 经 session */
   aiReady?: boolean;
   aiSession?: AiSession | null;
   onNeedAiSettings?: () => void;
+}
+
+/**
+ * 恢复上次编辑位置:选区按文档大小夹紧(内容变了会越界),
+ * 滚动位置延后一帧设(图片等资源未加载时高度未定,立刻设会偏)。
+ */
+function restoreCursor(
+  editor: Editor,
+  restore: { pos: number; scrollTop: number },
+  scrollEl: HTMLElement | null,
+): void {
+  const max = editor.state.doc.content.size;
+  const pos = Math.max(0, Math.min(restore.pos, max));
+  try {
+    const tr = editor.state.tr.setSelection(
+      TextSelection.near(editor.state.doc.resolve(pos)),
+    );
+    tr.setMeta("addToHistory", false);
+    editor.view.dispatch(tr);
+  } catch {
+    /* 位置解析失败就算了,停在文首 */
+  }
+  if (scrollEl && restore.scrollTop > 0) {
+    window.requestAnimationFrame(() => {
+      if (scrollEl.isConnected) scrollEl.scrollTop = restore.scrollTop;
+    });
+  }
 }
 
 export function YanzhiEditor({
@@ -95,15 +136,19 @@ export function YanzhiEditor({
   onOpenWikiLink,
   onImageFiles,
   onPickImage,
+  onReplaceImage,
   onPickAttachment,
   onOpenAttachment,
   locateSignal,
+  getRestoreCursor,
   cardBorder = true,
   tableCellCopy = false,
   onToggleTableCellCopy,
   showToolbar = true,
   typewriter = false,
   shortcuts = DEFAULT_SHORTCUTS,
+  onExportMd,
+  onExportHtml,
   aiReady = false,
   aiSession = null,
   onNeedAiSettings,
@@ -119,6 +164,10 @@ export function YanzhiEditor({
   imageFilesRef.current = onImageFiles;
   const pickImageRef = useRef(onPickImage);
   pickImageRef.current = onPickImage;
+  const replaceImageRef = useRef(onReplaceImage);
+  replaceImageRef.current = onReplaceImage;
+  const restoreCursorRef = useRef(getRestoreCursor);
+  restoreCursorRef.current = getRestoreCursor;
   const pickAttachmentRef = useRef(onPickAttachment);
   pickAttachmentRef.current = onPickAttachment;
   const openAttachmentRef = useRef(onOpenAttachment);
@@ -161,6 +210,8 @@ export function YanzhiEditor({
       SlashMenuExtension,
       WikiLinkSuggestExtension.configure({ getDocs: () => wikiDocsRef.current?.() ?? [] }),
       FindReplaceExtension,
+      HeadingBadge, // 标题层级徽标(视图装饰,不影响 Schema)
+      MoveBlock, // ⌘⌥↑/↓ 块级上下移动
     ],
     // HTML 字符串:编辑器内部 DOMParser 与 markdownToDoc 同一条路径(parse.ts)
     content: mdToHtml(markdown),
@@ -361,7 +412,10 @@ export function YanzhiEditor({
       if (editor.isDestroyed) return;
       setFindBar(false);
       closeFind(editor);
+      // 先取恢复点再换内容:setContent 会把选区重置到文首
+      const restore = restoreCursorRef.current?.() ?? null;
       editor.commands.setContent(mdToHtml(markdown));
+      if (restore) restoreCursor(editor, restore, scrollElRef.current);
     });
   }, [editor, markdown]);
 
@@ -390,9 +444,23 @@ export function YanzhiEditor({
         >
           {editor ? (
             <>
-              <TableContextMenu editor={editor}>
-                <EditorContent editor={editor} className="flex flex-1 flex-col" />
-              </TableContextMenu>
+              {/* 统一右键菜单(外层)+ 表格单元格菜单(内层):
+                  表格菜单先 preventDefault → 外层菜单不弹;反之外层接管并拦掉浏览器默认菜单。
+                  contents 包装只为把触发器落到真实 DOM 上(display:contents 不产生盒子,不影响布局) */}
+              <EditorContextMenu
+                editor={editor}
+                aiSession={aiSession}
+                aiReady={aiReady}
+                onNeedAiSettings={onNeedAiSettings}
+                onExportMd={onExportMd}
+                onExportHtml={onExportHtml}
+              >
+                <div className="contents">
+                  <TableContextMenu editor={editor}>
+                    <EditorContent editor={editor} className="flex flex-1 flex-col" />
+                  </TableContextMenu>
+                </div>
+              </EditorContextMenu>
               <TableToolbar
                 editor={editor}
                 cellCopy={tableCellCopy}
@@ -403,7 +471,17 @@ export function YanzhiEditor({
             <EditorContent editor={editor} className="flex flex-1 flex-col" />
           )}
           {editor && <TableCellCopy editor={editor} enabled={tableCellCopy} />}
-          {editor && <ImageToolbar editor={editor} onPreview={setPreviewSrc} />}
+          {editor && (
+            <ImageToolbar
+              editor={editor}
+              onPreview={setPreviewSrc}
+              onReplaceImage={
+                replaceImageRef.current
+                  ? async () => (await replaceImageRef.current?.()) ?? null
+                  : undefined
+              }
+            />
+          )}
           {editor && (
             <SelectionBubble
               editor={editor}
