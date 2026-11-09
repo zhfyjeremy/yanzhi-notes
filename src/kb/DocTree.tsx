@@ -7,16 +7,19 @@ import {
   CheckSquare2,
   Copy,
   FileText,
+  FoldVertical,
   FolderOpen,
   FolderPlus,
   House,
   ListChecks,
+  ListTree,
   PenLine,
   Pin,
   Plus,
   Square,
   SquarePen,
   Trash2,
+  UnfoldVertical,
 } from "lucide-react";
 import type { TreeNode } from "./types";
 import type { SearchHit } from "./search";
@@ -69,7 +72,9 @@ interface DocTreeProps {
   collapsed: Set<string>;
   indexReady: boolean;
   onToggleCollapse: (folderRel: string) => void;
+  onSetAllCollapsed: (collapsed: boolean) => void;
   onOpenDoc: (rel: string) => void;
+  onRevealEntry: (rel: string) => void;
   onCreateDoc: (folderRel: string, title: string) => void;
   /** 返回新建文件夹相对路径;失败 null —— DocTree 用其自动进入重命名 */
   onCreateFolder: (folderRel: string, name: string) => Promise<string | null>;
@@ -81,6 +86,9 @@ interface DocTreeProps {
   onMoveEntry: (srcRel: string, destFolderRel: string, orderedPaths?: string[]) => void;
   onSearch: (q: string) => SearchHit[];
   onSearchSelect: (rel: string, term: string) => void;
+  /** 面包屑点击后展开并滚动到目录;seq 保证重复点击同一目录也生效 */
+  revealFolder?: { path: string; seq: number } | null;
+  recentDocs: { path: string; name: string; dir: string }[];
   /** 目标是否可安全编码为 [[…]];标题/路径含双链语法不兼容字符时禁用菜单 */
   canCopyWikiRef: (rel: string) => boolean;
   /** 复制双链引用:只写系统剪贴板,不读正文、不插入编辑器 */
@@ -236,12 +244,14 @@ function TreeRow({
   pinned,
   selectedPaths,
   selectionMode,
+  revealedPath,
   dragLocked,
   renamingPath,
   onBeginRename,
   onEndRename,
   onToggle,
   onOpenDoc,
+  onRevealEntry,
   canCopyWikiRef,
   onCopyWikiRef,
   onCreateDoc,
@@ -267,6 +277,7 @@ function TreeRow({
   pinned: boolean;
   selectedPaths: Set<string>;
   selectionMode: boolean;
+  revealedPath: string | null;
   /** 标签筛选态:树是过滤视图,拖拽排序/移动会错位隐藏兄弟 → 全禁 */
   dragLocked: boolean;
   /** 正在行内重命名的路径;由 DocTree 统一持有(新建文件夹后自动切入) */
@@ -275,6 +286,7 @@ function TreeRow({
   onEndRename: () => void;
   onToggle: (path: string) => void;
   onOpenDoc: (rel: string) => void;
+  onRevealEntry: (rel: string) => void;
   canCopyWikiRef: (rel: string) => boolean;
   onCopyWikiRef: (rel: string) => void | Promise<void>;
   onCreateDoc: (folderRel: string, title: string) => void;
@@ -371,6 +383,7 @@ function TreeRow({
                     ? "hover:bg-raised/60 text-foreground/90 font-medium"
                     : "hover:bg-raised/55 text-foreground/80",
               active && selectionMode && !selected && "text-foreground",
+              revealedPath === node.path && "ring-primary/45 ring-2",
               node.isDir ? "min-h-9" : "min-h-8",
               hint === "into" && "bg-primary/10 ring-primary/35 ring-1",
             )}
@@ -552,7 +565,6 @@ function TreeRow({
               <ContextMenuItem disabled={countDocs(node) === 0} onClick={() => onSelectSubtree(node.path)}>
                 <ListChecks /> 选择文件夹内全部文档
               </ContextMenuItem>
-              <ContextMenuSeparator />
             </>
           )}
           {!node.isDir && (
@@ -577,6 +589,11 @@ function TreeRow({
               </ContextMenuItem>
             </>
           )}
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => onRevealEntry(node.path)}>
+            <FolderOpen /> 在文件管理器中显示
+          </ContextMenuItem>
+          <ContextMenuSeparator />
           <ContextMenuItem onClick={() => onBeginRename(node.path)}>
             <PenLine /> 重命名
           </ContextMenuItem>
@@ -626,6 +643,7 @@ function TreeRow({
               pinnedSet={pinnedSet}
               pinned={pinnedSet.has(child.path)}
               selectedPaths={selectedPaths}
+              revealedPath={revealedPath}
               dragLocked={dragLocked}
               renamingPath={renamingPath}
               onBeginRename={onBeginRename}
@@ -637,6 +655,7 @@ function TreeRow({
               selectionMode={selectionMode}
               onSelectSubtree={onSelectSubtree}
               onOpenDoc={onOpenDoc}
+              onRevealEntry={onRevealEntry}
               canCopyWikiRef={canCopyWikiRef}
               onCopyWikiRef={onCopyWikiRef}
               onCreateDoc={onCreateDoc}
@@ -664,7 +683,9 @@ export function DocTree({
   collapsed,
   indexReady,
   onToggleCollapse,
+  onSetAllCollapsed,
   onOpenDoc,
+  onRevealEntry,
   onCreateDoc,
   onCreateFolder,
   onRenameEntry,
@@ -673,6 +694,8 @@ export function DocTree({
   onMoveEntry,
   onSearch,
   onSearchSelect,
+  revealFolder,
+  recentDocs,
   canCopyWikiRef,
   onCopyWikiRef,
   searchPreset,
@@ -700,6 +723,7 @@ export function DocTree({
   const dragPath = useRef<string | null>(null);
   const [dropHint, setDropHint] = useState<{ path: string; zone: DropZone } | null>(null);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const [revealedPath, setRevealedPath] = useState<string | null>(null);
   // Windows 路径是 `\`,不能只按 `/` 切——否则标题会变成整段 `C:\Users\…`
   const rootName = useMemo(() => {
     const parts = root.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean);
@@ -807,6 +831,30 @@ export function DocTree({
       ?.scrollIntoView({ block: "nearest" });
   }, [currentPath, tree, collapsed]);
 
+  useEffect(() => {
+    if (!revealFolder) return;
+    setRevealedPath(revealFolder.path || null);
+    const id = requestAnimationFrame(() => {
+      const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth";
+      if (!revealFolder.path) {
+        navRef.current?.scrollTo({ top: 0, behavior });
+        return;
+      }
+      const row = navRef.current?.querySelector<HTMLElement>(
+        `[data-path="${CSS.escape(revealFolder.path)}"]`,
+      );
+      row?.scrollIntoView({ block: "nearest", behavior });
+      row?.focus({ preventScroll: true });
+    });
+    const timer = window.setTimeout(() => setRevealedPath(null), 1400);
+    return () => {
+      cancelAnimationFrame(id);
+      window.clearTimeout(timer);
+    };
+  }, [revealFolder, collapsed, tree]);
+
   /** 拖拽落点 → 整组兄弟新顺序(交给上层写 meta.sortIndex) */
   const commitDrop = (target: string, zone: DropZone) => {
     const dragged = dragPath.current;
@@ -893,6 +941,33 @@ export function DocTree({
                 </DropdownMenuContent>
               </DropdownMenu>
               <span className="mt-1 flex shrink-0 gap-0.5">
+                <DropdownMenu>
+                  <Hint label="目录显示">
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="目录显示"
+                        className="text-muted-foreground hover:text-foreground hover:bg-hover flex cursor-pointer rounded-md p-1.5"
+                      >
+                        <ListTree className="size-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                  </Hint>
+                  <DropdownMenuContent align="end" alignOffset={-4}>
+                    <DropdownMenuItem
+                      disabled={moveFolders.length <= 1}
+                      onClick={() => onSetAllCollapsed(false)}
+                    >
+                      <UnfoldVertical /> 全部展开
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={moveFolders.length <= 1}
+                      onClick={() => onSetAllCollapsed(true)}
+                    >
+                      <FoldVertical /> 全部折叠
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Hint label="进入批量选择">
                   <button
                     type="button"
@@ -935,6 +1010,7 @@ export function DocTree({
         tagCounts={tagCounts}
         activeTag={tagFilter}
         onTagFilter={onTagFilter}
+        recentDocs={recentDocs}
       />
       <ContextMenu>
         <ContextMenuTrigger asChild>
@@ -964,6 +1040,7 @@ export function DocTree({
                   pinnedSet={pinnedSet}
                   pinned={pinnedSet.has(node.path)}
                   selectedPaths={selectedPaths}
+                  revealedPath={revealedPath}
                   dragLocked={tagFilter !== null}
                   renamingPath={renamingPath}
                   onBeginRename={setRenamingPath}
@@ -975,6 +1052,7 @@ export function DocTree({
                   selectionMode={selectionMode}
                   onSelectSubtree={selectSubtree}
                   onOpenDoc={onOpenDoc}
+                  onRevealEntry={onRevealEntry}
                   canCopyWikiRef={canCopyWikiRef}
                   onCopyWikiRef={onCopyWikiRef}
                   onCreateDoc={onCreateDoc}
@@ -1006,6 +1084,17 @@ export function DocTree({
           <ContextMenuItem onClick={() => void handleCreateFolder("", "新文件夹")}>
             <FolderPlus /> 新建文件夹
           </ContextMenuItem>
+          {moveFolders.length > 1 && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem onClick={() => onSetAllCollapsed(false)}>
+                <UnfoldVertical /> 全部展开
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => onSetAllCollapsed(true)}>
+                <FoldVertical /> 全部折叠
+              </ContextMenuItem>
+            </>
+          )}
         </ContextMenuContent>
       </ContextMenu>
       {/* 左栏底部只保留知识库工具;工作区切换在顶部库身份卡,避免和回收站混层 */}

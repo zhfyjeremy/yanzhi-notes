@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Folder } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/hint";
 import { YanzhiEditor } from "./editor/YanzhiEditor";
@@ -15,6 +15,7 @@ import { HistoryDialog } from "./kb/HistoryDialog";
 import { DocTree } from "./kb/DocTree";
 import { TagsPanel } from "./kb/TagsPanel";
 import { filterTreeByTag } from "./kb/meta";
+import { folderBreadcrumbs } from "./kb/breadcrumb";
 import { StatusBar } from "./kb/StatusBar";
 import { TrashDialog } from "./kb/TrashDialog";
 import { OrphanMetaDialog } from "./kb/OrphanMetaDialog";
@@ -67,7 +68,7 @@ const docBasename = (rel: string): string =>
 type EditorScope = "kb" | "single";
 
 function App() {
-  const { settings, update: updateSettings } = useSettings();
+  const { settings, update: updateSettings, ready: settingsReady } = useSettings();
   const kb = useKb(settings);
   const single = useSingleFile();
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -95,6 +96,8 @@ function App() {
   const [searchPreset, setSearchPreset] = useState<{ term: string; seq: number } | null>(null);
   /* 标签筛选(6.3-2):左栏树只显示带该标签的文档;null = 未筛选 */
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [treeReveal, setTreeReveal] = useState<{ path: string; seq: number } | null>(null);
+  const treeRevealSeq = useRef(0);
   /* 新建文档模板选择(7.5):知识库有模板时「新建文档」先经 TemplatePicker */
   const [tplPicker, setTplPicker] = useState<{ folder: string; name: string } | null>(null);
   const [tplNames, setTplNames] = useState<string[]>([]);
@@ -138,6 +141,19 @@ function App() {
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), 2600);
   }, []);
+
+  const recordCodeLanguage = useCallback(
+    (language: string) => {
+      const next = [
+        language,
+        ...settings.recentCodeLanguages.filter((item) => item !== language),
+      ].slice(0, 5);
+      if (next.join("\0") !== settings.recentCodeLanguages.join("\0")) {
+        updateSettings({ recentCodeLanguages: next });
+      }
+    },
+    [settings.recentCodeLanguages, updateSettings],
+  );
 
   // 设置入口:浏览器 dev/E2E 用 Dialog;Tauri 独立窗口(open_aux_window 建窗/聚焦)。
   // tab 供菜单「关于砚知」/AI 引导直落分类
@@ -873,6 +889,37 @@ function App() {
   currentPathRef.current = currentPath;
   const kbEditor = editorScope === "kb" ? editor : null;
   const singleEditor = editorScope === "single" ? editor : null;
+
+  const kbRootName = useMemo(() => {
+    const root = kb.kbRoot ?? "";
+    const parts = root.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean);
+    return parts[parts.length - 1] ?? root;
+  }, [kb.kbRoot]);
+
+  const revealFolderInTree = useCallback(
+    (path: string) => {
+      setFocusMode(false);
+      setTagFilter(null);
+      if (path) {
+        const parts = path.split("/");
+        kb.expandFolders(parts.map((_, i) => parts.slice(0, i + 1).join("/")));
+      }
+      setTreeReveal({ path, seq: ++treeRevealSeq.current });
+    },
+    [kb.expandFolders],
+  );
+
+  useEffect(() => {
+    if (!settingsReady || !kb.kbRoot || !currentPath) return;
+    const previous = settings.recentDocs[kb.kbRoot] ?? [];
+    if (previous[0] === currentPath) return;
+    updateSettings({
+      recentDocs: {
+        ...settings.recentDocs,
+        [kb.kbRoot]: [currentPath, ...previous.filter((path) => path !== currentPath)].slice(0, 12),
+      },
+    });
+  }, [currentPath, kb.kbRoot, settings.recentDocs, settingsReady, updateSettings]);
   useEffect(() => {
     if (single.active) {
       setTitle(single.fileStem);
@@ -1171,6 +1218,21 @@ function App() {
 
   // `[[` 检索列表 / 复制双链引用都基于完整树:标签筛选视图不能丢失重名消歧信息。
   const wikiDocs = useMemo(() => flattenDocs(kb.tree), [kb.tree]);
+  const recentDocItems = useMemo(() => {
+    const root = kb.kbRoot;
+    if (!root) return [];
+    const byPath = new Map(wikiDocs.map((doc) => [doc.path, doc] as const));
+    return (settings.recentDocs[root] ?? []).flatMap((path) => {
+      const doc = byPath.get(path);
+      if (!doc) return [];
+      const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+      return [{ path, name: doc.name, dir }];
+    });
+  }, [kb.kbRoot, settings.recentDocs, wikiDocs]);
+  const breadcrumbFolders = useMemo(
+    () => (currentPath ? folderBreadcrumbs(currentPath) : []),
+    [currentPath],
+  );
   const wikiDocRefs = useMemo<WikiDocRef[]>(
     () => wikiDocs.map((d) => ({ name: d.name, path: d.path, target: wikiTargetFor(wikiDocs, d.path) })),
     [wikiDocs],
@@ -1197,6 +1259,22 @@ function App() {
       }
     },
     [showToast, wikiDocs],
+  );
+
+  /** 本地优先:从目录树直接定位到系统文件管理器中的真实文件/文件夹 */
+  const revealTreeEntry = useCallback(
+    (rel: string) => {
+      if (!kb.kbRoot) return;
+      const abs = `${kb.kbRoot.replace(/[\\/]+$/, "")}/${rel}`;
+      if (!isTauriEnv()) {
+        showToast(`文件位置:${abs}`);
+        return;
+      }
+      void import("@tauri-apps/plugin-opener")
+        .then(({ revealItemInDir }) => revealItemInDir(abs))
+        .catch(() => showToast("无法打开文件所在位置"));
+    },
+    [kb.kbRoot, showToast],
   );
 
   const onOpenWikiLink = useCallback(
@@ -1420,6 +1498,8 @@ function App() {
         typewriterMode={settings.typewriterMode}
         onToggleTypewriter={() => updateSettings({ typewriterMode: !settings.typewriterMode })}
         shortcuts={settings.shortcuts}
+        codeLanguageRecents={settings.recentCodeLanguages}
+        onCodeLanguageUsed={recordCodeLanguage}
         aiReady={settings.aiEnabled && settings.aiVerified}
         aiSession={aiSession}
         onNeedAiSettings={promptAiSetup}
@@ -1495,7 +1575,9 @@ function App() {
             collapsed={kb.collapsed}
             indexReady={kb.indexReady}
             onToggleCollapse={kb.toggleCollapse}
+            onSetAllCollapsed={kb.setAllCollapsed}
             onOpenDoc={(rel) => void openDocAfterTitle(rel)}
+            onRevealEntry={revealTreeEntry}
             onCreateDoc={(folder, name) => void handleCreateDoc(folder, name)}
             onCreateFolder={(folder, name) => kb.createFolder(folder, name)}
             onRenameEntry={(rel, name) => void renameWithToast(rel, name)}
@@ -1504,6 +1586,8 @@ function App() {
             onMoveEntry={(src, dest, ordered) => void moveWithToast(src, dest, ordered)}
             onSearch={kb.search}
             onSearchSelect={onSearchSelect}
+            revealFolder={treeReveal}
+            recentDocs={recentDocItems}
             canCopyWikiRef={canCopyWikiRef}
             onCopyWikiRef={copyWikiRef}
             searchPreset={searchPreset}
@@ -1577,6 +1661,37 @@ function App() {
                     </Hint>
                   </div>
                 )}
+                <nav
+                  aria-label="文档位置"
+                  className="text-muted-foreground mb-1 flex h-5 min-w-0 items-center gap-0.5 overflow-hidden text-[11px]"
+                >
+                  <button
+                    type="button"
+                    className="hover:bg-hover hover:text-foreground flex min-w-0 shrink items-center gap-1 rounded px-1 py-0.5"
+                    onClick={() => revealFolderInTree("")}
+                    title={kb.kbRoot}
+                  >
+                    <Folder className="size-3 shrink-0" />
+                    <span className="max-w-32 truncate">{kbRootName}</span>
+                  </button>
+                  {breadcrumbFolders.map((crumb) => (
+                    <span key={crumb.path} className="flex min-w-0 shrink items-center gap-0.5">
+                      <ChevronRight className="text-muted-foreground/45 size-3 shrink-0" />
+                      <button
+                        type="button"
+                        className="hover:bg-hover hover:text-foreground max-w-36 truncate rounded px-1 py-0.5"
+                        onClick={() => revealFolderInTree(crumb.path)}
+                        title={crumb.path}
+                      >
+                        {crumb.label}
+                      </button>
+                    </span>
+                  ))}
+                  <ChevronRight className="text-muted-foreground/45 size-3 shrink-0" />
+                  <span className="text-foreground/60 min-w-0 truncate px-1" aria-current="page">
+                    {docBasename(currentPath)}
+                  </span>
+                </nav>
                 <div className="flex w-full items-start gap-1">
                   <input
                     className="min-w-0 flex-1 bg-transparent pb-1 text-[2rem] leading-tight font-semibold tracking-[-0.035em] outline-none placeholder:text-muted-foreground/45"
@@ -1647,6 +1762,8 @@ function App() {
             showToolbar={settings.showToolbar && !focusMode}
             typewriter={focusMode && settings.typewriterMode}
             shortcuts={settings.shortcuts}
+            codeLanguageRecents={settings.recentCodeLanguages}
+            onCodeLanguageUsed={recordCodeLanguage}
             aiReady={settings.aiEnabled && settings.aiVerified}
             aiSession={aiSession}
             onNeedAiSettings={promptAiSetup}

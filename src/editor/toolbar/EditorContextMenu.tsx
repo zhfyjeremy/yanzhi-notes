@@ -38,6 +38,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { copyPlainText, copyRichText } from "../clipboard";
+import { markdownForRange } from "../copy-markdown";
 import {
   AI_GROUP_LABEL,
   LANG_OPTIONS,
@@ -194,6 +195,11 @@ export function EditorContextMenu({
     void copyPlainText(text);
   };
 
+  const copyAsMarkdown = () => {
+    const { from, to } = ctxTarget;
+    void copyPlainText(markdownForRange(editor.state.doc, editor.schema, from, to));
+  };
+
   const copyAsHtml = () => {
     const { from, to } = ctxTarget;
     const plain =
@@ -238,6 +244,10 @@ export function EditorContextMenu({
       </ContextMenuTrigger>
       <ContextMenuContent className="min-w-44">
         {/* 剪贴板 */}
+        <ContextMenuItem onSelect={copyAsMarkdown}>
+          <Code2 />
+          复制为 Markdown
+        </ContextMenuItem>
         <ContextMenuItem onSelect={copyAsPlain}>
           <FileText />
           复制为纯文本

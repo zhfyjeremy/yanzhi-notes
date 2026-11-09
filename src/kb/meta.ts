@@ -197,6 +197,19 @@ export function setCollapsed(meta: KbMeta, folderRel: string, collapsed: boolean
   };
 }
 
+/** 批量更新文件夹折叠态:一次合并 meta,避免逐个目录触发多次持久化 */
+export function setFoldersCollapsed(
+  meta: KbMeta,
+  folderRels: Iterable<string>,
+  collapsed: boolean,
+): KbMeta {
+  const folders = { ...meta.folders };
+  for (const rel of folderRels) {
+    folders[rel] = { ...folders[rel], collapsed };
+  }
+  return { ...meta, folders };
+}
+
 /** 文档置顶/取消置顶(6.3-3;置顶组内仍按原 sortIndex 序,false 不留脏键) */
 export function setDocPinned(meta: KbMeta, rel: string, pinned: boolean): KbMeta {
   if (!!meta.docs[rel]?.pinned === pinned) return meta;

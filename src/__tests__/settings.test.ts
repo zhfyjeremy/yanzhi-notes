@@ -142,6 +142,24 @@ describe("settings 解析(PRD §8)", () => {
     expect(s.shortcuts.slashMenu).toBe(DEFAULT_SETTINGS.shortcuts.slashMenu);
     expect(s.shortcuts.aiMenu).toBe(DEFAULT_SETTINGS.shortcuts.aiMenu);
   });
+  it("最近文档与代码语言:过滤异型/重复并限量", () => {
+    const s = parseSettings(
+      JSON.stringify({
+        recentDocs: {
+          "/kb": ["a.md", "", "a.md", 3, "b.md"],
+          "": ["empty-root.md"],
+          "/other": ["c.md"],
+        },
+        recentCodeLanguages: ["rust", "rust", "", 7, "typescript", "python", "go", "sql"],
+      }),
+    );
+    expect(s.recentDocs).toEqual({ "/kb": ["a.md", "b.md"], "/other": ["c.md"] });
+    expect(s.recentCodeLanguages).toEqual(["rust", "typescript", "python", "go", "sql"]);
+    expect(parseSettings('{"recentDocs":[],"recentCodeLanguages":{}}')).toMatchObject({
+      recentDocs: {},
+      recentCodeLanguages: [],
+    });
+  });
 });
 
 describe("applyTheme 主色覆盖(浅/深两套)", () => {

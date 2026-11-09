@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/popover";
 import { FONT_COLORS } from "../extensions/font-color";
 import { copyPlainText, copyRichText } from "../clipboard";
+import { markdownForRange } from "../copy-markdown";
 import { applyLinkAtSelection } from "../apply-link";
 import { cn } from "@/lib/utils";
 
@@ -375,7 +376,7 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
       <Divider />
 
       {/* 复制为(纯文本 / 富文本 HTML,贴微信邮件等) */}
-      <DropdownMenu modal={false}>
+      <DropdownMenu modal={false} onOpenChange={snapshotMenuSelection}>
         <Hint label="复制为">
           <DropdownMenuTrigger asChild>
             <Button
@@ -393,6 +394,21 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
           className="w-36"
           onCloseAutoFocus={restoreEditorFocus}
         >
+          <DropdownMenuItem
+            onClick={() => {
+              const selection = menuSelection ?? editor.state.selection;
+              void copyPlainText(
+                markdownForRange(
+                  editor.state.doc,
+                  editor.schema,
+                  selection.from,
+                  selection.to,
+                ),
+              );
+            }}
+          >
+            复制为 Markdown
+          </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => void copyPlainText(editor.state.doc.textContent)}
           >

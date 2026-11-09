@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/react";
 import { useEditorState } from "@tiptap/react";
 import { Fragment } from "react";
-import { CircleAlert, Eye, EyeOff } from "lucide-react";
+import { CircleAlert, Eye, EyeOff, ListTodo } from "lucide-react";
 import { Hint } from "@/components/hint";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { countDocStats, countWords } from "../editor/word-count";
@@ -41,6 +41,9 @@ function DocStatsRows({ editor }: { editor: Editor }) {
     ["表格", `${stats.tables}`],
     ["预计阅读", `${stats.readMinutes} 分钟`],
   ];
+  if (stats.tasksTotal > 0) {
+    rows.splice(4, 0, ["待办", `${stats.tasksDone}/${stats.tasksTotal}`]);
+  }
   return (
     <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
       {rows.map(([label, value]) => (
@@ -50,6 +53,50 @@ function DocStatsRows({ editor }: { editor: Editor }) {
         </Fragment>
       ))}
     </div>
+  );
+}
+
+function taskNavigationState(editor: Editor): {
+  total: number;
+  done: number;
+  next: number | null;
+} {
+  let total = 0;
+  let done = 0;
+  let first: number | null = null;
+  let next: number | null = null;
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name !== "taskItem") return true;
+    total += 1;
+    if (first === null) first = pos;
+    if (node.attrs.checked) done += 1;
+    else if (next === null) next = pos;
+    return true;
+  });
+  return { total, done, next: next ?? first };
+}
+
+function TaskProgress({ editor }: { editor: Editor }) {
+  const state = useEditorState({
+    editor,
+    selector: ({ editor }) => taskNavigationState(editor),
+  });
+  if (state.total === 0) return null;
+  const allDone = state.done === state.total;
+  return (
+    <Hint label={allDone ? "全部待办已完成" : "点击定位下一个未完成待办"}>
+      <button
+        type="button"
+        className="hover:text-foreground hover:bg-hover flex items-center gap-1 rounded-md px-1.5 py-1 tabular-nums"
+        onClick={() => {
+          if (state.next === null) return;
+          editor.chain().focus().setTextSelection(state.next + 2).scrollIntoView().run();
+        }}
+      >
+        <ListTodo className="size-3.5" />
+        {state.done}/{state.total}
+      </button>
+    </Hint>
   );
 }
 
@@ -113,6 +160,7 @@ export function StatusBar({
             </PopoverContent>
           </Popover>
         )}
+        {editor && <TaskProgress editor={editor} />}
         <Hint label="专注模式 (⌘/Ctrl+Shift+F)">
           <button
             className="hover:text-foreground hover:bg-hover flex items-center gap-1 rounded-md px-1.5 py-1"

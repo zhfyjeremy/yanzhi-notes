@@ -13,6 +13,10 @@ import {
 import { setAttachmentOpener } from "./extensions/attachment";
 import { cleanPastedHtml } from "./paste-clean";
 import { insertImage } from "./extensions/image-card";
+import {
+  setCodeLanguageRecents,
+  setCodeLanguageUsedHandler,
+} from "./extensions/code-block-card";
 import { isImageFile } from "../kb/image-compress";
 import { ImageLightbox } from "./panel/ImageLightbox";
 import { closeFind, FindReplaceExtension, setSearch } from "./find-replace";
@@ -91,6 +95,9 @@ interface YanzhiEditorProps {
   typewriter?: boolean;
   /** V3 可自定义全局快捷键 */
   shortcuts?: ShortcutBindings;
+  /** 代码语言选择器最近使用项 */
+  codeLanguageRecents?: string[];
+  onCodeLanguageUsed?: (language: string) => void;
   /** 导出当前文档(右键菜单「文档」分组) */
   onExportMd?: () => void;
   onExportHtml?: () => void;
@@ -147,6 +154,8 @@ export function YanzhiEditor({
   showToolbar = true,
   typewriter = false,
   shortcuts = DEFAULT_SHORTCUTS,
+  codeLanguageRecents = [],
+  onCodeLanguageUsed,
   onExportMd,
   onExportHtml,
   aiReady = false,
@@ -322,6 +331,12 @@ export function YanzhiEditor({
   useEffect(() => {
     if (editor) onReady?.(editor);
   }, [editor, onReady]);
+
+  useEffect(() => {
+    setCodeLanguageRecents(codeLanguageRecents);
+    setCodeLanguageUsedHandler(onCodeLanguageUsed ?? null);
+    return () => setCodeLanguageUsedHandler(null);
+  }, [codeLanguageRecents, onCodeLanguageUsed]);
 
   // 斜杠菜单「图片」:模块级回调注册(菜单 COMMANDS 拿不到 props)
   useEffect(() => {

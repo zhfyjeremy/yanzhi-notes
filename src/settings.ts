@@ -287,6 +287,10 @@ export interface AppSettings {
   snapshotIntervalMin: number;
   /** V3 全局快捷键(KeyboardEvent.code 存储,跨平台显示) */
   shortcuts: ShortcutBindings;
+  /** 每个知识库最近打开的文档(POSIX 相对路径;应用配置,不写入知识库) */
+  recentDocs: Record<string, string[]>;
+  /** 代码块语言选择的最近使用项(最多 5 个) */
+  recentCodeLanguages: string[];
   /* ---- AI 助手 BYOK(§7.8);Key 不进本结构,走安全存储 ---- */
   /** 总开关,默认关;关则隐藏编辑器 AI 入口 */
   aiEnabled: boolean;
@@ -327,6 +331,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   snapshotKeep: 30,
   snapshotIntervalMin: 5,
   shortcuts: { ...DEFAULT_SHORTCUTS },
+  recentDocs: {},
+  recentCodeLanguages: [],
   aiEnabled: false,
   aiProvider: "custom",
   aiBaseUrl: "https://api.openai.com/v1",
@@ -349,6 +355,29 @@ const THEME_MODES: readonly ThemeMode[] = ["system", "light", "dark"];
 const UI_STYLES: readonly UiStyle[] = ["card", "flat"];
 const READER_FONTS: readonly ReaderFont[] = ["default", "serif", "kai"];
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+const stringList = (value: unknown, max: number): string[] => {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const v = item.trim();
+    if (v && !out.includes(v)) out.push(v);
+    if (out.length >= max) break;
+  }
+  return out;
+};
+
+const recentDocsMap = (value: unknown): Record<string, string[]> => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, string[]> = {};
+  for (const [root, paths] of Object.entries(value)) {
+    const cleanRoot = root.trim();
+    const clean = stringList(paths, 12);
+    if (cleanRoot && clean.length) out[cleanRoot] = clean;
+  }
+  return out;
+};
 
 /** 容错解析:损坏/缺失/未知值逐字段回默认(丢的只是偏好,不阻塞启动) */
 export function parseSettings(raw: string): AppSettings {
@@ -384,6 +413,8 @@ export function parseSettings(raw: string): AppSettings {
       snapshotKeep: clampInt(v?.snapshotKeep, 30, 1, 200),
       snapshotIntervalMin: clampInt(v?.snapshotIntervalMin, 5, 0, 120),
       shortcuts: normalizeShortcutBindings(v?.shortcuts),
+      recentDocs: recentDocsMap(v?.recentDocs),
+      recentCodeLanguages: stringList(v?.recentCodeLanguages, 5),
       aiEnabled: typeof v?.aiEnabled === "boolean" ? v.aiEnabled : false,
       aiBaseUrl: (() => {
         const raw =
@@ -537,6 +568,7 @@ const systemDark = (): boolean => window.matchMedia("(prefers-color-scheme: dark
  */
 export function useSettings() {
   const [settings, setSettingsState] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [ready, setReady] = useState(false);
   const ref = useRef(settings);
   const media = useRef<MediaQueryList | null>(null);
 
@@ -552,8 +584,13 @@ export function useSettings() {
         ref.current = s;
         setSettingsState(s);
         applyTheme(s, systemDark());
+        setReady(true);
       })
-      .catch(() => applyTheme(DEFAULT_SETTINGS, systemDark()));
+      .catch(() => {
+        if (!alive) return;
+        applyTheme(DEFAULT_SETTINGS, systemDark());
+        setReady(true);
+      });
     const onChange = () => applyTheme(ref.current, systemDark());
     media.current.addEventListener("change", onChange);
     // 另一窗口改了设置(如设置窗切主色):拉平到同一份,不回写避免环路
@@ -590,5 +627,5 @@ export function useSettings() {
     }
   }, []);
 
-  return { settings, update };
+  return { settings, update, ready };
 }

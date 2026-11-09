@@ -24,6 +24,10 @@ export interface DocStats {
   images: number;
   /** 表格数 */
   tables: number;
+  /** 待办总数 */
+  tasksTotal: number;
+  /** 已完成待办数 */
+  tasksDone: number;
   /** 预计阅读时长(分钟,按 300 字/分) */
   readMinutes: number;
 }
@@ -45,16 +49,28 @@ export function countTextStats(text: string): Pick<DocStats, "words" | "chars"> 
  */
 export function countDocStats(doc: {
   textContent: string;
-  descendants: (fn: (node: { type: { name: string }; isText: boolean }) => boolean | void) => void;
+  descendants: (
+    fn: (node: {
+      type: { name: string };
+      isText: boolean;
+      attrs?: { checked?: boolean };
+    }) => boolean | void,
+  ) => void;
 }): DocStats {
   let paragraphs = 0;
   let images = 0;
   let tables = 0;
+  let tasksTotal = 0;
+  let tasksDone = 0;
   doc.descendants((node) => {
     const name = node.type.name;
     if (name === "paragraph") paragraphs += 1;
     else if (name === "image") images += 1;
     else if (name === "table") tables += 1;
+    else if (name === "taskItem") {
+      tasksTotal += 1;
+      if (node.attrs?.checked) tasksDone += 1;
+    }
     return true;
   });
   const { words, chars } = countTextStats(doc.textContent);
@@ -64,6 +80,8 @@ export function countDocStats(doc: {
     paragraphs,
     images,
     tables,
+    tasksTotal,
+    tasksDone,
     readMinutes: Math.max(1, Math.round(words / READ_SPEED)),
   };
 }

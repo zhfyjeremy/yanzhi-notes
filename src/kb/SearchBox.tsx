@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Loader2, RotateCcw, Search, Tag, X } from "lucide-react";
+import { Check, ChevronDown, Clock3, Loader2, RotateCcw, Search, Tag, X } from "lucide-react";
 import type { SearchHit } from "./search";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/hint";
@@ -24,6 +24,8 @@ interface SearchBoxProps {
   tagCounts: Record<string, number>;
   activeTag: string | null;
   onTagFilter: (tag: string | null) => void;
+  /** ⌘/Ctrl+P 空搜索态展示的最近打开文档(当前知识库) */
+  recentDocs: { path: string; name: string; dir: string }[];
 }
 
 const DEBOUNCE_MS = 160;
@@ -38,6 +40,7 @@ export function SearchBox({
   tagCounts,
   activeTag,
   onTagFilter,
+  recentDocs,
 }: SearchBoxProps) {
   const [query, setQuery] = useState("");
 
@@ -96,10 +99,24 @@ export function SearchBox({
     return () => window.clearTimeout(timer.current);
   }, [query, onSearch]);
 
-  const open = focused && query.trim().length > 0;
+  const hasQuery = query.trim().length > 0;
+  const open = focused && (hasQuery || recentDocs.length > 0);
+  const visibleItems = hasQuery ? hits : recentDocs;
+
+  useEffect(() => {
+    if (focused) setActive(0);
+  }, [focused, query, recentDocs]);
+
   const openHit = (hit: SearchHit) => {
     // 标题/路径命中但正文未命中:只打开文档,不把关键词传给文档内查找。
     onSelect(hit.path, hit.contentMatched ? query.trim() : "");
+    setQuery("");
+    setFocused(false);
+    (document.activeElement as HTMLElement | null)?.blur();
+  };
+
+  const openRecent = (item: { path: string }) => {
+    onSelect(item.path, "");
     setQuery("");
     setFocused(false);
     (document.activeElement as HTMLElement | null)?.blur();
@@ -121,6 +138,7 @@ export function SearchBox({
           )}
           <input
             ref={inputRef}
+            aria-label="全库搜索"
             className="placeholder:text-muted-foreground/70 h-full min-w-0 flex-1 bg-transparent text-xs outline-none"
             placeholder="搜索文档…"
             value={query}
@@ -128,19 +146,45 @@ export function SearchBox({
             onFocus={() => setFocused(true)}
             onBlur={() => window.setTimeout(() => setFocused(false), 150)}
             onKeyDown={(e) => {
-              if (!open || !hits.length) return;
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setQuery("");
+                setHits([]);
+                setFocused(false);
+                e.currentTarget.blur();
+                return;
+              }
+              if (!open || !visibleItems.length) return;
               if (e.key === "ArrowDown") {
                 e.preventDefault();
-                setActive((i) => (i + 1) % hits.length);
+                setActive((i) => (i + 1) % visibleItems.length);
               } else if (e.key === "ArrowUp") {
                 e.preventDefault();
-                setActive((i) => (i - 1 + hits.length) % hits.length);
+                setActive((i) => (i - 1 + visibleItems.length) % visibleItems.length);
               } else if (e.key === "Enter") {
                 e.preventDefault();
-                openHit(hits[Math.min(active, hits.length - 1)]);
+                if (hasQuery) openHit(hits[Math.min(active, hits.length - 1)]);
+                else openRecent(recentDocs[Math.min(active, recentDocs.length - 1)]);
               }
             }}
           />
+          {query && (
+            <Hint label="清除搜索 (Esc)">
+              <button
+                type="button"
+                aria-label="清除搜索"
+                className="text-muted-foreground hover:text-foreground hover:bg-hover -mr-1 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-md"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setQuery("");
+                  setHits([]);
+                  inputRef.current?.focus();
+                }}
+              >
+                <X className="size-3" />
+              </button>
+            </Hint>
+          )}
         </div>
         {(tags.length > 0 || activeTag) && (
           <Popover
@@ -251,7 +295,38 @@ export function SearchBox({
       )}
       {open && (
         <div className="bg-popover text-popover-foreground border-border-subtle absolute inset-x-2.5 top-[calc(100%-2px)] z-40 max-h-80 overflow-y-auto rounded-lg border shadow-xl">
-          {!indexReady ? (
+          {!hasQuery ? (
+            <div>
+              <div className="text-muted-foreground flex items-center gap-1.5 px-3 pt-2 pb-1 text-[10px] font-medium tracking-[0.03em]">
+                <Clock3 className="size-3" />
+                最近打开
+              </div>
+              <ul className="pb-1">
+                {recentDocs.map((item, i) => (
+                  <li key={item.path}>
+                    <button
+                      type="button"
+                      className={cn(
+                        "block w-full px-2.5 py-1.5 text-left",
+                        i === active ? "bg-selection" : "hover:bg-hover",
+                      )}
+                      onMouseEnter={() => setActive(i)}
+                      onClick={() => openRecent(item)}
+                    >
+                      <span className="flex items-baseline gap-1.5">
+                        <span className="truncate text-xs font-medium">{item.name}</span>
+                        {item.dir && (
+                          <span className="text-muted-foreground shrink-0 text-[10px]">
+                            {item.dir}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : !indexReady ? (
             <p className="text-muted-foreground px-3 py-4 text-center text-xs">索引构建中,稍候再搜…</p>
           ) : hits.length === 0 ? (
             <div className="px-3 py-4 text-center">

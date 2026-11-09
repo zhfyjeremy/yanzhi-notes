@@ -58,6 +58,8 @@ interface SingleFileWorkspaceProps {
   typewriterMode: boolean;
   onToggleTypewriter: () => void;
   shortcuts: ShortcutBindings;
+  codeLanguageRecents: string[];
+  onCodeLanguageUsed: (language: string) => void;
   aiReady: boolean;
   aiSession: import("../ai/useAiSession").AiSession;
   onNeedAiSettings: () => void;
@@ -268,6 +270,8 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
               showToolbar={props.showToolbar && !props.focusMode}
               typewriter={props.focusMode && props.typewriterMode}
               shortcuts={props.shortcuts}
+              codeLanguageRecents={props.codeLanguageRecents}
+              onCodeLanguageUsed={props.onCodeLanguageUsed}
               aiReady={props.aiReady}
               aiSession={props.aiSession}
               onNeedAiSettings={props.onNeedAiSettings}

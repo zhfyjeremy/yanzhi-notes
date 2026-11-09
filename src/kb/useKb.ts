@@ -23,6 +23,7 @@ import {
   setCollapsed as metaSetCollapsed,
   setDocPinned,
   setDocTags,
+  setFoldersCollapsed,
   sortTree,
   type KbMeta,
   type OrphanMetaEntry,
@@ -1003,6 +1004,42 @@ export function useKb(settings: AppSettings) {
     [persistMeta],
   );
 
+  /** 一次展开/折叠全部文件夹;遍历树后批量写 meta,只触发一次持久化 */
+  const setAllCollapsed = useCallback(
+    (nextCollapsed: boolean) => {
+      const folderRels: string[] = [];
+      const walk = (nodes: TreeNode[]) => {
+        for (const node of nodes) {
+          if (!node.isDir) continue;
+          folderRels.push(node.path);
+          walk(node.children);
+        }
+      };
+      walk(treeRef.current);
+      if (folderRels.length === 0) return;
+      setCollapsed(nextCollapsed ? new Set(folderRels) : new Set());
+      metaRef.current = setFoldersCollapsed(metaRef.current, folderRels, nextCollapsed);
+      persistMeta();
+    },
+    [persistMeta],
+  );
+
+  /** 面包屑定位:批量展开目标文件夹及其父级,一次写 meta */
+  const expandFolders = useCallback(
+    (folderRels: string[]) => {
+      const unique = [...new Set(folderRels.filter(Boolean))];
+      if (!unique.length) return;
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        for (const rel of unique) next.delete(rel);
+        return next;
+      });
+      metaRef.current = setFoldersCollapsed(metaRef.current, unique, false);
+      persistMeta();
+    },
+    [persistMeta],
+  );
+
   /* ---------------- 置顶与标签(6.3-2/3) ---------------- */
 
   /** 文档置顶/取消置顶:meta 偏好 + 树序即时重排(置顶组内仍按原 sortIndex 序) */
@@ -1355,6 +1392,8 @@ export function useKb(settings: AppSettings) {
     rebuildIndex,
     resolveExternal,
     toggleCollapse,
+    setAllCollapsed,
+    expandFolders,
     persistSiblingOrder,
     togglePinned,
     setTags,

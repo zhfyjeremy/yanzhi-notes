@@ -33,7 +33,7 @@ describe("countDocStats(文档统计)", () => {
   it("统计字数/字符/段落/图片/表格/阅读时长", () => {
     const schema = getSchema();
     const doc = markdownToDoc(
-      "# 标题\n\n正文一段。\n\n![](./assets/a.png)\n\n| a | b |\n| - | - |\n| 1 | 2 |\n",
+      "# 标题\n\n正文一段。\n\n- [ ] 未完成\n- [x] 已完成\n\n![](./assets/a.png)\n\n| a | b |\n| - | - |\n| 1 | 2 |\n",
       schema,
     );
     const stats = countDocStats(doc);
@@ -42,6 +42,8 @@ describe("countDocStats(文档统计)", () => {
     expect(stats.paragraphs).toBeGreaterThanOrEqual(2);
     expect(stats.images).toBe(1);
     expect(stats.tables).toBe(1);
+    expect(stats.tasksTotal).toBe(2);
+    expect(stats.tasksDone).toBe(1);
     expect(stats.readMinutes).toBeGreaterThanOrEqual(1);
   });
 });

@@ -20,6 +20,7 @@ import {
   setCollapsed,
   setDocPinned,
   setDocTags,
+  setFoldersCollapsed,
   sortTree,
 } from "../meta";
 
@@ -181,6 +182,17 @@ describe("折叠持久化", () => {
   it("setCollapsed / collapsedFolders 往返", () => {
     const meta = setCollapsed(setCollapsed(EMPTY_META, "f", true), "g", false);
     expect(collapsedFolders(meta)).toEqual(new Set(["f"]));
+  });
+  it("setFoldersCollapsed 一次更新整组目录并保留其它偏好", () => {
+    const base = parseMeta(
+      '{"version":1,"docs":{},"folders":{"f":{"sortIndex":2},"g":{"collapsed":true}}}',
+    );
+    const collapsed = setFoldersCollapsed(base, ["f", "g"], true);
+    expect(collapsedFolders(collapsed)).toEqual(new Set(["f", "g"]));
+    expect(collapsed.folders.f.sortIndex).toBe(2);
+    expect(collapsedFolders(setFoldersCollapsed(collapsed, ["f", "g"], false))).toEqual(
+      new Set(),
+    );
   });
 });
 
