@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { ChevronLeft, ChevronRight, CircleCheck, Folder, Loader2 } from "lucide-react";
+import { SourceModeToggle } from "./editor/SourceModeToggle";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/hint";
 import { YanzhiEditor } from "./editor/YanzhiEditor";
@@ -172,8 +173,16 @@ function DocxReportDialog({ report, onClose }: { report: DocxReport; onClose: ()
     `Raw HTML:${report.stats.rawHtmlBlocks}`,
   ];
   return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent
+        className="sm:max-w-md"
+        onFocusOutside={(event) => event.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle>DOCX 导出完成</DialogTitle>
           <DialogDescription className="break-all">{report.path}</DialogDescription>
@@ -226,6 +235,13 @@ function App() {
   const editorFlushPendingRef = useRef<(() => void) | null>(null);
   const [title, setTitle] = useState("");
   const [focusMode, setFocusMode] = useState(false);
+  const [sourceMode, setSourceMode] = useState(false);
+  const sourceModeRef = useRef(false);
+  sourceModeRef.current = sourceMode;
+  const sourceModeApiRef = useRef<((next: boolean) => void) | null>(null);
+  const toggleSourceMode = useCallback(() => {
+    sourceModeApiRef.current?.(!sourceModeRef.current);
+  }, []);
   const [toast, setToast] = useState<{ message: string; kind: ToastKind } | null>(null);
   const [trashOpen, setTrashOpen] = useState(false);
   const [orphansOpen, setOrphansOpen] = useState(false);
@@ -603,6 +619,7 @@ function App() {
           stats.rawHtmlBlocks > 0 ||
           stats.details > 0;
         await waitMinimumLoading();
+        showToast("DOCX 导出成功", "success");
         if (hasExportIssues) {
           setDocxReport({
             path: result.path,
@@ -611,8 +628,6 @@ function App() {
             remoteEmbedded: result.remoteEmbedded,
             remoteFailed: result.remoteFailed,
           });
-        } else {
-          showToast("DOCX 导出成功", "success");
         }
       } catch (e) {
         console.error("[export-docx]", e);
@@ -905,6 +920,7 @@ function App() {
         else if (key === "tags") updateSettings({ showTags: value });
         else if (key === "history") updateSettings({ showHistory: value });
         else if (key === "focus") setFocusMode(value);
+        else if (key === "source") sourceModeApiRef.current?.(value);
       }
     })();
   };
@@ -941,10 +957,13 @@ function App() {
         history: settings.showHistory,
         singleFile: single.active,
         singleOutline: singleOutlineOpen,
+        source: sourceMode,
+        sourceEnabled: single.active || !!kb.currentPath,
       }).catch(console.error),
     );
   }, [
     kb.booted,
+    kb.currentPath,
     settings.showRightPanel,
     settings.showToolbar,
     settings.showOutline,
@@ -952,6 +971,7 @@ function App() {
     settings.showTags,
     settings.showHistory,
     focusMode,
+    sourceMode,
     single.active,
     singleOutlineOpen,
   ]);
@@ -1981,6 +2001,10 @@ function App() {
         scrollRef={handleScrollRef}
         scrollEl={scrollEl}
         showToolbar={settings.showToolbar}
+        sourceMode={sourceMode}
+        onToggleSource={toggleSourceMode}
+        onSourceModeChange={setSourceMode}
+        sourceModeApiRef={sourceModeApiRef}
         tabIndentSize={settings.tabIndentSize}
         cardBorder={settings.cardBorder}
         tableCellCopy={settings.tableCellCopy}
@@ -2224,6 +2248,7 @@ function App() {
                       </span>
                     ))}
                   </nav>
+                  <SourceModeToggle active={sourceMode} onToggle={toggleSourceMode} />
                 </div>
                 <div className="mt-1 flex min-w-0 items-center gap-1">
                   {/* 按标题内容撑开宽度,AI 贴在文字旁而不是栏尾 */}
@@ -2308,6 +2333,8 @@ function App() {
                 updateSettings({ tableCellCopy: !settings.tableCellCopy })
               }
               showToolbar={settings.showToolbar && !focusMode}
+              sourceModeApiRef={sourceModeApiRef}
+              onSourceModeChange={setSourceMode}
               tabIndentSize={settings.tabIndentSize}
               typewriter={focusMode && settings.typewriterMode}
               shortcuts={settings.shortcuts}
@@ -2402,6 +2429,8 @@ function App() {
             void aiSession.cancel();
           }
         }}
+        sourceMode={sourceMode}
+        onToggleSource={kb.currentPath ? toggleSourceMode : undefined}
       />
       {toast &&
         createPortal(

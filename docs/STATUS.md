@@ -1,10 +1,10 @@
-# 项目状态(更新:2026-11-13)
+# 项目状态(更新:2026-11-14)
 
 > 开工前速览:看「下一步」直接干活;细节翻 `docs/PRD-本地离线知识库编辑器.md` 对应章节。文档索引见 `docs/README.md`。
 
 ## 现状一句话
 
-**MVP / V2 / V3 功能已齐(含 BYOK AI-0/1/2 + AI-3 卡片)**;DOCX 语义导出代码完成(PM doc → Pandoc AST,可选外部 Pandoc + 外链图片受控嵌入;行内代码导出内容已修复不丢字,真机验收待做),PDF 导出暂缓。2026-11-13:知识库新增浏览器式文档标签页(Phase 1+2:打开/激活/关闭/关闭其它/关闭左侧/关闭右侧、拖拽排序、被遮挡 tab 激活后自动滚到可见、中键关闭、右键菜单、⌘/Ctrl+W 关闭、Ctrl+Tab 与 Shift+[ ] 前后切换、⌘/Ctrl+Alt+数字直切;tab 使用目录树自定义图标;右键与原生文件菜单的三种导出格式收进「导出」二级菜单;`.yanzhi/workspace.json` 持久化;单个编辑器实例复用,切换前强制保存,失败阻断,重命名/移动/删除自动同步 tab;正文双链默认当前 tab,⌘/Ctrl 或中键打开/切换 tab);设置 → 外观 → 正文排版新增正文列宽,默认自适应,可固定 600–1200px(标题/正文/源码/工具栏/帮助同列,窄窗口仍自动收缩);外观默认正文行高从 1.75 收紧为 1.6(导出/复制 HTML 的默认排版同步);排版视图普通文本/代码块与 Markdown 源码视图的 Tab 缩进宽度可在设置 → 编辑器调整为 1–8 字符,Shift+Tab 可缩回光标前缩进或行首缩进(列表升降级、表格切换单元格语义保留);Markdown 普通文本中的 `=`、`===>`、`======>` 不再被误识别为高亮或反斜杠转义,`==高亮==` 方言保持可用;开库/首启装载期改为工作区 loading,不再先闪现未命名空文档;2026-11-12:新增全文档 Markdown 源码模式(工具栏 + ⌘/Ctrl+/,基于懒加载 CodeMirror 6 + Lezer Markdown/GFM 的 HBuilder/Typora 式彩色主题(H1–H6 分级配色、链接下划线、代码块轻底色与按语言懒加载的真实 parser 多色 token 着色(C/C++/CSS/HTML/Java/JS/JSON/Python/Rust/Go/Shell/Bash/SQL/TS/XML/YAML,未识别语言通用回退));与排版视图同内容列/纵向滚动容器、无边框,编辑器高度自适应且不单独纵向滚动,排版/源码双向按滚动比例恢复当前阅读位置(首次源码 chunk 懒加载时等待可滚动布局出现后再恢复),源码编辑自动保存,长行在正文列内软折行且不出横向滚动条,右侧大纲在源码态按 CodeMirror 行定位、点击可跳转并联动高亮,代码块使用浏览器原生 selection 保证在彩色代码块背景上可见可选);裸 URL/外部编辑器转义 scheme(`https\\://`)打开即解析为链接;目录树内置图标与右键更改图标上线；2026-11-11:整段 http(s) 图片地址粘贴即转外链图片；未知扩展名 URL 由用户粘贴触发单次图片解码识别。2026-11-03:关闭窗口保持后台;单实例托盘;AI 结构 + 卡片(代码解释改写 / Mermaid 生成修正 / 公式)。签名/公证与 IME 真机回归仍待。
+**MVP / V2 / V3 功能已齐(含 BYOK AI-0/1/2 + AI-3 卡片)**。2026-11-14:格式工具栏在 Windows 上不再冒出横竖滚动条;源码模式开关改到状态栏左下、面包屑(单文件在路径行)和菜单「显示 → 源码模式」,⌘/Ctrl+/ 仍可用。DOCX 语义导出代码完成(PM doc → Pandoc AST,可选外部 Pandoc + 外链图片受控嵌入;行内代码导出内容已修复不丢字,真机验收待做),PDF 导出暂缓。2026-11-13:知识库新增浏览器式文档标签页(Phase 1+2:打开/激活/关闭/关闭其它/关闭左侧/关闭右侧、拖拽排序、被遮挡 tab 激活后自动滚到可见、中键关闭、右键菜单、⌘/Ctrl+W 关闭、Ctrl+Tab 与 Shift+[ ] 前后切换、⌘/Ctrl+Alt+数字直切;tab 使用目录树自定义图标;右键与原生文件菜单的三种导出格式收进「导出」二级菜单;`.yanzhi/workspace.json` 持久化;单个编辑器实例复用,切换前强制保存,失败阻断,重命名/移动/删除自动同步 tab;正文双链默认当前 tab,⌘/Ctrl 或中键打开/切换 tab);设置 → 外观 → 正文排版新增正文列宽,默认自适应,可固定 600–1200px(标题/正文/源码/工具栏/帮助同列,窄窗口仍自动收缩);外观默认正文行高从 1.75 收紧为 1.6(导出/复制 HTML 的默认排版同步);排版视图普通文本/代码块与 Markdown 源码视图的 Tab 缩进宽度可在设置 → 编辑器调整为 1–8 字符,Shift+Tab 可缩回光标前缩进或行首缩进(列表升降级、表格切换单元格语义保留);Markdown 普通文本中的 `=`、`===>`、`======>` 不再被误识别为高亮或反斜杠转义,`==高亮==` 方言保持可用;开库/首启装载期改为工作区 loading,不再先闪现未命名空文档;2026-11-12:新增全文档 Markdown 源码模式(工具栏 + ⌘/Ctrl+/,基于懒加载 CodeMirror 6 + Lezer Markdown/GFM 的 HBuilder/Typora 式彩色主题(H1–H6 分级配色、链接下划线、代码块轻底色与按语言懒加载的真实 parser 多色 token 着色(C/C++/CSS/HTML/Java/JS/JSON/Python/Rust/Go/Shell/Bash/SQL/TS/XML/YAML,未识别语言通用回退));与排版视图同内容列/纵向滚动容器、无边框,编辑器高度自适应且不单独纵向滚动,排版/源码双向按滚动比例恢复当前阅读位置(首次源码 chunk 懒加载时等待可滚动布局出现后再恢复),源码编辑自动保存,长行在正文列内软折行且不出横向滚动条,右侧大纲在源码态按 CodeMirror 行定位、点击可跳转并联动高亮,代码块使用浏览器原生 selection 保证在彩色代码块背景上可见可选);裸 URL/外部编辑器转义 scheme(`https\\://`)打开即解析为链接;目录树内置图标与右键更改图标上线；2026-11-11:整段 http(s) 图片地址粘贴即转外链图片；未知扩展名 URL 由用户粘贴触发单次图片解码识别。2026-11-03:关闭窗口保持后台;单实例托盘;AI 结构 + 卡片(代码解释改写 / Mermaid 生成修正 / 公式)。签名/公证与 IME 真机回归仍待。
 
 ## 里程碑(PRD §11.4 工期表)
 
@@ -221,10 +221,10 @@
 | --- | --- | --- |
 | AST 转换器 | ✅ | `src/export/pandoc-ast.ts`:标题/列表/任务状态(☐/☒)/引用/表格对齐与会话列宽/代码/行内与块级公式/图片/附件/双链/任意文字颜色/Callout/Details/RawHtml/Mermaid;不写 title metadata,避免正文顶部额外插入文件名。公式多行包 `gathered` 交给 Pandoc 转 OMML;未知节点/mark/资源显式 warning,不静默丢 |
 | 资源策略 | ✅ | 本地图片/附件只解析库内或单文件旁 `assets`,拒绝绝对路径与任意目录穿越;外链图片先收集并按设置确认。Mermaid 固定浅色主题渲染,按根节点 viewBox 等比生成 PNG(不误取内部节点宽高),失败保留源码并清理 Mermaid 12 留在 body 的错误 SVG 容器;SVG 含外链资源时拒绝渲染,避免绕过外链确认 |
-| Pandoc command | ✅ | `src-tauri/src/export.rs`:Pandoc 3+ 检测/路径配置、stdin 传 AST、固定参数(仅 reference doc、语法主题、resource-path)、临时文件成功后替换;大文档 stdin 写入独立线程防 stderr 管道死锁 |
+| Pandoc command | ✅ | `src-tauri/src/export.rs`:Pandoc 3+ 检测/路径配置、stdin 传 AST、固定参数(仅 reference doc、语法主题、resource-path)、临时文件成功后替换;大文档 stdin 写入独立线程防 stderr 管道死锁。2026-11-14 Windows 调用加 `CREATE_NO_WINDOW`,避免每次导出闪 cmd 黑窗 |
 | 外链图片下载 | ✅ | 仅导出后请求文档中收集到的 http/https 图片 URL;无 Cookie/遥测,15s 超时,重定向 ≤5 且逐跳复检,DNS 解析结果 pin 到公网地址并强制直连(不走系统代理),禁 localhost/内网/组播/凭据,单图 25MB、总量 100MB,Content-Type 仅 image/*;失败降级 Link 并进入报告 |
 | 样式资源 | ✅ | 内置 `resources/yanzhi-reference.docx`(中文正文单倍行高、Callout/Details/居中图/代码底色)与 `yanzhi-highlight.theme`(由代码 token 色系生成);设置页可选择用户本地 reference doc |
-| 入口/设置 | ✅ | 原生菜单与编辑器右键均含「导出 Word (.docx)」;设置新增「导出」页(Pandoc 检测/路径/安装说明、reference doc、外链策略 ask/always/never);选择保存位置点击 Save 后立即显示全屏 loading 且至少展示 300ms;无异常仅成功提示,有 warning/降级才弹资源统计与降级报告 |
+| 入口/设置 | ✅ | 原生菜单与编辑器右键均含「导出 Word (.docx)」;设置新增「导出」页(Pandoc 检测/路径/安装说明、reference doc、外链策略 ask/always/never);选择保存位置点击 Save 后立即显示全屏 loading 且至少展示 300ms;成功始终 toast「DOCX 导出成功」,有 warning/降级再弹资源统计与降级报告(报告不因焦点被抢走而立刻关掉) |
 | 自动化验证 | ✅ | `pnpm test` **319/319**(含全部 Markdown fixtures → PM → Pandoc AST → Pandoc DOCX),`cargo test` **13/13**(内网 URL 防护/AST 图片替换/Pandoc 实写 DOCX),`pnpm build`、`pnpm tauri build --no-bundle` 通过;浏览器 UI 已验设置页与右键入口 |
 | 手工验收 | ⏳ | 样本见 `docs/DOCX-导出测试文档.md`。macOS/Windows 真机走原生保存对话框导出、外链图片真实网络成功/失败、用户自定义 reference doc、中文路径与空格路径、Windows Pandoc 常见路径 |
 

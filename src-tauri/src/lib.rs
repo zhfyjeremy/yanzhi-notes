@@ -134,6 +134,9 @@ struct ViewFlagsInner {
     single_file: bool,
     /// 单文件左侧大纲显隐(与知识库右栏 showOutline 独立,菜单「大纲」按模式镜像其一)
     single_outline: bool,
+    /// 全文档 Markdown 源码模式;没打开文档时菜单项禁用
+    source: bool,
+    source_enabled: bool,
 }
 
 impl Default for ViewFlagsInner {
@@ -148,6 +151,8 @@ impl Default for ViewFlagsInner {
             history: true,
             single_file: false,
             single_outline: true,
+            source: false,
+            source_enabled: false,
         }
     }
 }
@@ -460,6 +465,14 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
             flags.toolbar,
             None::<&str>,
         )?)
+        .item(&CheckMenuItem::with_id(
+            app,
+            "yz_view_source",
+            "源码模式",
+            flags.source_enabled,
+            flags.source,
+            None::<&str>,
+        )?)
         .separator()
         .item(&CheckMenuItem::with_id(
             app,
@@ -644,6 +657,8 @@ fn set_view_state(
     history: Option<bool>,
     single_file: Option<bool>,
     single_outline: Option<bool>,
+    source: Option<bool>,
+    source_enabled: Option<bool>,
 ) {
     {
         let state = app.state::<ViewFlags>();
@@ -674,6 +689,12 @@ fn set_view_state(
         }
         if let Some(v) = single_outline {
             flags.single_outline = v;
+        }
+        if let Some(v) = source {
+            flags.source = v;
+        }
+        if let Some(v) = source_enabled {
+            flags.source_enabled = v;
         }
     }
     let _ = build_app_menu(&app);
@@ -785,6 +806,7 @@ pub fn run() {
                 serde_json::json!({ "action": "graph" })
             } else if id == "yz_view_panel"
                 || id == "yz_view_toolbar"
+                || id == "yz_view_source"
                 || id == "yz_focus"
                 || id == "yz_view_outline"
                 || id == "yz_view_backlinks"
@@ -797,6 +819,7 @@ pub fn run() {
                 match id {
                     "yz_view_panel" => serde_json::json!({ "action": "view", "key": "panel", "value": !flags.panel }),
                     "yz_view_toolbar" => serde_json::json!({ "action": "view", "key": "toolbar", "value": !flags.toolbar }),
+                    "yz_view_source" => serde_json::json!({ "action": "view", "key": "source", "value": !flags.source }),
                     "yz_view_outline" => {
                         let next = if flags.single_file {
                             !flags.single_outline

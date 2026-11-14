@@ -845,36 +845,43 @@
   height: auto;
 }
 
-/* 格式工具栏按编辑卡片实际宽度收纳低频操作:
-   1) 较窄窗口先收删除线/分割线/复制为;
-   2) 小窗口再收高亮/颜色/引用/表格/待办;
-   3) 窄窗口再收下划线/行内代码;
-   4) 极端宽度仅兜底内部滚动,不允许撑破中央纸张卡片。 */
+/* 格式工具栏按按钮实际所在列收纳,不按整张编辑卡片。
+   平铺时列在 .chrome-toolbar-align 里,比外层 host 窄一截左右留白;
+   卡片时 align 是 display:contents,容器退回 .yz-toolbar。
+   1) 列宽不够先收删除线/分割线/复制为;
+   2) 再收高亮/颜色/引用/表格/待办;
+   3) 再收下划线/行内代码。
+   Windows 经典滚动条会占高:overflow-x:auto 会把 overflow-y 算成 auto,
+   竖条再挤掉宽度,横竖滚动条一起冒出来。竖向必须 hidden,滚动条本身隐藏。 */
 .yz-toolbar {
   container-type: inline-size;
 }
 
-.yz-toolbar > div {
+.yz-toolbar .chrome-toolbar {
+  overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
 }
 
-.yz-toolbar > div::-webkit-scrollbar {
+.yz-toolbar .chrome-toolbar::-webkit-scrollbar {
   display: none;
+  width: 0;
+  height: 0;
 }
 
-@container (max-width: 640px) {
+@container (max-width: 600px) {
   .yz-toolbar-hide-cozy {
     display: none;
   }
 }
 
-@container (max-width: 520px) {
+@container (max-width: 500px) {
   .yz-toolbar-hide-compact {
     display: none;
   }
 }
 
-@container (max-width: 384px) {
+@container (max-width: 400px) {
   .yz-toolbar-hide-narrow {
     display: none;
   }

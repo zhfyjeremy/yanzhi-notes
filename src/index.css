@@ -343,6 +343,8 @@ body {
 :root[data-ui-style="flat"] .chrome-toolbar-align {
   display: flex;
   align-items: center;
+  /* 按钮实际落在正文列里,收纳查询按这一列而不是整张编辑卡片 */
+  container-type: inline-size;
 }
 
 :root[data-ui-style="flat"] .chrome-toolbar {

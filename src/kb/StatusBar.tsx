@@ -3,6 +3,7 @@ import { useEditorState } from "@tiptap/react";
 import { Fragment, useEffect, useState } from "react";
 import { CircleAlert, Eye, EyeOff, ListTodo } from "lucide-react";
 import { Hint } from "@/components/hint";
+import { SourceModeToggle } from "../editor/SourceModeToggle";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { countDocStats, countWords } from "../editor/word-count";
 
@@ -28,6 +29,9 @@ interface StatusBarProps {
   /** AI 请求中显示目标 host(§7.8);null = 无请求 */
   aiHost?: string | null;
   onCancelAi?: () => void;
+  /** 左下角源码模式开关;无文档时不传 */
+  sourceMode?: boolean;
+  onToggleSource?: () => void;
 }
 
 /** 文档统计弹窗内容(字数/字符/段落/图片/表格/预计阅读) */
@@ -161,6 +165,8 @@ export function StatusBar({
   onOpenOrphans,
   aiHost = null,
   onCancelAi,
+  sourceMode = false,
+  onToggleSource,
 }: StatusBarProps) {
   return (
     <footer className="shell-status border-border-subtle bg-sidebar/80 text-muted-foreground mx-3 mb-3 flex h-9 shrink-0 items-center justify-between gap-4 rounded-xl border px-3 text-[11px] shadow-[0_6px_18px_-14px_color-mix(in_oklab,var(--foreground)_18%,transparent)]">
@@ -189,28 +195,34 @@ export function StatusBar({
           </Popover>
         )}
         {editor && <TaskProgress editor={editor} />}
-        <Hint label="专注模式 (⌘/Ctrl+Shift+F)">
-          <button
-            className="hover:text-foreground hover:bg-hover flex items-center gap-1 rounded-md px-1.5 py-1"
-            onClick={onToggleFocus}
-          >
-            {focusMode ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-            专注
-          </button>
-        </Hint>
-        {focusMode && onToggleTypewriter && (
-          <Hint label="打字机滚动：输入时保持光标在视口中线附近">
+        {editor && <span className="bg-border-subtle h-3 w-px shrink-0" />}
+        <div className="flex items-center gap-0.5">
+          {onToggleSource && (
+            <SourceModeToggle active={sourceMode} onToggle={onToggleSource} />
+          )}
+          <Hint label="专注模式 (⌘/Ctrl+Shift+F)">
             <button
-              className={`hover:bg-hover flex items-center gap-1 rounded-md px-1.5 py-1 ${
-                typewriterMode ? "text-primary" : "hover:text-foreground"
-              }`}
-              onClick={onToggleTypewriter}
-              aria-pressed={typewriterMode}
+              className="hover:text-foreground hover:bg-hover flex items-center gap-1 rounded-md px-1.5 py-1"
+              onClick={onToggleFocus}
             >
-              打字机
+              {focusMode ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+              专注
             </button>
           </Hint>
-        )}
+          {focusMode && onToggleTypewriter && (
+            <Hint label="打字机滚动：输入时保持光标在视口中线附近">
+              <button
+                className={`hover:bg-hover flex items-center gap-1 rounded-md px-1.5 py-1 ${
+                  typewriterMode ? "text-primary" : "hover:text-foreground"
+                }`}
+                onClick={onToggleTypewriter}
+                aria-pressed={typewriterMode}
+              >
+                打字机
+              </button>
+            </Hint>
+          )}
+        </div>
         {aiHost && (
           <span className="text-primary flex items-center gap-1.5">
             正在请求：{aiHost}

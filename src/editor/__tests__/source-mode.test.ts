@@ -49,6 +49,19 @@ describe("Markdown 源码模式", () => {
 
   const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
 
+  const enterSourceByShortcut = async () => {
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          code: "Slash",
+          key: "/",
+          metaKey: true,
+          bubbles: true,
+        }),
+      );
+    });
+  };
+
   const waitForSourceEditor = async (container: HTMLElement) => {
     for (let i = 0; i < 20 && !container.querySelector(".cm-content"); i++) {
       await act(async () => {
@@ -75,11 +88,7 @@ describe("Markdown 源码模式", () => {
       editor.commands.setTextSelection(bodyPos!);
     });
 
-    const sourceButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="源码模式 (⌘/Ctrl+/)"]',
-    );
-    expect(sourceButton).not.toBeNull();
-    await act(async () => sourceButton!.click());
+    await enterSourceByShortcut();
     await waitForSourceEditor(container);
 
     const content = container.querySelector<HTMLElement>(".cm-content");
@@ -91,11 +100,7 @@ describe("Markdown 源码模式", () => {
 
   it("源码光标在标题行时切回排版,落在标题块", async () => {
     const container = renderEditor();
-    const sourceButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="源码模式 (⌘/Ctrl+/)"]',
-    );
-    expect(sourceButton).not.toBeNull();
-    await act(async () => sourceButton!.click());
+    await enterSourceByShortcut();
     await waitForSourceEditor(container);
 
     const content = container.querySelector<HTMLElement>(".cm-content");
@@ -121,14 +126,10 @@ describe("Markdown 源码模式", () => {
     expect($pos.parent.textContent).toBe("标题");
   });
 
-  it("工具栏可切换源码模式,编辑后自动保存并返回排版视图", async () => {
+  it("快捷键可切换源码模式,编辑后自动保存并返回排版视图", async () => {
     const container = renderEditor();
 
-    const sourceButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="源码模式 (⌘/Ctrl+/)"]',
-    );
-    expect(sourceButton).not.toBeNull();
-    await act(async () => sourceButton!.click());
+    await enterSourceByShortcut();
     await waitForSourceEditor(container);
     const content = container.querySelector<HTMLElement>(".cm-content");
     expect(content?.getAttribute("aria-label")).toBe("Markdown 源码");

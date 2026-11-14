@@ -107,6 +107,10 @@ interface YanzhiEditorProps {
   onToggleTableCellCopy?: () => void;
   /** 显示菜单「工具栏」:编辑器顶部格式条,默认显示 */
   showToolbar?: boolean;
+  /** 显示菜单 / 状态栏 / 面包屑把源码模式设成这个值 */
+  sourceModeApiRef?: MutableRefObject<((next: boolean) => void) | null>;
+  /** 源码模式开关变化;卸载时回 false,菜单勾选跟这个走 */
+  onSourceModeChange?: (active: boolean) => void;
   /** 正文/代码块/源码态按一次 Tab 插入的缩进字符数 */
   tabIndentSize?: number;
   /**
@@ -189,6 +193,8 @@ export function YanzhiEditor({
   tableCellCopy = false,
   onToggleTableCellCopy,
   showToolbar = true,
+  sourceModeApiRef,
+  onSourceModeChange,
   tabIndentSize = 4,
   typewriter = false,
   shortcuts = DEFAULT_SHORTCUTS,
@@ -366,6 +372,34 @@ export function YanzhiEditor({
     if (sourceModeRef.current) leaveSourceMode();
     else enterSourceMode();
   };
+
+  const onSourceModeChangeRef = useRef(onSourceModeChange);
+  onSourceModeChangeRef.current = onSourceModeChange;
+  const applySourceModeRef = useRef<(next: boolean) => void>(() => {});
+  applySourceModeRef.current = (next: boolean) => {
+    if (sourceModeRef.current === next) return;
+    if (next) enterSourceMode();
+    else leaveSourceMode();
+  };
+
+  useEffect(() => {
+    onSourceModeChangeRef.current?.(sourceMode);
+  }, [sourceMode]);
+
+  useEffect(() => {
+    if (!sourceModeApiRef) return;
+    sourceModeApiRef.current = (next) => applySourceModeRef.current(next);
+    return () => {
+      sourceModeApiRef.current = null;
+    };
+  }, [sourceModeApiRef]);
+
+  useEffect(
+    () => () => {
+      onSourceModeChangeRef.current?.(false);
+    },
+    [],
+  );
 
   const updateSourceDraft = (md: string) => {
     sourceDraftRef.current = md;

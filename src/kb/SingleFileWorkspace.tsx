@@ -32,7 +32,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { Editor } from "@tiptap/react";
+import type { MutableRefObject } from "react";
 import { YanzhiEditor } from "../editor/YanzhiEditor";
+import { SourceModeToggle } from "../editor/SourceModeToggle";
 import { EDITOR_COLUMN_CLASS } from "../editor/layout";
 import { TocPanel } from "../editor/panel/TocPanel";
 import { StatusBar } from "./StatusBar";
@@ -53,6 +55,10 @@ interface SingleFileWorkspaceProps {
   scrollRef: (el: HTMLDivElement | null) => void;
   scrollEl: HTMLDivElement | null;
   showToolbar: boolean;
+  sourceMode: boolean;
+  onToggleSource: () => void;
+  onSourceModeChange: (active: boolean) => void;
+  sourceModeApiRef: MutableRefObject<((next: boolean) => void) | null>;
   tabIndentSize: number;
   cardBorder: boolean;
   tableCellCopy: boolean;
@@ -196,6 +202,7 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
                     >
                       {single.filePath}
                     </span>
+                    <SourceModeToggle active={props.sourceMode} onToggle={props.onToggleSource} />
                   </div>
 
                   <div className="flex items-end gap-3">
@@ -272,6 +279,8 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
               tableCellCopy={props.tableCellCopy}
               onToggleTableCellCopy={props.onToggleTableCellCopy}
               showToolbar={props.showToolbar && !props.focusMode}
+              sourceModeApiRef={props.sourceModeApiRef}
+              onSourceModeChange={props.onSourceModeChange}
               tabIndentSize={props.tabIndentSize}
               typewriter={props.focusMode && props.typewriterMode}
               shortcuts={props.shortcuts}
@@ -294,6 +303,8 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
           onToggleTypewriter={props.onToggleTypewriter}
           aiHost={props.aiSession.state.phase === "running" ? props.aiSession.state.host : null}
           onCancelAi={() => void props.aiSession.cancel()}
+          sourceMode={props.sourceMode}
+          onToggleSource={props.onToggleSource}
         />
       </main>
 

@@ -223,7 +223,7 @@ export function EditorToolbar({
     <div role="toolbar" aria-label="格式工具栏" className="yz-toolbar chrome-toolbar-host bg-editor flex h-10 shrink-0 items-center justify-center px-4">
       {/* 卡片:display:contents,胶囊仍由 host 居中。平铺:变成正文同宽的列,按钮对齐文字而不是贴面板左缘 */}
       <div className={`chrome-toolbar-align mx-auto h-full w-full min-w-0 px-16 ${EDITOR_COLUMN_CLASS}`}>
-      <div className="chrome-toolbar border-border-subtle bg-raised flex h-8 w-fit max-w-full min-w-0 items-center gap-0.5 overflow-x-auto rounded-lg border px-1 shadow-sm">
+      <div className="chrome-toolbar border-border-subtle bg-raised flex h-8 max-h-8 w-fit max-w-full min-w-0 items-center gap-0.5 overflow-x-auto overflow-y-hidden rounded-lg border px-1 shadow-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {/* 标题下拉 */}
       <DropdownMenu onOpenChange={snapshotMenuSelection}>
         <DropdownMenuTrigger asChild>
@@ -471,16 +471,6 @@ export function EditorToolbar({
       </ToolButton>
       <ToolButton title="重做" disabled={!state.canRedo} onClick={() => editor.chain().focus().redo().run()}>
         <Redo2 className="size-4" />
-      </ToolButton>
-
-      <Divider />
-
-      <ToolButton
-        title="源码模式 (⌘/Ctrl+/)"
-        active={sourceMode}
-        onClick={onToggleSource}
-      >
-        <FileCode2 className="size-4" />
       </ToolButton>
       </div>
       </div>

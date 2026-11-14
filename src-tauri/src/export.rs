@@ -49,6 +49,19 @@ pub struct PandocStatus {
     pub error: Option<String>,
 }
 
+/// pandoc.exe 是控制台程序。从无控制台的 GUI 进程拉起时，Windows 会临时分配一个 cmd 黑窗。
+fn pandoc_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    #[allow(unused_mut)]
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
 fn configured_pandoc(path: Option<&str>) -> PathBuf {
     let configured = path.unwrap_or_default().trim();
     if !configured.is_empty() {
@@ -62,7 +75,7 @@ fn find_pandoc(configured: Option<&str>) -> PathBuf {
     if explicit.as_os_str() != "pandoc" {
         return explicit;
     }
-    if Command::new("pandoc")
+    if pandoc_command("pandoc")
         .arg("--version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -94,7 +107,7 @@ fn pandoc_major(version: &str) -> u32 {
 }
 
 fn run_pandoc_version(path: &Path) -> Result<String, String> {
-    let output = Command::new(path)
+    let output = pandoc_command(path)
         .arg("--version")
         .output()
         .map_err(|e| format!("无法启动 Pandoc:{e}"))?;
@@ -435,7 +448,7 @@ fn run_pandoc(
     highlight_theme: Option<&Path>,
     modern_highlight_flag: bool,
 ) -> Result<String, String> {
-    let mut command = Command::new(pandoc);
+    let mut command = pandoc_command(pandoc);
     command
         .arg("--from")
         .arg("json")
@@ -740,7 +753,7 @@ mod tests {
 
     #[test]
     fn run_pandoc_writes_docx_with_builtin_styles() {
-        if Command::new("pandoc")
+        if pandoc_command("pandoc")
             .arg("--version")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
