@@ -1,4 +1,6 @@
 import { Node, mergeAttributes } from "@tiptap/core";
+import { ReactNodeViewRenderer } from "@tiptap/react";
+import { RawHtmlView } from "./raw-html-view";
 
 /**
  * 原样保留的块级 HTML(§4.6:未知语法禁止静默丢弃)。
@@ -24,6 +26,10 @@ export const RawHtml = Node.create({
 
   parseHTML() {
     return [{ tag: "div[data-raw-html]" }];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(RawHtmlView);
   },
 
   renderHTML({ node, HTMLAttributes }) {

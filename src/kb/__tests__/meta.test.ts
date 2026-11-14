@@ -20,6 +20,7 @@ import {
   setCollapsed,
   setDocPinned,
   setDocTags,
+  setEntryIcon,
   setFoldersCollapsed,
   sortTree,
 } from "../meta";
@@ -175,6 +176,39 @@ describe("rename/remove keys", () => {
     const next = removeMetaKeys(meta, "f", true);
     expect(Object.keys(next.docs)).toEqual(["c.md"]);
     expect(Object.keys(next.folders)).toEqual([]);
+  });
+});
+
+describe("目录树图标偏好", () => {
+  it("setEntryIcon 可设置/清除,并保留其它偏好", () => {
+    const base = parseMeta(
+      '{"version":1,"docs":{"a.md":{"sortIndex":2,"tags":["x"]}},"folders":{"tech":{"collapsed":true}}}',
+    );
+    const docNext = setEntryIcon(base, "a.md", false, "code");
+    expect(docNext.docs["a.md"]).toEqual({ sortIndex: 2, tags: ["x"], icon: "code" });
+    const docClear = setEntryIcon(docNext, "a.md", false, null);
+    expect(docClear.docs["a.md"]).toEqual({ sortIndex: 2, tags: ["x"] });
+
+    const folderNext = setEntryIcon(base, "tech", true, "rocket");
+    expect(folderNext.folders.tech).toEqual({ collapsed: true, icon: "rocket" });
+    expect(setEntryIcon(folderNext, "tech", true, "rocket")).toBe(folderNext);
+  });
+
+  it("图标随重命名/移动迁移;删除清 key", () => {
+    const meta = setEntryIcon(
+      setEntryIcon(EMPTY_META, "tech", true, "code"),
+      "tech/a.md",
+      false,
+      "plane",
+    );
+    const renamed = renameMetaKeys(meta, "tech", "dev", true);
+    expect(renamed.folders.dev.icon).toBe("code");
+    expect(renamed.docs["dev/a.md"].icon).toBe("plane");
+
+    const movedKey = renameMetaKeys(renamed, "dev/a.md", "notes/a.md", false);
+    const moved = moveMetaToTail(movedKey, "notes/a.md", "notes");
+    expect(moved.docs["notes/a.md"].icon).toBe("plane");
+    expect(removeMetaKeys(moved, "notes/a.md", false).docs["notes/a.md"]).toBeUndefined();
   });
 });
 

@@ -2,7 +2,9 @@
 
 行内代码 `const x = 1`,以及含反引号的 ``a`b``。
 
-链接 [砚知](https://example.com/a-b) 与普通文本。
+链接 [砚知](https://example.com/a-b) 与普通文本。Vue3 生命周期对照:`beforeCreate`===>`setup()`,`created`======>`setup()`。
+
+普通等号与箭头:a = b、===>、a======>b 不转义。
 
 双链 [[文档A]] 与带显示名 [[文件夹/文档B|显示B]]。
 

@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ClipboardCopy,
   Code,
+  FileCode2,
   Highlighter,
   Italic,
   Link2,
@@ -24,7 +25,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { EDITOR_COLUMN_MAX } from "../layout";
+import { EDITOR_COLUMN_CLASS } from "../layout";
 import { Hint } from "@/components/hint";
 import {
   DropdownMenu,
@@ -105,7 +106,15 @@ function ToolButton({
   );
 }
 
-export function EditorToolbar({ editor }: { editor: Editor }) {
+export function EditorToolbar({
+  editor,
+  sourceMode = false,
+  onToggleSource,
+}: {
+  editor: Editor;
+  sourceMode?: boolean;
+  onToggleSource: () => void;
+}) {
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   // 下拉打开瞬间的选区快照:radix 会挪走焦点,PM 失焦期间不同步 DOM 选区;
@@ -181,11 +190,40 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
   const currentHeading =
     HEADING_ITEMS.find((item) => item.level === state.heading) ?? HEADING_ITEMS[0];
 
+  if (sourceMode) {
+    return (
+      <div
+        role="toolbar"
+        aria-label="源码模式工具栏"
+        className="yz-toolbar chrome-toolbar-host bg-editor flex h-10 shrink-0 items-center justify-center px-4"
+      >
+        <div className={`chrome-toolbar-align mx-auto h-full w-full min-w-0 px-16 ${EDITOR_COLUMN_CLASS}`}>
+          <div className="chrome-toolbar border-border-subtle bg-raised flex h-8 items-center gap-2 rounded-lg border px-2 shadow-sm">
+            <FileCode2 className="text-primary size-4 shrink-0" />
+            <span className="text-foreground/85 text-xs font-medium">Markdown 源码</span>
+            <span className="text-muted-foreground text-[10px]">标准 Markdown · 自动保存</span>
+            <Divider />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground hover:text-foreground h-7 gap-1.5 px-2 text-xs"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onToggleSource}
+            >
+              <Code className="size-3.5" />
+              返回排版视图
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div role="toolbar" aria-label="格式工具栏" className="yz-toolbar chrome-toolbar-host bg-editor flex h-14 shrink-0 items-center justify-center px-4">
+    <div role="toolbar" aria-label="格式工具栏" className="yz-toolbar chrome-toolbar-host bg-editor flex h-10 shrink-0 items-center justify-center px-4">
       {/* 卡片:display:contents,胶囊仍由 host 居中。平铺:变成正文同宽的列,按钮对齐文字而不是贴面板左缘 */}
-      <div className={`chrome-toolbar-align mx-auto h-full w-full min-w-0 px-16 ${EDITOR_COLUMN_MAX}`}>
-      <div className="chrome-toolbar border-border-subtle bg-raised flex h-9 w-fit max-w-full min-w-0 items-center gap-0.5 overflow-x-auto rounded-[10px] border px-1.5 shadow-sm">
+      <div className={`chrome-toolbar-align mx-auto h-full w-full min-w-0 px-16 ${EDITOR_COLUMN_CLASS}`}>
+      <div className="chrome-toolbar border-border-subtle bg-raised flex h-8 w-fit max-w-full min-w-0 items-center gap-0.5 overflow-x-auto rounded-lg border px-1 shadow-sm">
       {/* 标题下拉 */}
       <DropdownMenu onOpenChange={snapshotMenuSelection}>
         <DropdownMenuTrigger asChild>
@@ -206,8 +244,9 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
           {HEADING_ITEMS.map((item) => (
             <DropdownMenuItem key={item.level} onClick={() => applyHeading(item.level)}>
               <span className={cn("flex-1", item.className)}>{item.label}</span>
+              <span className="text-muted-foreground text-[10px]">⌘/Ctrl+{item.level}</span>
               {state.heading === item.level && (
-                <Check className="ml-auto size-3.5 shrink-0" />
+                <Check className="ml-1 size-3.5 shrink-0" />
               )}
             </DropdownMenuItem>
           ))}
@@ -432,6 +471,16 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
       </ToolButton>
       <ToolButton title="重做" disabled={!state.canRedo} onClick={() => editor.chain().focus().redo().run()}>
         <Redo2 className="size-4" />
+      </ToolButton>
+
+      <Divider />
+
+      <ToolButton
+        title="源码模式 (⌘/Ctrl+/)"
+        active={sourceMode}
+        onClick={onToggleSource}
+      >
+        <FileCode2 className="size-4" />
       </ToolButton>
       </div>
       </div>

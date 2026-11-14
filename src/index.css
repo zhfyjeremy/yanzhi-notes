@@ -69,6 +69,29 @@
   --callout-warning-bg: hsl(38 90% 95%);
   --callout-caution: hsl(4 78% 44%);
   --callout-caution-bg: hsl(4 70% 96%);
+
+  /* Markdown 源码模式专用语义色(HBuilder/Typora 式彩色源码,浅色) */
+  --source-h1: hsl(204 88% 34%);
+  --source-h2: hsl(190 68% 28%);
+  --source-h3: hsl(258 55% 44%);
+  --source-h4: hsl(152 55% 27%);
+  --source-h5: hsl(32 88% 31%);
+  --source-h6: hsl(348 68% 40%);
+  --source-marker: hsl(25 8% 46%);
+  --source-emphasis: hsl(32 88% 32%);
+  --source-inline-code: hsl(348 68% 38%);
+  --source-code-bg: hsl(220 26% 96%);
+  --source-code-edge: hsl(220 18% 87%);
+  --source-code-comment: hsl(25 8% 45%);
+  --source-code-string: hsl(130 38% 29%);
+  --source-code-number: hsl(212 82% 38%);
+  --source-code-keyword: hsl(258 58% 45%);
+  --source-code-type: hsl(190 68% 27%);
+  --source-code-function: hsl(204 84% 33%);
+  --source-code-property: hsl(32 82% 36%);
+  --source-code-operator: hsl(348 62% 46%);
+  --source-code-variable: hsl(25 15% 26%);
+  --source-code-atom: hsl(4 72% 44%);
 }
 
 .dark {
@@ -127,6 +150,29 @@
   --callout-warning-bg: hsl(30 28% 15%);
   --callout-caution: hsl(4 72% 68%);
   --callout-caution-bg: hsl(4 26% 15%);
+
+  /* Markdown 源码模式专用语义色(HBuilder/Typora 式彩色源码,暗色) */
+  --source-h1: hsl(200 92% 72%);
+  --source-h2: hsl(180 72% 66%);
+  --source-h3: hsl(258 66% 77%);
+  --source-h4: hsl(152 52% 64%);
+  --source-h5: hsl(36 88% 68%);
+  --source-h6: hsl(348 75% 73%);
+  --source-marker: hsl(30 9% 58%);
+  --source-emphasis: hsl(36 88% 68%);
+  --source-inline-code: hsl(348 75% 72%);
+  --source-code-bg: hsl(220 20% 12%);
+  --source-code-edge: hsl(220 18% 22%);
+  --source-code-comment: hsl(25 9% 55%);
+  --source-code-string: hsl(130 40% 64%);
+  --source-code-number: hsl(212 88% 70%);
+  --source-code-keyword: hsl(258 66% 76%);
+  --source-code-type: hsl(190 68% 68%);
+  --source-code-function: hsl(204 86% 70%);
+  --source-code-property: hsl(36 82% 68%);
+  --source-code-operator: hsl(348 72% 72%);
+  --source-code-variable: hsl(36 18% 82%);
+  --source-code-atom: hsl(4 74% 70%);
 }
 
 @theme inline {
@@ -289,7 +335,7 @@ body {
 }
 
 :root[data-ui-style="flat"] .chrome-toolbar-host {
-  height: 2.5rem !important;
+  height: 2.25rem !important;
   padding: 0 !important;
   border-bottom: 1px solid var(--border);
 }
@@ -308,13 +354,9 @@ body {
   padding-inline: 0 !important;
 }
 
-/* 标题旁后退/前进:去抬升,圆角对齐 hover */
+/* 面包屑行内后退/前进:flat 下去掉多余抬升感 */
 :root[data-ui-style="flat"] .chrome-nav {
-  border-radius: var(--chrome-radius) !important;
-  box-shadow: none !important;
   background: transparent !important;
-  border-color: var(--border) !important;
-  padding: 0 !important;
 }
 
 :root[data-ui-style="flat"] .chrome-nav button {

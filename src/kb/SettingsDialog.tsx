@@ -31,6 +31,7 @@ const VALID: SettingsTab[] = [
   "appearance",
   "editor",
   "storage",
+  "export",
   "image",
   "search",
   "ai",

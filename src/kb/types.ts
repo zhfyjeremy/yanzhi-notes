@@ -45,6 +45,14 @@ export interface TrashEntry {
   docs: number;
 }
 
+/** 工作区标签页持久化结构(.yanzhi/workspace.json) */
+export interface WorkspaceState {
+  version: 1;
+  /** 文档相对路径,顺序即标签页顺序 */
+  tabs: string[];
+  activePath: string | null;
+}
+
 /** 历史快照条目(6.2):索引即文件名 `<unix_ms>-<a|m>-<内容哈希>.md`,无独立索引文件 */
 export interface HistoryEntry {
   id: string;
@@ -60,6 +68,30 @@ export interface HistoryEntry {
 export interface AttachmentInfo {
   name: string;
   src: string;
+}
+
+export interface PandocStatus {
+  installed: boolean;
+  path: string | null;
+  version: string | null;
+  error: string | null;
+}
+
+export interface DocxExportRequest {
+  outputPath: string;
+  ast: unknown;
+  resourcePath: string | null;
+  remoteImages: string[];
+  downloadRemoteImages: boolean;
+  pandocPath: string | null;
+  referenceDocPath: string | null;
+}
+
+export interface DocxExportResult {
+  path: string;
+  warnings: string[];
+  remoteEmbedded: number;
+  remoteFailed: number;
 }
 
 /** 知识库后端能力面:tauri(真文件系统)与 browser(localStorage mock)同构 */
@@ -88,6 +120,9 @@ export interface KbBackend {
   moveEntry(root: string, src: string, destFolder: string): Promise<RenameResult>;
   readMeta(root: string): Promise<string>;
   writeMeta(root: string, content: string): Promise<void>;
+  /* ---- 工作区标签页(5.x UI 偏好;仅路径,不存文档内容) ---- */
+  readWorkspace(root: string): Promise<string>;
+  writeWorkspace(root: string, content: string): Promise<void>;
   getRecent(): Promise<RecentState>;
   setRecent(root: string): Promise<void>;
   /* ---- 单文件模式(docs/single-file-mode.md) ---- */
@@ -131,6 +166,7 @@ export interface KbBackend {
   openPath(root: string, docRel: string, src: string): Promise<"ok" | "missing" | "unsupported">;
   /** 图片 src 渲染解析(同步;img src 不能等 Promise) */
   resolveAssetSrc(root: string, docRel: string, src: string): string;
+  resolveAssetSrc(root: string, docRel: string, src: string): string;
   /** 回收站列表/恢复;冲突且未给 strategy 抛 KbConflictError */
   listTrash(root: string): Promise<TrashEntry[]>;
   restoreTrash(root: string, rel: string, strategy?: "overwrite" | "rename"): Promise<string>;
@@ -141,6 +177,14 @@ export interface KbBackend {
   importDocsFromPicker(root: string, folderRel: string): Promise<string[] | null>;
   /** 导出落盘(保存对话框);取消返回 null */
   exportText(defaultName: string, filterExt: string, content: string): Promise<string | null>;
+  /** 选择 DOCX 保存位置;取消返回 null */
+  pickDocxOutputPath(defaultName: string): Promise<string | null>;
+  /** DOCX 导出:PM doc 先在前端转 Pandoc AST,Rust 只调用本地 Pandoc */
+  exportDocx(request: DocxExportRequest): Promise<DocxExportResult>;
+  /** 检测 Pandoc 3+;browser mock 恒为未安装 */
+  detectPandoc(pandocPath: string | null): Promise<PandocStatus>;
+  /** 选择 Pandoc / Word reference doc;取消返回 null */
+  pickExportPath(kind: "pandoc" | "reference-docx"): Promise<string | null>;
   /** 导出 HTML 内联图片用 */
   readAssetBase64(root: string, rel: string): Promise<{ data: string; mime: string } | null>;
   /** V3 未引用资源清理:列出知识库内所有 assets/ 文件(相对路径) */

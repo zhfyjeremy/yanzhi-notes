@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Check,
   Database,
+  FileOutput,
   Image as ImageIcon,
   Info,
   LayoutTemplate,
@@ -22,11 +23,21 @@ import { kbBackend } from "./backend";
 import { TemplateWorkbench } from "./TemplateManager";
 import { AssetCleanupDialog } from "./AssetCleanupDialog";
 import { AiSettingsPanel } from "../ai/AiSettingsPanel";
-import type { AppSettings, LaunchMode, ReaderFont, ThemeMode, UiStyle } from "../settings";
+import type {
+  AppSettings,
+  DocxRemoteImageMode,
+  EditorWidthMode,
+  LaunchMode,
+  ReaderFont,
+  ThemeMode,
+  UiStyle,
+} from "../settings";
+import type { PandocStatus } from "./types";
 import { ACCENT_PRESETS, DESK_PRESETS, DEFAULT_DESK, resolvedIsDark } from "../settings";
 import { APP_VERSION } from "../version";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 /**
@@ -41,6 +52,7 @@ export type SettingsTab =
   | "appearance"
   | "editor"
   | "storage"
+  | "export"
   | "image"
   | "search"
   | "ai"
@@ -52,6 +64,7 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Palette }[] = [
   { id: "appearance", label: "外观", icon: Palette },
   { id: "editor", label: "编辑器", icon: PenLine },
   { id: "storage", label: "存储", icon: Database },
+  { id: "export", label: "导出", icon: FileOutput },
   { id: "image", label: "图片", icon: ImageIcon },
   { id: "search", label: "搜索", icon: Search },
   { id: "ai", label: "AI 助手", icon: Sparkles },
@@ -60,7 +73,7 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Palette }[] = [
 
 const NAV_GROUPS: { title: string; tabs: SettingsTab[] }[] = [
   { title: "偏好", tabs: ["general", "appearance", "editor"] },
-  { title: "内容", tabs: ["templates", "storage", "image", "search"] },
+  { title: "内容", tabs: ["templates", "storage", "export", "image", "search"] },
   { title: "智能", tabs: ["ai"] },
   { title: "软件", tabs: ["about"] },
 ];
@@ -72,6 +85,10 @@ const PAGE_META: Record<SettingsTab, { title: string; description: string }> = {
   editor: { title: "编辑器", description: "控制卡片视觉与专注写作相关偏好。" },
   storage: { title: "存储", description: "管理历史快照与冗余资源,保持知识库可备份、可迁移。" },
   image: { title: "图片", description: "控制图片进入知识库时的处理方式。" },
+  export: {
+    title: "导出",
+    description: "配置 Pandoc 与 Word 模板;DOCX 导出保持编辑器语义并明确降级项。",
+  },
   search: { title: "搜索", description: "查看索引策略,并在异常时手动恢复搜索能力。" },
   ai: {
     title: "AI 助手",
@@ -332,7 +349,9 @@ function SwitchRow({
 function ValueRow({ label, value }: { label: string; value: string }) {
   return (
     <Row label={label}>
-      <span className="text-muted-foreground text-xs">{value}</span>
+      <span className="text-muted-foreground max-w-[65%] truncate text-xs" title={value}>
+        {value}
+      </span>
     </Row>
   );
 }
@@ -672,7 +691,65 @@ export function SettingsPage({
 }: SettingsPageProps) {
   const [templateDirty, setTemplateDirty] = useState(false);
   const [pendingTab, setPendingTab] = useState<SettingsTab | null>(null);
+  const [pandocPathInput, setPandocPathInput] = useState(settings.pandocPath ?? "");
+  const [pandocStatus, setPandocStatus] = useState<PandocStatus | null>(null);
+  const [pandocChecking, setPandocChecking] = useState(false);
   const deskPreviewDark = useResolvedDark(settings.theme);
+
+  useEffect(() => {
+    setPandocPathInput(settings.pandocPath ?? "");
+  }, [settings.pandocPath]);
+
+  useEffect(() => {
+    if (tab !== "export" || pandocStatus || pandocChecking) return;
+    setPandocChecking(true);
+    kbBackend
+      .detectPandoc(pandocPathInput || null)
+      .then(setPandocStatus)
+      .catch((e: unknown) =>
+        setPandocStatus({
+          installed: false,
+          path: null,
+          version: null,
+          error: e instanceof Error ? e.message : "Pandoc 检测失败",
+        }),
+      )
+      .finally(() => setPandocChecking(false));
+  }, [pandocChecking, pandocPathInput, pandocStatus, tab]);
+
+  const checkPandoc = async () => {
+    setPandocChecking(true);
+    try {
+      setPandocStatus(await kbBackend.detectPandoc(pandocPathInput || null));
+    } catch (e) {
+      setPandocStatus({
+        installed: false,
+        path: null,
+        version: null,
+        error: e instanceof Error ? e.message : "Pandoc 检测失败",
+      });
+    } finally {
+      setPandocChecking(false);
+    }
+  };
+
+  const pickPandoc = async () => {
+    const path = await kbBackend.pickExportPath("pandoc");
+    if (!path) return;
+    setPandocPathInput(path);
+    onChange({ pandocPath: path });
+    setPandocChecking(true);
+    try {
+      setPandocStatus(await kbBackend.detectPandoc(path));
+    } finally {
+      setPandocChecking(false);
+    }
+  };
+
+  const pickReferenceDoc = async () => {
+    const path = await kbBackend.pickExportPath("reference-docx");
+    if (path) onChange({ docxReferencePath: path });
+  };
   const changeTab = (next: SettingsTab) => {
     if (tab === "templates" && templateDirty && next !== "templates") {
       setPendingTab(next);
@@ -683,8 +760,10 @@ export function SettingsPage({
   const typographyDefault =
     settings.readerFont === "default" &&
     settings.readerFontSize === 16 &&
-    settings.readerLineHeight === 1.75 &&
-    settings.readerParagraphSpacing === 0.75;
+    settings.readerLineHeight === 1.6 &&
+    settings.readerParagraphSpacing === 0.75 &&
+    settings.editorWidthMode === "adaptive" &&
+    settings.editorWidth === 800;
   const snapshotDefault = settings.snapshotKeep === 30 && settings.snapshotIntervalMin === 5;
   return (
     <div className="bg-editor text-foreground flex h-full min-h-0 text-sm">
@@ -858,8 +937,10 @@ export function SettingsPage({
                       onChange({
                         readerFont: "default",
                         readerFontSize: 16,
-                        readerLineHeight: 1.75,
+                        readerLineHeight: 1.6,
                         readerParagraphSpacing: 0.75,
+                        editorWidthMode: "adaptive",
+                        editorWidth: 800,
                       })
                     }
                   >
@@ -881,6 +962,30 @@ export function SettingsPage({
                       <option value="kai">楷体</option>
                     </select>
                   </Row>
+                  <Row label="宽度">
+                    <select
+                      aria-label="正文宽度"
+                      className="border-border-subtle bg-raised h-8 cursor-pointer rounded-md border px-2 text-xs outline-none"
+                      value={settings.editorWidthMode}
+                      onChange={(e) =>
+                        onChange({ editorWidthMode: e.target.value as EditorWidthMode })
+                      }
+                    >
+                      <option value="adaptive">自适应</option>
+                      <option value="fixed">固定宽度</option>
+                    </select>
+                  </Row>
+                  {settings.editorWidthMode === "fixed" && (
+                    <RangeRow
+                      label="固定宽度"
+                      value={settings.editorWidth}
+                      min={600}
+                      max={1200}
+                      step={20}
+                      display={`${settings.editorWidth}px`}
+                      onChange={(v) => onChange({ editorWidth: v })}
+                    />
+                  )}
                   <RangeRow
                     label="字号"
                     value={settings.readerFontSize}
@@ -915,6 +1020,22 @@ export function SettingsPage({
 
           {tab === "editor" && (
             <>
+              <SettingsSection
+                title="输入"
+                hint="影响排版正文、代码块与 Markdown 源码;列表/表格仍保留 Tab 的结构语义"
+              >
+                <Group>
+                  <RangeRow
+                    label="Tab 缩进"
+                    value={settings.tabIndentSize}
+                    min={1}
+                    max={8}
+                    step={1}
+                    display={`${settings.tabIndentSize} 字符`}
+                    onChange={(v) => onChange({ tabIndentSize: v })}
+                  />
+                </Group>
+              </SettingsSection>
               <SettingsSection title="卡片视觉" hint="关闭后保留占位与底色,避免内容布局跳动">
                 <Group>
                   <SwitchRow
@@ -1003,10 +1124,116 @@ export function SettingsPage({
             </>
           )}
 
+          {tab === "export" && (
+            <>
+              <SettingsSection
+                title="Pandoc"
+                hint="DOCX 导出使用用户本机 Pandoc;砚知不内置、不自动下载"
+                action={
+                  <Button size="xs" variant="outline" disabled={pandocChecking} onClick={() => void checkPandoc()}>
+                    {pandocChecking ? "检测中…" : "重新检测"}
+                  </Button>
+                }
+              >
+                <Group>
+                  <Row label="Pandoc 路径">
+                    <span className="flex w-full items-center gap-2">
+                      <Input
+                        aria-label="Pandoc 路径"
+                        className="bg-raised h-8 flex-1 font-mono text-xs"
+                        placeholder="自动检测 PATH / 常见安装位置"
+                        value={pandocPathInput}
+                        onChange={(e) => setPandocPathInput(e.target.value)}
+                        onBlur={() => {
+                          onChange({
+                            pandocPath: pandocPathInput.trim() ? pandocPathInput.trim() : null,
+                          });
+                          void checkPandoc();
+                        }}
+                      />
+                      <Button size="sm" variant="outline" onClick={() => void pickPandoc()}>
+                        选择
+                      </Button>
+                    </span>
+                  </Row>
+                  <ValueRow
+                    label="检测状态"
+                    value={
+                      pandocChecking
+                        ? "检测中…"
+                        : pandocStatus?.installed
+                          ? `${pandocStatus.version ?? "已安装"}${pandocStatus.path ? ` · ${pandocStatus.path}` : ""}`
+                          : pandocStatus?.error ?? "未检测到 Pandoc 3+"
+                    }
+                  />
+                  <Row label="安装说明">
+                    <a
+                      className="text-primary text-xs underline-offset-2 hover:underline"
+                      href="https://pandoc.org/installing.html"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      打开 Pandoc 官方安装页
+                    </a>
+                  </Row>
+                </Group>
+              </SettingsSection>
+
+              <SettingsSection title="Word 模板" hint="默认使用砚知内置模板;可选择本机 .docx 自定义正文、标题与表格样式">
+                <Group>
+                  <ValueRow
+                    label="当前模板"
+                    value={settings.docxReferencePath ?? "砚知内置模板"}
+                  />
+                  <Row label="自定义 reference doc">
+                    <span className="flex items-center gap-2">
+                      <Button size="sm" variant="outline" onClick={() => void pickReferenceDoc()}>
+                        选择
+                      </Button>
+                      {settings.docxReferencePath && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-muted-foreground"
+                          onClick={() => onChange({ docxReferencePath: null })}
+                        >
+                          恢复内置
+                        </Button>
+                      )}
+                    </span>
+                  </Row>
+                </Group>
+              </SettingsSection>
+
+              <SettingsSection
+                title="外链图片"
+                hint="导出 DOCX 时才访问图片 URL;不发送遥测、不带 Cookie,失败会降级为普通链接"
+              >
+                <Group>
+                  <Row label="嵌入策略">
+                    <select
+                      aria-label="外链图片嵌入策略"
+                      className="border-border-subtle bg-raised h-8 cursor-pointer rounded-md border px-2 text-xs outline-none"
+                      value={settings.docxRemoteImageMode}
+                      onChange={(e) =>
+                        onChange({ docxRemoteImageMode: e.target.value as DocxRemoteImageMode })
+                      }
+                    >
+                      <option value="ask">每次询问（推荐）</option>
+                      <option value="always">总是下载并嵌入</option>
+                      <option value="never">不请求，导出为链接</option>
+                    </select>
+                  </Row>
+                  <ValueRow label="安全限制" value="仅 http/https 图片 · 禁内网地址 · 单图 25MB · 总量 100MB" />
+                </Group>
+              </SettingsSection>
+            </>
+          )}
+
           {tab === "image" && (
             <SettingsSection
               title="图片处理"
-              hint="WebP 质量 85;SVG、GIF 或压缩后更大时保留原图"
+              hint="无透明转 JPG 质量 85，有透明转 PNG；SVG/GIF 保留原格式，不输出 WebP"
             >
               <Group>
                 <SwitchRow

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import basic from "./fixtures/basic.md?raw";
 import inline from "./fixtures/inline.md?raw";
+import autolink from "./fixtures/autolink.md?raw";
 import lists from "./fixtures/lists.md?raw";
 import tables from "./fixtures/tables.md?raw";
 import code from "./fixtures/code.md?raw";
@@ -34,6 +35,7 @@ function normalize(text: string): string {
 const cases: Record<string, string> = {
   basic,
   inline,
+  autolink,
   lists,
   tables,
   code,

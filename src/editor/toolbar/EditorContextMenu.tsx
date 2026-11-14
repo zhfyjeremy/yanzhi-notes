@@ -19,6 +19,7 @@ import {
   Minus,
   Quote,
   Scissors,
+  Share2,
   Sigma,
   Sparkles,
   Strikethrough,
@@ -72,6 +73,7 @@ interface EditorContextMenuProps {
   /** 导出当前文档(Markdown / 离线 HTML) */
   onExportMd?: () => void;
   onExportHtml?: () => void;
+  onExportDocx?: () => void;
   children: ReactNode;
 }
 
@@ -107,6 +109,7 @@ export function EditorContextMenu({
   onNeedAiSettings,
   onExportMd,
   onExportHtml,
+  onExportDocx,
   children,
 }: EditorContextMenuProps) {
   /**
@@ -305,6 +308,7 @@ export function EditorContextMenu({
                 }
               >
                 标题 {level}
+                <span className="text-muted-foreground ml-auto text-[10px]">⌘/Ctrl+{level}</span>
               </ContextMenuItem>
             ))}
             <ContextMenuItem onSelect={() => act().setParagraph().run()}>正文</ContextMenuItem>
@@ -439,18 +443,34 @@ export function EditorContextMenu({
 
         <ContextMenuSeparator />
 
-        {/* 文档 */}
-        {onExportMd && (
-          <ContextMenuItem onSelect={onExportMd}>
-            <FileText />
-            导出 Markdown
-          </ContextMenuItem>
-        )}
-        {onExportHtml && (
-          <ContextMenuItem onSelect={onExportHtml}>
-            <FileCode />
-            导出离线 HTML
-          </ContextMenuItem>
+        {/* 文档:三种格式收进二级菜单,顶级菜单保持短 */}
+        {(onExportMd || onExportHtml || onExportDocx) && (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              <Share2 />
+              导出
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              {onExportMd && (
+                <ContextMenuItem onSelect={onExportMd}>
+                  <FileText />
+                  导出 Markdown…
+                </ContextMenuItem>
+              )}
+              {onExportHtml && (
+                <ContextMenuItem onSelect={onExportHtml}>
+                  <FileCode />
+                  导出离线 HTML…
+                </ContextMenuItem>
+              )}
+              {onExportDocx && (
+                <ContextMenuItem onSelect={onExportDocx}>
+                  <FileText />
+                  导出 Word (.docx)…
+                </ContextMenuItem>
+              )}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
         )}
       </ContextMenuContent>
     </ContextMenu>

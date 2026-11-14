@@ -11,8 +11,11 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import type {
   AttachmentInfo,
   DocContent,
+  DocxExportRequest,
+  DocxExportResult,
   HistoryEntry,
   KbBackend,
+  PandocStatus,
   RecentState,
   RecentFilesState,
   SingleDraft,
@@ -122,6 +125,12 @@ const tauriBackend: KbBackend = {
   },
   async writeMeta(root, content) {
     await invoke("write_meta", { root, content });
+  },
+  async readWorkspace(root) {
+    return invoke<string>("read_workspace", { root });
+  },
+  async writeWorkspace(root, content) {
+    await invoke("write_workspace", { root, content });
   },
   async getRecent() {
     return invoke<RecentState>("get_recent");
@@ -252,6 +261,26 @@ const tauriBackend: KbBackend = {
       )) ?? null
     );
   },
+  async pickDocxOutputPath(defaultName) {
+    return (
+      (await withNativeDialog(() =>
+        invoke<string | null>("pick_docx_output_path", { defaultName }),
+      )) ?? null
+    );
+  },
+  async exportDocx(request: DocxExportRequest) {
+    return invoke<DocxExportResult>("export_docx", { request });
+  },
+  async detectPandoc(pandocPath) {
+    return invoke<PandocStatus>("detect_pandoc", { pandocPath });
+  },
+  async pickExportPath(kind) {
+    return (
+      (await withNativeDialog(() =>
+        invoke<string | null>("pick_export_path", { kind }),
+      )) ?? null
+    );
+  },
   async readAssetBase64(root, rel) {
     return invoke<{ data: string; mime: string } | null>("read_asset_base64", { root, rel });
   },
@@ -378,6 +407,7 @@ interface MockFs {
   trashFolders: string[]; // 被删文件夹原相对路径
   assets: Record<string, string>; // rel -> dataURL(浏览器 mock 的"图片盘")
   history: Record<string, Record<string, string>>; // rel -> 快照文件名 -> 内容(6.2)
+  workspace: string; // .yanzhi/workspace.json 原文
   templates: Record<string, string>; // 模板名 -> md 原文(7.5,= .yanzhi/templates)
 }
 
@@ -398,6 +428,7 @@ function freshMock(): MockFs {
     assets: {},
     history: {},
     templates: {},
+    workspace: '{"version":1,"tabs":[],"activePath":null}',
   };
 }
 
@@ -771,6 +802,14 @@ const browserBackend: KbBackend = {
     fs.meta = content;
     saveMock(fs);
   },
+  async readWorkspace() {
+    return loadMock().workspace;
+  },
+  async writeWorkspace(_root, content) {
+    const fs = loadMock();
+    fs.workspace = content;
+    saveMock(fs);
+  },
   async getRecent() {
     return mockRecent(); // 首启(无记录)返回 last:null → 欢迎页
   },
@@ -1025,6 +1064,18 @@ const browserBackend: KbBackend = {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
     return defaultName;
+  },
+  async pickDocxOutputPath(defaultName) {
+    return defaultName;
+  },
+  async exportDocx() {
+    throw new Error("DOCX 导出需要桌面版和 Pandoc");
+  },
+  async detectPandoc(): Promise<PandocStatus> {
+    return { installed: false, path: null, version: null, error: "浏览器开发模式不支持 Pandoc" };
+  },
+  async pickExportPath() {
+    return null;
   },
   async readAssetBase64(_root, rel) {
     const dataUrl = loadMock().assets[rel];

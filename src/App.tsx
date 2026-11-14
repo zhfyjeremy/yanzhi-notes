@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
-import { ChevronLeft, ChevronRight, Folder } from "lucide-react";
+import type { Node as PMNode } from "@tiptap/pm/model";
+import { ChevronLeft, ChevronRight, CircleCheck, Folder, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/hint";
 import { YanzhiEditor } from "./editor/YanzhiEditor";
-import { EDITOR_COLUMN_MAX } from "./editor/layout";
+import { EDITOR_COLUMN_CLASS } from "./editor/layout";
 import { insertImage } from "./editor/extensions/image-card";
 import type { WikiDocRef } from "./editor/wiki-link-command";
 import { TocPanel } from "./editor/panel/TocPanel";
@@ -13,6 +14,7 @@ import { BacklinksPanel } from "./kb/BacklinksPanel";
 import { HistoryPanel, formatSnapshotTime } from "./kb/HistoryPanel";
 import { HistoryDialog } from "./kb/HistoryDialog";
 import { DocTree } from "./kb/DocTree";
+import { DocTabs, DocTabsEmptyState } from "./kb/DocTabs";
 import { TagsPanel } from "./kb/TagsPanel";
 import { filterTreeByTag } from "./kb/meta";
 import { folderBreadcrumbs } from "./kb/breadcrumb";
@@ -30,15 +32,18 @@ import { useTitleAiSession } from "./ai/useTitleAiSession";
 import { TitleAiControl } from "./ai/TitleAiControl";
 import { buildTitleContext, markdownFingerprint } from "./ai/title-suggest";
 import { WelcomePage } from "./kb/WelcomePage";
+import { WorkspaceLoading } from "./kb/WorkspaceLoading";
 import { SingleFileWorkspace } from "./kb/SingleFileWorkspace";
 import { useKb } from "./kb/useKb";
 import { useSingleFile } from "./kb/useSingleFile";
 import { isTauriEnv, kbBackend } from "./kb/backend";
-import { setAssetResolver } from "./kb/asset-src";
+import { assetRelPosix, isExternalSrc, setAssetResolver } from "./kb/asset-src";
 import { buildExportHtml } from "./kb/export-html";
+import { collectHttpImageUrls, renderMermaidDataUrl } from "./export/prepare";
+import { pmDocToPandocAst, type DocxExportStats } from "./export/pandoc-ast";
 import { copyPlainText } from "./editor/clipboard";
 import { prepareSingleMarkdownForKb } from "./kb/assets";
-import { flattenDocs, wikiLinkTextFor, wikiTargetFor } from "./kb/wiki-refs";
+import { flattenDocs, resolveWikiTarget, wikiLinkTextFor, wikiTargetFor } from "./kb/wiki-refs";
 import type { HistoryEntry } from "./kb/types";
 import { formatShortcut, shortcutMatches } from "./shortcuts";
 import { focusGlobalSearch } from "./kb/search-focus";
@@ -66,6 +71,139 @@ const docBasename = (rel: string): string =>
   rel.split("/").pop()?.replace(/\.md$/i, "") ?? "";
 
 type EditorScope = "kb" | "single";
+type ToastKind = "info" | "success" | "error";
+
+interface PendingDocxExport {
+  doc: PMNode;
+  defaultName: string;
+  tags: string[];
+  resourcePath: string | null;
+  assetRoot: string | null;
+  docRel: string | null;
+  wikiDocs: { path: string; name: string }[];
+  remoteImages: string[];
+  remoteMode: "ask" | "always" | "never";
+  pandocPath: string | null;
+  referenceDocPath: string | null;
+}
+
+interface DocxReport {
+  path: string;
+  warnings: string[];
+  stats: DocxExportStats;
+  remoteEmbedded: number;
+  remoteFailed: number;
+}
+
+const joinAbsPath = (root: string, rel: string): string =>
+  `${root.replace(/[\\/]+$/, "")}/${rel}`;
+
+function DocxRemoteConfirmDialog({
+  pending,
+  onCancel,
+  onChoose,
+}: {
+  pending: PendingDocxExport;
+  onCancel: () => void;
+  onChoose: (download: boolean) => void;
+}) {
+  return (
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>导出时访问外链图片?</DialogTitle>
+          <DialogDescription>
+            文档包含 {pending.remoteImages.length} 个外链图片地址。选择下载嵌入后,砚知只会访问这些图片
+            URL,不带 Cookie、不发送遥测;失败时会降级为普通链接。
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="border-border-subtle bg-raised max-h-40 overflow-auto rounded-md border p-2 font-mono text-xs">
+          {pending.remoteImages.map((url) => (
+            <li key={url} className="truncate" title={url}>
+              {url}
+            </li>
+          ))}
+        </ul>
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={onCancel}>
+            取消导出
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => onChoose(false)}>
+            不请求,导出链接
+          </Button>
+          <Button size="sm" onClick={() => onChoose(true)}>
+            下载并嵌入
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DocxExportingOverlay() {
+  return createPortal(
+    <div
+      className="bg-background/70 fixed inset-0 z-[95] flex items-center justify-center backdrop-blur-[1px]"
+      role="dialog"
+      aria-modal="true"
+      aria-label="正在导出 DOCX"
+    >
+      <div className="bg-raised text-foreground flex max-w-xs items-center gap-3 rounded-xl px-4 py-3 shadow-lg ring-1 ring-foreground/10">
+        <Loader2 className="text-primary size-4 animate-spin" aria-hidden />
+        <span className="min-w-0">
+          <span className="block text-sm font-medium">正在导出 DOCX…</span>
+          <span className="text-muted-foreground block text-xs">
+            正在转换文档与嵌入资源，完成后会显示导出报告
+          </span>
+        </span>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function DocxReportDialog({ report, onClose }: { report: DocxReport; onClose: () => void }) {
+  const details = [
+    `本地图片:${report.stats.localImages}`,
+    `外链图片:${report.stats.remoteImages} 个 / ${report.remoteEmbedded} 嵌入 / ${report.remoteFailed} 失败降级 / ${Math.max(0, report.stats.remoteImages - report.remoteEmbedded - report.remoteFailed)} 选择链接`,
+    `Mermaid:${report.stats.mermaidRendered} 渲染 / ${report.stats.mermaidFailed} 保留源码`,
+    `提示块:${report.stats.callouts}`,
+    `折叠块:${report.stats.details}`,
+    `Raw HTML:${report.stats.rawHtmlBlocks}`,
+  ];
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>DOCX 导出完成</DialogTitle>
+          <DialogDescription className="break-all">{report.path}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <ul className="text-muted-foreground space-y-1 text-xs">
+            {details.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+          {report.warnings.length > 0 && (
+            <div className="border-border-subtle bg-raised max-h-44 overflow-auto rounded-md border p-2">
+              <p className="mb-1 text-xs font-medium">降级与提示</p>
+              <ul className="space-y-1 text-xs">
+                {report.warnings.map((warning, i) => (
+                  <li key={`${warning}-${i}`}>{warning}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button size="sm" onClick={onClose}>
+            知道了
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function App() {
   const { settings, update: updateSettings, ready: settingsReady } = useSettings();
@@ -74,6 +212,8 @@ function App() {
   const [editor, setEditor] = useState<Editor | null>(null);
   const [editorScope, setEditorScope] = useState<EditorScope | null>(null);
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  const [sourceOutlineController, setSourceOutlineController] =
+    useState<import("./editor/source-mode/MarkdownSourceEditor").MarkdownSourceOutlineController | null>(null);
   /* ---- 上次光标/滚动位置记忆(按文档;内存 Map + meta 落盘) ----
    * 内存 Map 记当前会话的位置(切文档时按旧路径取回);
    * 切文档/窗口失焦时写进 meta,下次开同一篇恢复到上次的位置。
@@ -81,9 +221,12 @@ function App() {
   const cursorMapRef = useRef(new Map<string, { pos: number; scrollTop: number }>());
   const prevPathRef = useRef<string | null>(null);
   const skipRestoreRelRef = useRef<string | null>(null);
+  /** 编辑器正文已换成该 path 后才允许把选区记进去;避免切文档瞬间旧选区写到新 path */
+  const loadedPathRef = useRef<string | null>(null);
+  const editorFlushPendingRef = useRef<(() => void) | null>(null);
   const [title, setTitle] = useState("");
   const [focusMode, setFocusMode] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; kind: ToastKind } | null>(null);
   const [trashOpen, setTrashOpen] = useState(false);
   const [orphansOpen, setOrphansOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false); // 浏览器 dev 的 Dialog;Tauri 走独立窗口
@@ -136,8 +279,8 @@ function App() {
   const currentPathRef = useRef<string | null>(null);
   const prevTitlePathRef = useRef<string | null>(null);
 
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
+  const showToast = useCallback((message: string, kind: ToastKind = "info") => {
+    setToast({ message, kind });
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), 2600);
   }, []);
@@ -394,6 +537,207 @@ function App() {
     );
   }, [showToast, single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64]);
 
+  /* ---- DOCX 语义导出(5.6):PM doc → Pandoc AST,不让 Pandoc 重解析 Markdown ---- */
+  const [docxExportBusy, setDocxExportBusy] = useState(false);
+  const [docxLoadingVisible, setDocxLoadingVisible] = useState(false);
+  const [pendingDocxExport, setPendingDocxExport] = useState<PendingDocxExport | null>(null);
+  const [docxReport, setDocxReport] = useState<DocxReport | null>(null);
+
+  const runDocxExport = useCallback(
+    async (
+      pending: PendingDocxExport,
+      downloadRemoteImages: boolean,
+      outputPath: string,
+    ) => {
+      // Show loading immediately after the native Save dialog returns.
+      // Keep it visible for at least 300ms so fast exports still give clear feedback.
+      const loadingStartedAt = Date.now();
+      setDocxExportBusy(true);
+      setDocxLoadingVisible(true);
+      const waitMinimumLoading = async () => {
+        const remaining = 300 - (Date.now() - loadingStartedAt);
+        if (remaining > 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, remaining));
+        }
+      };
+      try {
+        const { ast, warnings, stats } = await pmDocToPandocAst(pending.doc, {
+          tags: pending.tags,
+          remoteImages: downloadRemoteImages ? "embed" : "link",
+          renderMermaid: renderMermaidDataUrl,
+          resolveWikiTarget: (target) => {
+            const rel = resolveWikiTarget(pending.wikiDocs, target);
+            return pending.assetRoot && rel ? joinAbsPath(pending.assetRoot, rel) : null;
+          },
+          resolveAssetPath: (href) => {
+            if (!pending.assetRoot || !pending.docRel || isExternalSrc(href)) return href;
+            const rel = assetRelPosix(pending.docRel, href);
+            // 只解析库内/文档旁 assets,避免 Markdown 恶意相对路径让导出读取任意本机文件。
+            if (!rel || !rel.split("/").includes("assets")) return "";
+            return joinAbsPath(pending.assetRoot, rel);
+          },
+        });
+        const result = await kbBackend.exportDocx({
+          outputPath,
+          ast,
+          resourcePath: pending.resourcePath,
+          remoteImages: pending.remoteImages,
+          downloadRemoteImages,
+          pandocPath: pending.pandocPath,
+          referenceDocPath: pending.referenceDocPath,
+        });
+        if (!result) return;
+        const allWarnings = [
+          ...warnings.map((warning) => warning.message),
+          ...result.warnings,
+        ];
+        const remoteLinked = Math.max(
+          0,
+          stats.remoteImages - result.remoteEmbedded - result.remoteFailed,
+        );
+        const hasExportIssues =
+          allWarnings.length > 0 ||
+          result.remoteFailed > 0 ||
+          remoteLinked > 0 ||
+          stats.mermaidFailed > 0 ||
+          stats.rawHtmlBlocks > 0 ||
+          stats.details > 0;
+        await waitMinimumLoading();
+        if (hasExportIssues) {
+          setDocxReport({
+            path: result.path,
+            warnings: allWarnings,
+            stats,
+            remoteEmbedded: result.remoteEmbedded,
+            remoteFailed: result.remoteFailed,
+          });
+        } else {
+          showToast("DOCX 导出成功", "success");
+        }
+      } catch (e) {
+        console.error("[export-docx]", e);
+        await waitMinimumLoading();
+        showToast(`DOCX 导出失败:${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        setDocxLoadingVisible(false);
+        setDocxExportBusy(false);
+        setPendingDocxExport(null);
+      }
+    },
+    [showToast],
+  );
+
+  const beginDocxExport = useCallback(
+    async (pending: PendingDocxExport, downloadRemoteImages: boolean) => {
+      let outputPath: string | null;
+      try {
+        outputPath = await kbBackend.pickDocxOutputPath(pending.defaultName);
+      } catch (e) {
+        showToast(`选择保存位置失败:${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+      if (!outputPath) return;
+      await runDocxExport(pending, downloadRemoteImages, outputPath);
+    },
+    [runDocxExport, showToast],
+  );
+
+  const startDocxExport = useCallback(async () => {
+    if (docxExportBusy || !editor?.state.doc) return;
+    const doc = editor.state.doc;
+    try {
+      const pandoc = await kbBackend.detectPandoc(settings.pandocPath);
+      if (!pandoc.installed) {
+        showToast(pandoc.error ?? "未检测到 Pandoc 3+");
+        openSettings("export");
+        return;
+      }
+    } catch (e) {
+      showToast(`Pandoc 检测失败:${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+
+    const singleActive = single.active;
+    const exportTitle = singleActive
+      ? single.fileStem || "未命名文档"
+      : title || docBasename(kb.currentPath ?? "") || "未命名文档";
+    const assetRoot = singleActive
+      ? single.filePath?.slice(0, Math.max(0, single.filePath.lastIndexOf("/"))) || null
+      : kb.kbRoot;
+    const docRel = singleActive ? single.fileName : kb.currentPath;
+    const folderRel = docRel?.includes("/")
+      ? docRel.slice(0, docRel.lastIndexOf("/"))
+      : "";
+    const resourcePath = assetRoot
+      ? folderRel
+        ? joinAbsPath(assetRoot, folderRel)
+        : assetRoot
+      : null;
+    const pending: PendingDocxExport = {
+      doc,
+      defaultName: `${exportTitle}.docx`,
+      tags: singleActive ? [] : kb.currentTags,
+      resourcePath,
+      assetRoot,
+      docRel,
+      wikiDocs: singleActive ? [] : flattenDocs(kb.tree),
+      remoteImages: collectHttpImageUrls(doc),
+      remoteMode: settings.docxRemoteImageMode,
+      pandocPath: settings.pandocPath,
+      referenceDocPath: settings.docxReferencePath,
+    };
+
+    if (pending.remoteImages.length > 0 && pending.remoteMode === "ask") {
+      // 先完成外链授权,再弹保存位置;点击 Save 后才进入导出 loading。
+      setPendingDocxExport(pending);
+      return;
+    }
+
+    await beginDocxExport(
+      pending,
+      pending.remoteImages.length > 0 && pending.remoteMode !== "never",
+    );
+  }, [
+    beginDocxExport,
+    docxExportBusy,
+    editor,
+    kb.currentPath,
+    kb.currentTags,
+    kb.kbRoot,
+    kb.tree,
+    openSettings,
+    runDocxExport,
+    settings.docxReferencePath,
+    settings.docxRemoteImageMode,
+    settings.pandocPath,
+    showToast,
+    single.active,
+    single.fileStem,
+    single.fileName,
+    single.filePath,
+    title,
+  ]);
+
+  const onExportDocx = useCallback(() => {
+    void startDocxExport();
+  }, [startDocxExport]);
+
+  const chooseDocxRemoteImages = useCallback(
+    (download: boolean) => {
+      const pending = pendingDocxExport;
+      setPendingDocxExport(null);
+      if (pending) {
+        void beginDocxExport(
+          pending,
+          download,
+        );
+      }
+    },
+    [beginDocxExport, pendingDocxExport],
+  );
+
+  const cancelDocxExport = useCallback(() => setPendingDocxExport(null), []);
+
   const saveCurrentSingleToKb = useCallback(
     async (root: string) => {
       if (!single.filePath) return;
@@ -493,6 +837,12 @@ function App() {
         requestSingleAction({ kind: "open-picker" });
       } else if (action === "open-recent-single" && path) {
         requestSingleAction({ kind: "open-path", path });
+      } else if (action === "close-tab") {
+        // 原生菜单加速键可能先于 webview keydown 被系统消费,这里保留同一动作出口
+        if (!single.active && kb.activeTabId) {
+          await commitTitleRename();
+          await kb.closeTabById(kb.activeTabId);
+        }
       } else if (action === "save-doc") {
         // 单文件=写回原文件;知识库=立即冲刷待写内容
         if (single.active) void single.save();
@@ -509,14 +859,16 @@ function App() {
           return;
         }
         onImportDocs();
-      } else if (action === "export-md" || action === "export-html") {
+      } else if (action === "export-md" || action === "export-html" || action === "export-docx") {
         // 无文档打开时导出静默无意义,给明确提示
         if (single.active) {
           if (action === "export-md") exportSingleMd();
-          else exportSingleHtml();
+          else if (action === "export-html") exportSingleHtml();
+          else onExportDocx();
         } else if (!kb.currentPath) showToast("未打开文档");
         else if (action === "export-md") onExportMd();
-        else onExportHtml();
+        else if (action === "export-html") onExportHtml();
+        else onExportDocx();
       } else if (action === "settings") {
         openSettings();
       } else if (action === "about") {
@@ -603,6 +955,11 @@ function App() {
     single.active,
     singleOutlineOpen,
   ]);
+
+  // 标签页动作在下方定义;键盘 effect 先通过 ref 消费,避免依赖声明顺序
+  const activateDocTabRef = useRef<(tabId: string) => void>(() => {});
+  const switchRelativeTabRef = useRef<(delta: number) => void>(() => {});
+  const closeActiveDocTabRef = useRef<() => void>(() => {});
 
   // 文档图谱(V3 ①):图谱窗点击节点 → 打开文档并把主窗拉回前台
   const openDocFromGraphRef = useRef<(rel: string) => void>(() => {});
@@ -812,6 +1169,32 @@ function App() {
         void single.saveAs();
         return;
       }
+      // 文档标签页(仅知识库模式):保留 ⌘[/] 给当前 tab 的前进/后退
+      if (!single.active && (e.metaKey || e.ctrlKey)) {
+        if (!e.altKey && !e.shiftKey && e.code === "KeyW") {
+          e.preventDefault();
+          closeActiveDocTabRef.current();
+          return;
+        }
+        if (!e.altKey && e.shiftKey && (e.code === "BracketLeft" || e.code === "BracketRight")) {
+          e.preventDefault();
+          switchRelativeTabRef.current(e.code === "BracketLeft" ? -1 : 1);
+          return;
+        }
+        // Ctrl+Tab 是浏览器惯例;直接定位补 Alt,避免占用编辑器既有 ⌘/Ctrl+1–6 标题快捷键
+        if (e.ctrlKey && !e.metaKey && !e.altKey && e.code === "Tab") {
+          e.preventDefault();
+          switchRelativeTabRef.current(e.shiftKey ? -1 : 1);
+          return;
+        }
+        if (e.altKey && !e.shiftKey && /^Digit[1-9]$/.test(e.code)) {
+          e.preventDefault();
+          const index = Number(e.code.slice(5)) - 1;
+          const tab = kb.tabs[index];
+          if (tab) activateDocTabRef.current(tab.id);
+          return;
+        }
+      }
       if (shortcutMatches(e, settings.shortcuts.search)) {
         e.preventDefault();
         focusGlobalSearch();
@@ -837,9 +1220,10 @@ function App() {
         editor?.chain().focus().insertContent("/").run();
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [editor, kb.navBack, kb.navForward, openSettings, requestSingleAction, saveKbNow, settings.shortcuts, single.active, single.save, single.saveAs]);
+    // capture:Ctrl+Tab 先于 TabIndent,应用级组合键也不会被编辑器先消化
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [editor, kb.navBack, kb.navForward, kb.tabs, openSettings, requestSingleAction, saveKbNow, settings.shortcuts, single.active, single.save, single.saveAs]);
 
   const handleSingleReady = useCallback((e: Editor) => {
     setEditor(e);
@@ -850,6 +1234,15 @@ function App() {
     setEditorScope("kb");
   }, []);
   const handleScrollRef = useCallback((el: HTMLDivElement | null) => setScrollEl(el), []);
+
+  // 关闭最后一个标签页时卸载编辑器;主动清掉外层面板持有的实例,避免右栏继续消费已销毁 PM Editor
+  useEffect(() => {
+    if (single.active || !kb.kbRoot || kb.currentPath) return;
+    setEditor(null);
+    setEditorScope(null);
+    setScrollEl(null);
+    setSourceOutlineController(null);
+  }, [kb.currentPath, kb.kbRoot, single.active]);
 
   // 图片 src 渲染解析注册(layout effect 先于子组件 passive effect 的 setContent,
   // 文档切换时新图片挂载前 resolver 已指向新文档;无库时置空回落原样返回)
@@ -1148,9 +1541,19 @@ function App() {
   );
 
   // 新建文档(7.5):知识库有模板(.yanzhi/templates/*.md)时先弹选择器;无模板零打扰直建。
-  // 模板目录读取失败按无模板处理,不能挡住新建
+  // 目标文件夹先展开并退出标签筛选;创建后 openDoc 高亮/打开新文档,不自动进入重命名。
+  const expandForCreate = useCallback(
+    (folderRel: string) => {
+      if (folderRel && kb.collapsed.has(folderRel)) kb.toggleCollapse(folderRel);
+      // 标签筛选会隐藏没有标签的新文档;新建是显式导航意图,先退出筛选保证可见。
+      setTagFilter(null);
+    },
+    [kb.collapsed, kb.toggleCollapse],
+  );
+
   const handleCreateDoc = useCallback(
     async (folder: string, name: string) => {
+      expandForCreate(folder);
       let names: string[] = [];
       if (kb.kbRoot) {
         try {
@@ -1166,7 +1569,7 @@ function App() {
       setTplNames(names);
       setTplPicker({ folder, name });
     },
-    [kb.kbRoot, kb.createDoc],
+    [expandForCreate, kb.createDoc, kb.kbRoot],
   );
 
   // 模板选择器确认:读模板原文 → 剥离首行 H1(标题由文件名承担,9.2)→ 建文档;
@@ -1186,7 +1589,7 @@ function App() {
       }
       await kb.createDoc(p.folder, name, content);
     },
-    [tplPicker, kb.kbRoot, kb.createDoc],
+    [tplPicker, kb.createDoc, kb.kbRoot],
   );
 
   // 标题编辑:输入只改本地;失焦/Enter 立即落盘改名(切文档前也会先冲刷)
@@ -1216,6 +1619,56 @@ function App() {
     [commitTitleRename, kb.openDoc],
   );
 
+  const activateDocTab = useCallback(
+    async (tabId: string) => {
+      await commitTitleRename();
+      await kb.activateTab(tabId);
+    },
+    [commitTitleRename, kb.activateTab],
+  );
+  const closeDocTab = useCallback(
+    async (tabId: string) => {
+      if (tabId === kb.activeTabId) await commitTitleRename();
+      await kb.closeTabById(tabId);
+    },
+    [commitTitleRename, kb.activeTabId, kb.closeTabById],
+  );
+  const closeOtherDocTabs = useCallback(
+    async (tabId: string) => {
+      await commitTitleRename();
+      await kb.closeOthers(tabId);
+    },
+    [commitTitleRename, kb.closeOthers],
+  );
+  const closeLeftDocTabs = useCallback(
+    async (tabId: string) => {
+      await commitTitleRename();
+      await kb.closeLeft(tabId);
+    },
+    [commitTitleRename, kb.closeLeft],
+  );
+  const closeRightDocTabs = useCallback(
+    async (tabId: string) => {
+      await commitTitleRename();
+      await kb.closeRight(tabId);
+    },
+    [commitTitleRename, kb.closeRight],
+  );
+  const switchRelativeDocTab = useCallback(
+    (delta: number) => {
+      const index = kb.tabs.findIndex((tab) => tab.id === kb.activeTabId);
+      if (index < 0 || kb.tabs.length < 2) return;
+      const next = (index + delta + kb.tabs.length) % kb.tabs.length;
+      void activateDocTab(kb.tabs[next].id);
+    },
+    [activateDocTab, kb.activeTabId, kb.tabs],
+  );
+  activateDocTabRef.current = tabId => void activateDocTab(tabId);
+  switchRelativeTabRef.current = switchRelativeDocTab;
+  closeActiveDocTabRef.current = () => {
+    if (kb.activeTabId) void closeDocTab(kb.activeTabId);
+  };
+
   // `[[` 检索列表 / 复制双链引用都基于完整树:标签筛选视图不能丢失重名消歧信息。
   const wikiDocs = useMemo(() => flattenDocs(kb.tree), [kb.tree]);
   const recentDocItems = useMemo(() => {
@@ -1229,6 +1682,7 @@ function App() {
       return [{ path, name: doc.name, dir }];
     });
   }, [kb.kbRoot, settings.recentDocs, wikiDocs]);
+  const docNames = useMemo(() => new Map(wikiDocs.map((doc) => [doc.path, doc.name] as const)), [wikiDocs]);
   const breadcrumbFolders = useMemo(
     () => (currentPath ? folderBreadcrumbs(currentPath) : []),
     [currentPath],
@@ -1278,8 +1732,8 @@ function App() {
   );
 
   const onOpenWikiLink = useCallback(
-    (target: string) => {
-      void kb.openWikiLink(target).then((rel) => {
+    (target: string, options?: { newTab?: boolean }) => {
+      void kb.openWikiLink(target, options?.newTab ?? false).then((rel) => {
         if (rel) skipRestoreRelRef.current = rel; // 跳目标文档,不恢复上次位置
         // 失效链接(5.2.1-5):提示 + 「搜索同名文档」快捷入口,不自动瞎跳
         if (!rel) setWikiDead(target);
@@ -1292,11 +1746,12 @@ function App() {
   const getWikiDocs = useCallback(() => wikiDocRefs, [wikiDocRefs]);
 
   /* ---- 上次光标/滚动位置:记录 / 落盘 / 恢复 ---- */
-  // 记录:选区或滚动变化 → 内存 Map(按当前文档)
+  // 记录:选区或滚动变化 → 内存 Map。仅当正文已加载到该 path 才写入。
   useEffect(() => {
-    if (!editor || !kb.currentPath) return;
-    const rel = kb.currentPath;
+    if (!editor) return;
     const record = () => {
+      const rel = loadedPathRef.current;
+      if (!rel) return;
       cursorMapRef.current.set(rel, {
         pos: editor.state.selection.from,
         scrollTop: scrollEl?.scrollTop ?? 0,
@@ -1307,27 +1762,43 @@ function App() {
     const el = scrollEl;
     el?.addEventListener("scroll", record, { passive: true });
     return () => {
+      // 切走前把旧文档当前位置再记一笔(此时 loadedPath 可能已清空,用闭包外的 map 键)
+      const rel = loadedPathRef.current;
+      if (rel) {
+        cursorMapRef.current.set(rel, {
+          pos: editor.state.selection.from,
+          scrollTop: el?.scrollTop ?? 0,
+        });
+      }
       editor.off("selectionUpdate", record);
       editor.off("update", record);
       el?.removeEventListener("scroll", record);
     };
-  }, [editor, kb.currentPath, scrollEl]);
+  }, [editor, scrollEl]);
 
-  // 切文档:旧文档的位置落 meta
+  // 切文档:旧文档的位置落 meta;并清掉 loaded 标记,等编辑器换文后再放开记录。
+  // 此时编辑器正文尚未 setContent,选区仍属旧文档,先快照再落盘。
   useEffect(() => {
     const prev = prevPathRef.current;
     const rel = kb.currentPath;
     if (prev && prev !== rel) {
+      if (editor && !editor.isDestroyed && loadedPathRef.current === prev) {
+        cursorMapRef.current.set(prev, {
+          pos: editor.state.selection.from,
+          scrollTop: scrollEl?.scrollTop ?? 0,
+        });
+      }
       const c = cursorMapRef.current.get(prev);
       if (c) kb.saveCursor(prev, c.pos, c.scrollTop);
+      loadedPathRef.current = null;
     }
     prevPathRef.current = rel;
-  }, [kb.currentPath, kb.saveCursor]);
+  }, [kb.currentPath, kb.saveCursor, editor, scrollEl]);
 
   // 窗口失焦:当前文档位置落 meta(关窗/切应用不丢位置)
   useEffect(() => {
     const onBlur = () => {
-      const rel = kb.currentPath;
+      const rel = loadedPathRef.current ?? kb.currentPath;
       if (!rel) return;
       const c = cursorMapRef.current.get(rel);
       if (c) kb.saveCursor(rel, c.pos, c.scrollTop);
@@ -1337,20 +1808,39 @@ function App() {
   }, [kb.currentPath, kb.saveCursor]);
 
   /** 打开文档后取回上次位置(内存优先,再回落 meta);搜索/双链跳转不恢复 */
-  const getRestoreCursor = useCallback(() => {
-    const rel = kb.currentPath;
-    if (!rel) return null;
-    if (skipRestoreRelRef.current === rel) {
-      skipRestoreRelRef.current = null;
-      return null;
-    }
-    return cursorMapRef.current.get(rel) ?? kb.getCursor(rel) ?? null;
-  }, [kb.currentPath, kb.getCursor]);
+  const getRestoreCursor = useCallback(
+    (rel: string) => {
+      if (skipRestoreRelRef.current === rel) {
+        skipRestoreRelRef.current = null;
+        return null;
+      }
+      return cursorMapRef.current.get(rel) ?? kb.getCursor(rel) ?? null;
+    },
+    [kb.getCursor],
+  );
+
+  const onEditorContentReady = useCallback((path: string) => {
+    loadedPathRef.current = path;
+  }, []);
+
+  // 切文档前:冲刷去抖稿 + 同步快照滚动/光标(必须在 path/正文切换前,否则会被新文档或 setContent 冲掉)
+  useEffect(() => {
+    kb.setBeforeSwitch(() => {
+      editorFlushPendingRef.current?.();
+      const rel = loadedPathRef.current;
+      if (!rel || !editor || editor.isDestroyed) return;
+      cursorMapRef.current.set(rel, {
+        pos: editor.state.selection.from,
+        scrollTop: scrollEl?.scrollTop ?? 0,
+      });
+    });
+    return () => kb.setBeforeSwitch(null);
+  }, [kb.setBeforeSwitch, editor, scrollEl]);
 
   /* ---- 图片落盘(5.3.7/9.3):粘贴/拖拽 → 可选压缩 → assets → 插入 ---- */
   const onImageFiles = useCallback(
     async (files: File[]): Promise<string[]> => {
-      // §8 图片设置:WebP q85 压缩在哈希命名之前(同图同设置只存一份);关闭则原样落盘
+      // §8 图片设置:JPG/PNG 智能压缩在哈希命名之前(同图同设置只存一份);关闭则原样落盘
       const prepared = settings.imageCompress
         ? await Promise.all(files.map((f) => compressImageFile(f)))
         : files;
@@ -1477,12 +1967,13 @@ function App() {
     };
   }, [scrollEl, onImageFiles, onSingleImageFiles, requestSingleAction, single.active, showToast]);
 
-  if (!kb.booted) {
-    return <main className="bg-background flex h-screen items-center justify-center" />;
+  if (!kb.booted || kb.openingKb) {
+    return <WorkspaceLoading />;
   }
 
   if (single.active) {
     return (
+      <>
       <SingleFileWorkspace
         single={single}
         editor={singleEditor}
@@ -1490,6 +1981,7 @@ function App() {
         scrollRef={handleScrollRef}
         scrollEl={scrollEl}
         showToolbar={settings.showToolbar}
+        tabIndentSize={settings.tabIndentSize}
         cardBorder={settings.cardBorder}
         tableCellCopy={settings.tableCellCopy}
         onToggleTableCellCopy={() =>
@@ -1500,6 +1992,7 @@ function App() {
         shortcuts={settings.shortcuts}
         codeLanguageRecents={settings.recentCodeLanguages}
         onCodeLanguageUsed={recordCodeLanguage}
+        onExportDocx={onExportDocx}
         aiReady={settings.aiEnabled && settings.aiVerified}
         aiSession={aiSession}
         onNeedAiSettings={promptAiSetup}
@@ -1533,6 +2026,29 @@ function App() {
         onStayAfterSaveToKb={() => setSingleSavedToKb(null)}
         onOpenSavedKb={(info) => void openSingleSavedKb(info)}
       />
+      {pendingDocxExport && (
+        <DocxRemoteConfirmDialog
+          pending={pendingDocxExport}
+          onCancel={cancelDocxExport}
+          onChoose={chooseDocxRemoteImages}
+        />
+      )}
+      {docxLoadingVisible && <DocxExportingOverlay />}
+      {docxReport && (
+        <DocxReportDialog report={docxReport} onClose={() => setDocxReport(null)} />
+      )}
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        settings={settings}
+        onChange={updateSettings}
+        initialTab={settingsTab}
+        onRebuildIndex={() => {
+          void kb.rebuildIndex().then(() => showToast("索引已重建"));
+        }}
+        onCreateTemplateFromCurrent={() => void saveCurrentAsTemplate()}
+      />
+      </>
     );
   }
 
@@ -1571,11 +2087,16 @@ function App() {
           <DocTree
             root={kb.kbRoot}
             tree={shownTree}
-            currentPath={kb.currentPath}
+            // 用已切换的 tab 路径高亮:不等 readDoc/长文解析,点选立刻亮
+            currentPath={
+              kb.tabs.find((tab) => tab.id === kb.activeTabId)?.path ?? kb.currentPath
+            }
             collapsed={kb.collapsed}
             indexReady={kb.indexReady}
             onToggleCollapse={kb.toggleCollapse}
             onSetAllCollapsed={kb.setAllCollapsed}
+            iconMap={kb.entryIcons}
+            onSetEntryIcon={kb.setTreeIcon}
             onOpenDoc={(rel) => void openDocAfterTitle(rel)}
             onRevealEntry={revealTreeEntry}
             onCreateDoc={(folder, name) => void handleCreateDoc(folder, name)}
@@ -1625,88 +2146,109 @@ function App() {
           />
         )}
         <div className="shell-panel border-border-subtle bg-editor flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-[0_14px_40px_-22px_color-mix(in_oklab,var(--foreground)_32%,transparent)]">
+          {!focusMode && (
+            <DocTabs
+              tabs={kb.tabs}
+              activeId={kb.activeTabId}
+              names={docNames}
+              icons={kb.entryIcons}
+              saveState={kb.saveState}
+              onActivate={(tabId) => void activateDocTab(tabId)}
+              onClose={(tabId) => void closeDocTab(tabId)}
+              onCloseOthers={(tabId) => void closeOtherDocTabs(tabId)}
+              onCloseLeft={(tabId) => void closeLeftDocTabs(tabId)}
+              onCloseRight={(tabId) => void closeRightDocTabs(tabId)}
+              onReorder={kb.reorderDocTabs}
+              onReveal={revealTreeEntry}
+            />
+          )}
           {currentPath ? (
-            /* 专注模式:导航按钮收起(纯 chrome,⌘[ ⌘] 仍可用),标题与正文同列对齐
-             * (mx-auto EDITOR_COLUMN_MAX px-16,同 EditorContent 容器);常态:导航胶囊放在
-             * 正文列左边界内侧,避免窄卡片时贴到纸张左缘 */
-            <div className="w-full shrink-0 px-6 pt-5 pb-2">
-              <div className={`relative mx-auto ${EDITOR_COLUMN_MAX} px-16`}>
-                {!focusMode && (
-                  <div
-                    role="group"
-                    aria-label="文档导航"
-                    className="chrome-nav border-border-subtle bg-raised/55 absolute -left-1 top-1 flex items-center gap-0.5 rounded-lg border p-0.5 shadow-[0_1px_2px_color-mix(in_oklab,var(--workspace)_25%,transparent)]"
+            /* 专注模式:导航按钮收起(纯 chrome,⌘[ ⌘] 仍可用);标题与正文同列对齐 */
+            <div className="w-full shrink-0 px-6 pt-2 pb-0">
+              <div className={`mx-auto ${EDITOR_COLUMN_CLASS} px-16`}>
+                <div className="flex h-5 min-w-0 items-center gap-1">
+                  {!focusMode && (
+                    <div
+                      role="group"
+                      aria-label="文档导航"
+                      className="chrome-nav text-muted-foreground flex shrink-0 items-center"
+                    >
+                      <Hint label={`后退 (${formatShortcut(settings.shortcuts.navBack)})`}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-muted-foreground/80 hover:text-foreground hover:bg-hover size-5 rounded-md"
+                          disabled={!kb.canBack}
+                          onClick={() => void kb.navBack()}
+                        >
+                          <ChevronLeft className="size-3.5" />
+                        </Button>
+                      </Hint>
+                      <Hint label={`前进 (${formatShortcut(settings.shortcuts.navForward)})`}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-muted-foreground/80 hover:text-foreground hover:bg-hover size-5 rounded-md"
+                          disabled={!kb.canFront}
+                          onClick={() => void kb.navForward()}
+                        >
+                          <ChevronRight className="size-3.5" />
+                        </Button>
+                      </Hint>
+                    </div>
+                  )}
+                  <nav
+                    aria-label="文档位置"
+                    className="text-muted-foreground/75 flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden text-[11px]"
                   >
-                    <Hint label={`后退 (${formatShortcut(settings.shortcuts.navBack)})`}>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-muted-foreground hover:text-foreground hover:bg-hover size-6 rounded-[5px]"
-                        disabled={!kb.canBack}
-                        onClick={() => void kb.navBack()}
-                      >
-                        <ChevronLeft className="size-4" />
-                      </Button>
-                    </Hint>
-                    <Hint label={`前进 (${formatShortcut(settings.shortcuts.navForward)})`}>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-muted-foreground hover:text-foreground hover:bg-hover size-6 rounded-[5px]"
-                        disabled={!kb.canFront}
-                        onClick={() => void kb.navForward()}
-                      >
-                        <ChevronRight className="size-4" />
-                      </Button>
-                    </Hint>
-                  </div>
-                )}
-                <nav
-                  aria-label="文档位置"
-                  className="text-muted-foreground mb-1 flex h-5 min-w-0 items-center gap-0.5 overflow-hidden text-[11px]"
-                >
-                  <button
-                    type="button"
-                    className="hover:bg-hover hover:text-foreground flex min-w-0 shrink items-center gap-1 rounded px-1 py-0.5"
-                    onClick={() => revealFolderInTree("")}
-                    title={kb.kbRoot}
-                  >
-                    <Folder className="size-3 shrink-0" />
-                    <span className="max-w-32 truncate">{kbRootName}</span>
-                  </button>
-                  {breadcrumbFolders.map((crumb) => (
-                    <span key={crumb.path} className="flex min-w-0 shrink items-center gap-0.5">
-                      <ChevronRight className="text-muted-foreground/45 size-3 shrink-0" />
-                      <button
-                        type="button"
-                        className="hover:bg-hover hover:text-foreground max-w-36 truncate rounded px-1 py-0.5"
-                        onClick={() => revealFolderInTree(crumb.path)}
-                        title={crumb.path}
-                      >
-                        {crumb.label}
-                      </button>
+                    <button
+                      type="button"
+                      className="hover:bg-hover hover:text-foreground flex min-w-0 shrink items-center gap-1 rounded px-1 py-0.5"
+                      onClick={() => revealFolderInTree("")}
+                      title={kb.kbRoot}
+                    >
+                      <Folder className="size-3 shrink-0 opacity-80" />
+                      <span className="max-w-32 truncate">{kbRootName}</span>
+                    </button>
+                    {breadcrumbFolders.map((crumb) => (
+                      <span key={crumb.path} className="flex min-w-0 shrink items-center gap-0.5">
+                        <ChevronRight className="text-muted-foreground/40 size-3 shrink-0" />
+                        <button
+                          type="button"
+                          className="hover:bg-hover hover:text-foreground max-w-36 truncate rounded px-1 py-0.5"
+                          onClick={() => revealFolderInTree(crumb.path)}
+                          title={crumb.path}
+                        >
+                          {crumb.label}
+                        </button>
+                      </span>
+                    ))}
+                  </nav>
+                </div>
+                <div className="mt-1 flex min-w-0 items-center gap-1">
+                  {/* 按标题内容撑开宽度,AI 贴在文字旁而不是栏尾 */}
+                  <div className="relative min-w-[4ch] max-w-[calc(100%-1.75rem)]">
+                    <span
+                      aria-hidden
+                      className="invisible block max-w-full truncate text-3xl leading-snug font-semibold tracking-[-0.03em] whitespace-pre"
+                    >
+                      {title || "未命名文档"}
                     </span>
-                  ))}
-                  <ChevronRight className="text-muted-foreground/45 size-3 shrink-0" />
-                  <span className="text-foreground/60 min-w-0 truncate px-1" aria-current="page">
-                    {docBasename(currentPath)}
-                  </span>
-                </nav>
-                <div className="flex w-full items-start gap-1">
-                  <input
-                    className="min-w-0 flex-1 bg-transparent pb-1 text-[2rem] leading-tight font-semibold tracking-[-0.035em] outline-none placeholder:text-muted-foreground/45"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    onBlur={() => void commitTitleRename()}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        e.currentTarget.blur();
-                      }
-                    }}
-                    placeholder="未命名文档"
-                  />
-                  <div className="pt-1.5">
+                    <input
+                      className="absolute inset-0 w-full bg-transparent text-3xl leading-snug font-semibold tracking-[-0.03em] outline-none placeholder:text-muted-foreground/45"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      onBlur={() => void commitTitleRename()}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      placeholder="未命名文档"
+                    />
+                  </div>
+                  <div className="shrink-0">
                     <TitleAiControl
                       state={titleAi.state}
                       ready={titleAi.ready}
@@ -1736,38 +2278,52 @@ function App() {
               </div>
             </div>
           ) : (
-            <div className="h-[76px] shrink-0" />
+            <div className="h-12 shrink-0" />
           )}
-          <YanzhiEditor
-            markdown={kb.markdown}
-            onReady={handleKbReady}
-            scrollContainerRef={handleScrollRef}
-            onMarkdownChange={kb.onMarkdownChange}
-            wikiDocs={getWikiDocs}
-            onOpenWikiLink={onOpenWikiLink}
-            onImageFiles={onImageFiles}
-            onPickImage={onPickImage}
-            onReplaceImage={onReplaceImage}
-            getRestoreCursor={getRestoreCursor}
-            onExportMd={onExportMd}
-            onExportHtml={onExportHtml}
-            onPickAttachment={onPickAttachment}
-            onOpenAttachment={onOpenAttachment}
-            locateSignal={locateSignal}
-            cardBorder={settings.cardBorder}
-            tableCellCopy={settings.tableCellCopy}
-            onToggleTableCellCopy={() =>
-              updateSettings({ tableCellCopy: !settings.tableCellCopy })
-            }
-            showToolbar={settings.showToolbar && !focusMode}
-            typewriter={focusMode && settings.typewriterMode}
-            shortcuts={settings.shortcuts}
-            codeLanguageRecents={settings.recentCodeLanguages}
-            onCodeLanguageUsed={recordCodeLanguage}
-            aiReady={settings.aiEnabled && settings.aiVerified}
-            aiSession={aiSession}
-            onNeedAiSettings={promptAiSetup}
-          />
+          {currentPath ? (
+            <YanzhiEditor
+              markdown={kb.markdown}
+              onReady={handleKbReady}
+              scrollContainerRef={handleScrollRef}
+              onSourceOutlineController={setSourceOutlineController}
+              onMarkdownChange={kb.onMarkdownChange}
+              wikiDocs={getWikiDocs}
+              onOpenWikiLink={onOpenWikiLink}
+              onImageFiles={onImageFiles}
+              onPickImage={onPickImage}
+              onReplaceImage={onReplaceImage}
+              getRestoreCursor={getRestoreCursor}
+              contentPath={kb.currentPath}
+              onContentReady={onEditorContentReady}
+              flushPendingRef={editorFlushPendingRef}
+              onExportMd={onExportMd}
+              onExportHtml={onExportHtml}
+              onExportDocx={onExportDocx}
+              onPickAttachment={onPickAttachment}
+              onOpenAttachment={onOpenAttachment}
+              locateSignal={locateSignal}
+              cardBorder={settings.cardBorder}
+              tableCellCopy={settings.tableCellCopy}
+              onToggleTableCellCopy={() =>
+                updateSettings({ tableCellCopy: !settings.tableCellCopy })
+              }
+              showToolbar={settings.showToolbar && !focusMode}
+              tabIndentSize={settings.tabIndentSize}
+              typewriter={focusMode && settings.typewriterMode}
+              shortcuts={settings.shortcuts}
+              codeLanguageRecents={settings.recentCodeLanguages}
+              onCodeLanguageUsed={recordCodeLanguage}
+              aiReady={settings.aiEnabled && settings.aiVerified}
+              aiSession={aiSession}
+              onNeedAiSettings={promptAiSetup}
+            />
+          ) : (
+            <DocTabsEmptyState
+              recentDocs={recentDocItems}
+              onCreateDoc={() => void handleCreateDoc("", "未命名文档")}
+              onOpenDoc={(rel) => void openDocAfterTitle(rel)}
+            />
+          )}
         </div>
         {!focusMode && settings.showRightPanel && kbEditor && (
           <aside
@@ -1785,7 +2341,7 @@ function App() {
                 onRemove={(t) => kb.currentPath && kb.setTags(kb.currentPath, kb.currentTags.filter((x) => x !== t))}
               />
             )}
-            {settings.showOutline && <TocPanel editor={kbEditor} scrollContainer={scrollEl} />}
+            {settings.showOutline && <TocPanel editor={kbEditor} scrollContainer={scrollEl} sourceOutlineController={sourceOutlineController} />}
             {settings.showBacklinks && (
               <BacklinksPanel
                 rows={backlinks}
@@ -1850,14 +2406,32 @@ function App() {
       {toast &&
         createPortal(
           <div
-            role="status"
+            role={toast.kind === "error" ? "alert" : "status"}
             aria-live="polite"
-            className="bg-popover text-popover-foreground pointer-events-none fixed bottom-10 left-1/2 z-[100] -translate-x-1/2 rounded-md px-3 py-1.5 text-sm shadow-md ring-1 ring-foreground/10"
+            className={`bg-popover text-popover-foreground pointer-events-none fixed bottom-10 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-2 rounded-md px-3 py-1.5 text-sm shadow-md ring-1 ${
+              toast.kind === "success"
+                ? "text-[var(--callout-success)] ring-[color-mix(in_oklab,var(--callout-success)_35%,transparent)]"
+                : toast.kind === "error"
+                  ? "text-[var(--destructive)] ring-[color-mix(in_oklab,var(--destructive)_35%,transparent)]"
+                  : "ring-foreground/10"
+            }`}
           >
-            {toast}
+            {toast.kind === "success" && <CircleCheck className="size-4" aria-hidden />}
+            {toast.message}
           </div>,
           document.body,
         )}
+      {docxLoadingVisible && <DocxExportingOverlay />}
+      {pendingDocxExport && (
+        <DocxRemoteConfirmDialog
+          pending={pendingDocxExport}
+          onCancel={cancelDocxExport}
+          onChoose={chooseDocxRemoteImages}
+        />
+      )}
+      {docxReport && (
+        <DocxReportDialog report={docxReport} onClose={() => setDocxReport(null)} />
+      )}
       <TrashDialog
         open={trashOpen}
         onOpenChange={setTrashOpen}

@@ -27,7 +27,7 @@ body {
   background: #faf9f7;
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   font-size: 16px;
-  line-height: 1.75;
+  line-height: 1.6;
   word-break: break-word;
 }
 h1, h2, h3, h4, h5, h6 { margin: 1.4em 0 0.6em; line-height: 1.4; }

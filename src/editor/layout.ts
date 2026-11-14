@@ -1,5 +1,6 @@
 /**
- * 正文列最大宽度(知识库/单文件/帮助共用)。
- * 窗口窄于 1600px 时保持 48rem;再大放到 56rem,少留一截空白,仍不拉成整行。
+ * 正文列(知识库/单文件/工具栏/帮助共用)。
+ * --editor-content-max 表示正文内容宽度,外层另留左右 4rem;
+ * adaptive 默认 40rem,窗口 ≥1600px 放到 48rem,fixed 由应用设置写入。
  */
-export const EDITOR_COLUMN_MAX = "max-w-3xl min-[1600px]:max-w-4xl";
+export const EDITOR_COLUMN_CLASS = "editor-column";

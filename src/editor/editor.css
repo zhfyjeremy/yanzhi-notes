@@ -1,10 +1,30 @@
+:root {
+  --editor-content-max: 40rem;
+}
+
+@media (min-width: 1600px) {
+  :root {
+    --editor-content-max: 48rem;
+  }
+}
+
+/* 正文列宽 = 内容宽度 + 左右留白;小窗口仍收缩到容器内 */
+.editor-column {
+  width: 100%;
+  max-width: min(calc(var(--editor-content-max) + 8rem), 100%);
+  margin-inline: auto;
+}
+
 /* 砚知正文排版(语雀式,初版):正文排版是颜值主战场,持续打磨 */
 .yz-editor-doc {
   outline: none;
-  flex: 1;
+  /* 高度跟内容走,不要 flex:1 撑满。空白文档若把 contenteditable 拉成整视口高,
+     WKWebView 每次 Tab/键入都重排这块巨高可编辑区,空文档反而比长文更卡。
+     下方留白点击由外层 focusEditorFromBlankArea 承接。 */
+  width: 100%;
   font-family: var(--editor-font-family, var(--font-sans));
   font-size: var(--editor-font-size, 16px);
-  line-height: var(--editor-line-height, 1.75);
+  line-height: var(--editor-line-height, 1.6);
   color: var(--foreground);
   caret-color: var(--primary);
   letter-spacing: 0.004em;
@@ -349,6 +369,63 @@
   color: inherit;
 }
 
+/* Raw HTML 卡:默认安全预览,点击预览或右上角按钮切换源码 */
+.yz-editor-doc .yz-raw-html {
+  margin: 0.75em 0;
+}
+
+.yz-editor-doc .yz-raw-html-preview {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 6px);
+  background: var(--raised);
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+}
+
+.yz-editor-doc .yz-raw-html-preview iframe {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: var(--editor);
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+.yz-editor-doc .yz-raw-html-preview:hover {
+  border-color: color-mix(in oklab, var(--primary) 35%, var(--border-subtle));
+}
+
+.yz-editor-doc .yz-raw-html-empty {
+  color: var(--muted-foreground);
+  font-size: 0.9em;
+  padding: 0.75em 0.9em;
+}
+
+.yz-editor-doc .yz-raw-html-source {
+  display: block;
+  width: 100%;
+  min-height: 5em;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 6px);
+  background: var(--code-bg, var(--muted));
+  color: var(--foreground);
+  padding: 0.75em 0.9em;
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  line-height: 1.65;
+  outline: none;
+}
+
+.yz-editor-doc .yz-raw-html-source:focus {
+  border-color: color-mix(in oklab, var(--primary) 45%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 15%, transparent);
+}
+
 /* Mermaid 图表卡(codeBlock language=mermaid 的 NodeView,PRD §6.1.4):
    预览/源码双视图,渲染运行时在 extensions/mermaid.ts */
 .yz-editor-doc .yz-mmd-hidden {
@@ -670,14 +747,19 @@
   text-underline-offset: 0.16em;
 }
 
-/* Placeholder(Tiptap 首段空态) */
+/* 空文档占位(仅整篇为空时挂 is-editor-empty,见 empty-doc-placeholder.ts) */
+.yz-editor-doc p.is-editor-empty:first-child {
+  position: relative;
+}
 .yz-editor-doc p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
+  position: absolute;
+  left: 0;
+  top: 0;
   color: var(--muted-foreground);
   opacity: 0.7;
-  float: left;
-  height: 0;
   pointer-events: none;
+  user-select: none;
 }
 
 /* 历史快照对比(6.2-4):增/删行高亮,色源用既有语义 token(绿=callout-success 系,红=destructive 系) */
@@ -796,4 +878,240 @@
   .yz-toolbar-hide-narrow {
     display: none;
   }
+}
+
+/* CodeMirror Markdown 源码模式:保持 Typora 式无卡片正文,语法颜色只走 tokens */
+.yz-source-editor .cm-editor {
+  width: 100%;
+  background: transparent;
+}
+
+.yz-source-editor .cm-editor.cm-focused {
+  outline: none;
+}
+
+.yz-source-editor .cm-scroller {
+  font-family: var(--font-mono);
+  font-size: var(--editor-font-size, 16px);
+  line-height: var(--editor-line-height, 1.6);
+  overflow-x: hidden;
+  overflow-y: hidden;
+}
+
+.yz-source-editor .cm-content {
+  padding: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  caret-color: var(--primary);
+}
+
+.yz-source-editor .cm-line {
+  padding: 0;
+  color: var(--foreground);
+}
+
+.yz-source-editor .cm-content::selection,
+.yz-source-editor .cm-content ::selection {
+  background: color-mix(in oklab, var(--primary) 24%, transparent);
+}
+
+.yz-source-editor .cm-cursor {
+  border-left-color: var(--primary);
+}
+
+.yz-source-editor .cm-md-h1,
+.yz-source-editor .cm-md-h2,
+.yz-source-editor .cm-md-h3,
+.yz-source-editor .cm-md-heading {
+  color: var(--foreground);
+  font-weight: 650;
+}
+
+.yz-source-editor .cm-md-h1 {
+  color: var(--foreground);
+}
+
+.yz-source-editor .cm-md-h2 {
+  color: var(--foreground);
+}
+
+.yz-source-editor .cm-md-h3,
+.yz-source-editor .cm-md-heading {
+  color: var(--foreground);
+}
+
+.yz-source-editor .cm-md-strong {
+  color: var(--foreground);
+  font-weight: 650;
+}
+
+.yz-source-editor .cm-md-emphasis {
+  color: var(--foreground);
+  font-style: italic;
+}
+
+.yz-source-editor .cm-md-strike {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+}
+
+.yz-source-editor .cm-md-link,
+.yz-source-editor .cm-md-url,
+.yz-source-editor .cm-md-wikilink {
+  color: var(--link);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, currentColor 45%, transparent);
+  text-underline-offset: 3px;
+}
+
+.yz-source-editor .cm-md-code {
+  color: var(--code-str);
+}
+
+.yz-source-editor .cm-md-quote {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.yz-source-editor .cm-md-mark,
+.yz-source-editor .cm-md-table {
+  color: var(--muted-foreground);
+}
+
+.yz-source-editor .cm-md-meta {
+  color: var(--code-emb);
+}
+
+.yz-source-editor .cm-md-highlight {
+  background: var(--find-match);
+  color: var(--foreground);
+}
+
+.yz-source-editor .cm-md-invalid {
+  color: var(--destructive);
+}
+
+/* HBuilder/Typora 式 Markdown 源码主题:结构彩化、代码块轻底色 */
+.yz-source-editor .cm-md-h1,
+.yz-source-editor .cm-md-h2,
+.yz-source-editor .cm-md-h3,
+.yz-source-editor .cm-md-h4,
+.yz-source-editor .cm-md-h5,
+.yz-source-editor .cm-md-h6 {
+  font-weight: 680;
+}
+
+.yz-source-editor .cm-md-h1 {
+  color: var(--source-h1);
+}
+
+.yz-source-editor .cm-md-h2 {
+  color: var(--source-h2);
+}
+
+.yz-source-editor .cm-md-h3 {
+  color: var(--source-h3);
+}
+
+.yz-source-editor .cm-md-heading {
+  color: var(--foreground);
+}
+
+.yz-source-editor .cm-md-h4 {
+  color: var(--source-h4);
+}
+
+.yz-source-editor .cm-md-h5 {
+  color: var(--source-h5);
+}
+
+.yz-source-editor .cm-md-h6 {
+  color: var(--source-h6);
+}
+
+.yz-source-editor .cm-md-mark {
+  color: var(--source-marker);
+}
+
+.yz-source-editor .cm-md-strong {
+  color: var(--foreground);
+}
+
+.yz-source-editor .cm-md-emphasis {
+  color: var(--source-emphasis);
+}
+
+.yz-source-editor .cm-md-quote {
+  color: var(--muted-foreground);
+}
+
+.yz-source-editor .cm-md-code {
+  color: var(--source-inline-code);
+}
+
+.yz-source-editor .cm-md-code-info {
+  color: var(--source-code-function);
+}
+
+.yz-source-editor .cm-code-fence-line,
+.yz-source-editor .cm-code-content-line {
+  padding-right: 10px;
+  padding-left: 10px;
+  background: var(--source-code-bg);
+  box-shadow: inset 3px 0 0 var(--source-code-edge);
+}
+
+.yz-source-editor .cm-code-open-line {
+  padding-top: 7px;
+  border-radius: 8px 8px 0 0;
+}
+
+.yz-source-editor .cm-code-close-line {
+  padding-bottom: 7px;
+  border-radius: 0 0 8px 8px;
+}
+
+.yz-source-editor .cm-code-content-line {
+  min-height: calc(var(--editor-line-height, 1.6) * 1em);
+}
+
+.yz-source-editor .cm-code-comment {
+  color: var(--source-code-comment);
+}
+
+.yz-source-editor .cm-code-string {
+  color: var(--source-code-string);
+}
+
+.yz-source-editor .cm-code-number,
+.yz-source-editor .cm-code-atom {
+  color: var(--source-code-number);
+}
+
+.yz-source-editor .cm-code-atom {
+  color: var(--source-code-atom);
+}
+
+.yz-source-editor .cm-code-keyword {
+  color: var(--source-code-keyword);
+}
+
+.yz-source-editor .cm-code-type {
+  color: var(--source-code-type);
+}
+
+.yz-source-editor .cm-code-function {
+  color: var(--source-code-function);
+}
+.yz-source-editor .cm-code-property {
+  color: var(--source-code-property);
+}
+
+.yz-source-editor .cm-code-operator {
+  color: var(--source-code-operator);
+}
+
+.yz-source-editor .cm-code-variable {
+  color: var(--source-code-variable);
 }

@@ -1024,6 +1024,24 @@ pub fn write_meta(root: &str, content: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// workspace.json 按原文读写:标签页只保存文档相对路径,不保存正文
+#[tauri::command]
+pub fn read_workspace(root: &str) -> Result<String, String> {
+    match fs::read_to_string(Path::new(root).join(".yanzhi/workspace.json")) {
+        Ok(s) => Ok(s),
+        Err(_) => Ok(r#"{"version":1,"tabs":[],"activePath":null}"#.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn write_workspace(root: &str, content: &str) -> Result<(), String> {
+    let abs = Path::new(root).join(".yanzhi/workspace.json");
+    let tmp = abs.with_extension("json.tmp");
+    fs::write(&tmp, content).map_err(err)?;
+    fs::rename(&tmp, &abs).map_err(err)?;
+    Ok(())
+}
+
 /// 最近打开列表(应用配置目录,非知识库内;PRD 2.1.3);last_doc = 上次打开的文档相对路径
 #[derive(Serialize, Deserialize, Default)]
 pub struct RecentState {

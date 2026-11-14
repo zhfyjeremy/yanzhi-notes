@@ -1,16 +1,16 @@
-# 项目状态(更新:2026-11-09)
+# 项目状态(更新:2026-11-13)
 
 > 开工前速览:看「下一步」直接干活;细节翻 `docs/PRD-本地离线知识库编辑器.md` 对应章节。文档索引见 `docs/README.md`。
 
 ## 现状一句话
 
-**MVP / V2 / V3 功能已齐(含 BYOK AI-0/1/2 + AI-3 卡片)**;PDF 导出暂缓。2026-11-03:关闭窗口保持后台;单实例托盘;AI 结构 + 卡片(代码解释改写 / Mermaid 生成修正 / 公式)。签名/公证与 IME 真机回归仍待。
+**MVP / V2 / V3 功能已齐(含 BYOK AI-0/1/2 + AI-3 卡片)**;DOCX 语义导出代码完成(PM doc → Pandoc AST,可选外部 Pandoc + 外链图片受控嵌入;行内代码导出内容已修复不丢字,真机验收待做),PDF 导出暂缓。2026-11-13:知识库新增浏览器式文档标签页(Phase 1+2:打开/激活/关闭/关闭其它/关闭左侧/关闭右侧、拖拽排序、被遮挡 tab 激活后自动滚到可见、中键关闭、右键菜单、⌘/Ctrl+W 关闭、Ctrl+Tab 与 Shift+[ ] 前后切换、⌘/Ctrl+Alt+数字直切;tab 使用目录树自定义图标;右键与原生文件菜单的三种导出格式收进「导出」二级菜单;`.yanzhi/workspace.json` 持久化;单个编辑器实例复用,切换前强制保存,失败阻断,重命名/移动/删除自动同步 tab;正文双链默认当前 tab,⌘/Ctrl 或中键打开/切换 tab);设置 → 外观 → 正文排版新增正文列宽,默认自适应,可固定 600–1200px(标题/正文/源码/工具栏/帮助同列,窄窗口仍自动收缩);外观默认正文行高从 1.75 收紧为 1.6(导出/复制 HTML 的默认排版同步);排版视图普通文本/代码块与 Markdown 源码视图的 Tab 缩进宽度可在设置 → 编辑器调整为 1–8 字符,Shift+Tab 可缩回光标前缩进或行首缩进(列表升降级、表格切换单元格语义保留);Markdown 普通文本中的 `=`、`===>`、`======>` 不再被误识别为高亮或反斜杠转义,`==高亮==` 方言保持可用;开库/首启装载期改为工作区 loading,不再先闪现未命名空文档;2026-11-12:新增全文档 Markdown 源码模式(工具栏 + ⌘/Ctrl+/,基于懒加载 CodeMirror 6 + Lezer Markdown/GFM 的 HBuilder/Typora 式彩色主题(H1–H6 分级配色、链接下划线、代码块轻底色与按语言懒加载的真实 parser 多色 token 着色(C/C++/CSS/HTML/Java/JS/JSON/Python/Rust/Go/Shell/Bash/SQL/TS/XML/YAML,未识别语言通用回退));与排版视图同内容列/纵向滚动容器、无边框,编辑器高度自适应且不单独纵向滚动,排版/源码双向按滚动比例恢复当前阅读位置(首次源码 chunk 懒加载时等待可滚动布局出现后再恢复),源码编辑自动保存,长行在正文列内软折行且不出横向滚动条,右侧大纲在源码态按 CodeMirror 行定位、点击可跳转并联动高亮,代码块使用浏览器原生 selection 保证在彩色代码块背景上可见可选);裸 URL/外部编辑器转义 scheme(`https\\://`)打开即解析为链接;目录树内置图标与右键更改图标上线；2026-11-11:整段 http(s) 图片地址粘贴即转外链图片；未知扩展名 URL 由用户粘贴触发单次图片解码识别。2026-11-03:关闭窗口保持后台;单实例托盘;AI 结构 + 卡片(代码解释改写 / Mermaid 生成修正 / 公式)。签名/公证与 IME 真机回归仍待。
 
 ## 里程碑(PRD §11.4 工期表)
 
 ### M1 编辑器内核 ✅ 已完成(d19d44e)
 
-统一 Schema、YanzhiEditor 组件(md 进/md 出单路径)、格式工具栏、斜杠菜单(含日期/时间 6 种静态纯文本格式,本机时区、不自动更新)、md 往返 fixtures 14/14。
+统一 Schema、YanzhiEditor 组件(md 进/md 出单路径)、格式工具栏、H1~H6 快捷键(⌘/Ctrl+1~6,重复当前层级回正文)、斜杠菜单(含日期/时间 6 种静态纯文本格式,本机时区、不自动更新)、md 往返 fixtures 14/14。
 基础轮子:阶段 0 往返管线(e828162)、块编辑模式移除(PRD v1.5,9eb6d7d)、macOS 右键菜单汉化(Info.plist)。
 2026-11-01 交互补充:空白文档的正文区域撑满可视编辑列;点击留白可聚焦。2026-11-03:左右白边按点击高度落到最近一行(不滚文末),上方→文首、下方→文末;正文/链接/按钮仍走 ProseMirror 默认。
 
@@ -35,7 +35,7 @@
 | fs 命令层(Rust) | ✅ | `src-tauri/src/kb.rs`:扫描/读/原子写/新建(重名 ` (n)`)/重命名/移入回收站/meta 读写/最近打开(recent.json 含 lastDoc);tauri-plugin-dialog |
 | 后端双实现 | ✅ | `src/kb/backend.ts`:tauri(invoke)/ browser(localStorage mock)同构,`pnpm dev` 纯浏览器可开发 UI |
 | 首启欢迎页 | ✅ | PRD 5.0.1:一句话产品 + 三行说明 + 新建/打开同权重 + 最近打开 + 非空目录「仍要在此创建」确认 |
-| 目录树左栏 | ✅ | 递归渲染/折叠/当前文档高亮;行操作语雀式两级:文件夹 hover「+」下拉(新建文档/子文件夹),重命名/移入回收站进右键菜单;文档右键可复制双链引用(唯一名裸写/重名路径写法,不兼容字符禁用;整段纯文本双链粘贴会立即解析成 wikiLink,而非等重开文档);重命名 = 行内编辑;文件夹改名重写当前路径与前进/后退历史;拖拽排序见「排序与折叠」;E2E `folder.js` |
+| 目录树左栏 | ✅ | 共 124 个内置 Lucide 图标(普通图标 60 个 + 彩色线条图标 40 个 + 无底色面性彩色图标 24 个,无底色/内边距且不缩小图形,彩色仅取 design tokens 并浅深自适应),右键「更改图标」弹窗可搜索,所有分组同页展示为紧凑 14 列网格,可恢复默认;偏好 ID 存 `.yanzhi/meta.json` 的 docs/folders 对应 key,重命名/移动随既有 meta key 迁移,未知 ID 回退默认,不进 Markdown;递归渲染/折叠/当前文档高亮;行操作语雀式两级:文件夹 hover「+」下拉(新建文档/子文件夹),重命名/移入回收站进右键菜单;文件夹内新建文档会展开父夹、打开并在目录树高亮新文档,不自动进入重命名(模板弹窗确认后同口径);文档右键可复制双链引用(唯一名裸写/重名路径写法,不兼容字符禁用;整段纯文本双链粘贴会立即解析成 wikiLink,而非等重开文档);重命名 = 行内编辑;文件夹改名重写当前路径与前进/后退历史;拖拽排序见「排序与折叠」;E2E `folder.js` |
 | 文档打开与自动保存 | ✅ | openDoc(切换前冲刷)+ 2s 去抖落盘(临时文件+原子替换);状态栏保存状态 + 库路径 |
 | 标题 ↔ 文件名 | ✅ | 标题输入框(语雀式,正文上方)= 文件名去 .md;改名 debounce 800ms → rename_entry + 树刷新 |
 | 字数统计 | ✅ | 状态栏:全文常显,有选区显「选区/全文」;中文按字西文按词(`word-count.ts` + 6 用例) |
@@ -45,7 +45,7 @@
 | [[双链]] 跳转 | ✅ | `[[` 检索菜单(重名强制路径写法 §517)/手打 `[[x]]` inputrule 即时成链/单击跳转(语雀式)/失效 toast;前进后退:⌘[ ⌘] 或 Alt+←/→ + 标题行按钮;mock E2E 全通(`wiki.js`) |
 | 重命名联动更新引用 | ✅ | rename 时全库替换 `[[旧名]]`(裸名/路径/别名;文件夹仅 [[…]] 区间内段级替换);Rust `kb.rs` 与 mock `wiki-refs.ts` 同构;改名 toast「已更新 N 处」;当前文档被改写自动重载 |
 | 文档内查找/替换 | ✅ | ⌘F 浮条即时高亮(不区分大小写)/Enter 步进/⌥⌘F 替换行(当前/全部,可撤销);`find-replace.ts` PM plugin + `toolbar/FindReplaceBar.tsx`;E2E 全通(`find.js`) |
-| assets 落盘 | ✅ | 粘贴/拖拽/文件选择(斜杠菜单+工具栏)→ 内容哈希 FNV-1a 16hex 命名 → 文档所在 `assets/` → `./assets/x.png` 相对路径;渲染经 assetProtocol(tauri)/dataURL(mock),md 真源不污染;`asset-src.ts` 解析注册表;**移动文档时 Rust/mock 同步复制被引用资源并改写路径(9.3.4)** |
+| assets 落盘 | ✅ | 粘贴/拖拽/文件选择(斜杠菜单+工具栏)→ 内容哈希 FNV-1a 16hex 命名 → 文档所在 `assets/` → `./assets/x.png` 相对路径;2026-11-11 起自动压缩不输出 WebP(无透明 → JPG q85,有透明 → PNG,SVG/GIF/编码失败保留原图,WebP 源图强制转 JPG/PNG);渲染经 assetProtocol(tauri)/dataURL(mock),md 真源不污染;`asset-src.ts` 解析注册表;**移动文档时 Rust/mock 同步复制被引用资源并改写路径(9.3.4)**;2026-11-11 追加整段 `.png/.jpg/.jpeg/.gif/.webp/.svg/.avif/.bmp/.ico` http(s) 地址直接转外链图片;未知扩展名 URL 先保留链接,再由用户主动粘贴触发一次 no-referrer Image 解码识别,成功替换为图片/失败保持链接(10s 超时,代码块不接管);粘贴清洗会修复 `img src` 被 `[url](url)` 包住的富文本形态 |
 | 全局搜索 | ✅ | `search.ts`:FlexSearch 三路索引(标题8/路径4/正文1 加权,位次×权重自算排序),CJK bigram+单字、西文整词;160ms 去抖下拉 + `<mark>` 片段高亮 + ↑↓/Enter;点击打开文档;正文命中才联动⌘F 定位(标题/路径-only 命中只打开不触发文档内查找);空态「重建索引」+ 树菜单入口;增量更新(保存/新建/改名/删除) |
 | 外部监听 | ✅ | Rust notify v8 + 400ms 静默窗去抖 → `kb-fs-event`;前端自写抑制窗 1.5s;无 dirty 静默重载,有 dirty 弹窗「保留我的/载入磁盘版本」 |
 | 回收站 UI | ✅ | `TrashDialog.tsx`:列表(文件夹含篇数)+ 单条/批量恢复/**单条彻底删除/清空**(确认条,destructive 样式);批量恢复遇同名冲突默认恢复为新名称,避免静默覆盖;原路径冲突三选一(覆盖/新名称/取消),KbConflictError 跨端同构。回收站永久保留、无自动清理。入口 = 左栏底部文字项 |
@@ -69,7 +69,7 @@
 | 关于页 | ✅ E2E 过 | 设置「关于」分类:品牌块 + slogan「一方砚,存所知」+ <100 字释义 + 本地优先/开放格式/数据自持三行 + 版本(`src/version.ts` 读 package.json);菜单「关于砚知」= 设置窗直落 about tab(已开窗时 `yz-settings-tab` 广播切页)。欢迎页副标题加同款 slogan |
 | 设置跨窗同步 | ✅ | 设置窗自持 useSettings(读写同一 settings.json),改动 `yz-settings` 广播 → 主窗即时应用(收端 parse 后比对防环);「重建索引」动主窗状态,经 `yz-settings-action` 事件回主窗执行 |
 | 显示菜单勾选项 | ✅ E2E 过(布局态) | 右侧面板(总开关)/ **四个分区独立勾选(大纲/反向链接/标签/历史版本,2026-10-31 用户需求;总开关关时分区项置灰)**/ 工具栏/专注模式为 `CheckMenuItem`;状态源在前端(panel/toolbar/四分区持久化进 settings,focus 会话级),Rust `ViewFlags` 只镜像,点击 → `kb-menu{action:"view",key,value}` → 前端应用 → `set_view_state` 回写重建菜单翻勾。⌘F 查找条不受工具栏开关影响(按需浮出)。**专注模式强制收工具栏与标题栏导航按钮**(临时态覆盖 showToolbar 偏好,与收左右栏同一语义;标题输入保留 = 文档身份/改名入口,⌘[ ⌘] 仍可用;E2E `settings4.js` ⑧)。四分区全关时右栏显示空态提示「分区均已隐藏」;右栏 aside 加 `aria-label="右侧面板"`(E2E/无障碍标识)。E2E:`showToolbar/showRightPanel=false` 预置 → 重启格式条与右栏隐藏、目录树不受影响(`settings4.js` ⑥);分区开关渲染链路 `panel-sections.js` 4/4 |
-| 帮助菜单 + 快捷键窗 | ✅ E2E 过(页面体) | 帮助 → 快捷键说明;`open_aux_window` 通用 label(settings/shortcuts),快捷键窗 460×600 不可缩放,hash 路由 `#/shortcuts`。全局快捷键可直接录制、冲突检测、恢复默认并跨窗同步;格式/块级/查找条保留固定说明并与实现逐项对账。E2E 覆盖录制与主窗实际触发 |
+| 帮助菜单 + 快捷键窗 | ✅ E2E 过(页面体) | 帮助 → 快捷键说明;`open_aux_window` 通用 label(settings/shortcuts),快捷键窗 460×600 不可缩放,hash 路由 `#/shortcuts`。全局快捷键可直接录制、冲突检测、恢复默认并跨窗同步;格式/块级/查找条保留固定说明并与实现逐项对账(2026-11-11 补充 ⌘/Ctrl+1–6 标题快捷键)。E2E 覆盖录制与主窗实际触发 |
 | 起始文档错误快捷键修正 | ✅ | 真机反馈:`STARTER_MD` 写「Ctrl/Cmd+E 切换代码块语言」不实——⌘E 实为行内代码(StarterKit Mod-e),代码块卡片无快捷键、语言只在其顶栏下拉。已改模板文案;**已建知识库的 `开始使用.md` 是用户数据不回写**,旧库那行需手改 |
 
 验证:130/130 单测(+launch/显示项解析)、`settings4.js` 13/13、pnpm build、cargo check 过。**待真机**:菜单栏条目、⌘W/⌘Q、设置独立窗口打开/聚焦/关于直落、设置窗改主色主窗即时变、显示菜单勾选翻勾。
@@ -207,6 +207,25 @@
 - 修复工作区切换后的旧 Tiptap 实例泄漏:App 按 `kb / single` 标记 editor 归属,卸载中的实例不再进入右栏大纲/状态栏;`TocPanel` 对 `editor.view` 不可用时直接跳过滚动定位与跳转。
 
 验证:`pnpm test` **183/183**、`cargo test` **6/6**、`pnpm build` 通过、`pnpm tauri build --no-bundle` 通过(fileAssociations 配置有效);知识库综合回归 `remaining-v3.js` **19/19**。浏览器单文件回归覆盖轻量入口、左右栏降级、手动保存、未保存关闭确认、最近文件重开、崩溃草稿恢复、拖拽打开、assets 确认与资源随文档转存知识库;追加验证「存入后保存原文件并打开知识库 → 自动定位新文档 → 回首页 → 从知识库进入单文件」闭环。系统「打开方式」与 macOS Opened 事件需打包版真机最终确认。
+
+## Raw HTML 预览(2026-11-09)✅ 代码完成
+
+效仿 Typora:块级未知 HTML 不再只是源码卡片,默认在隔离 iframe 中安全预览,点击预览内容或右上角「源码」可切换;源码态可直接编辑并原样写回 Markdown。预览禁脚本/表单/嵌入对象/危险协议,移除事件属性;允许 http(s) 远程图片自动加载(图片统一 no-referrer,避免掘金等图床 Referer ACL 拒绝 localhost 来源),本地相对图片经 assets 解析;预览按内容 intrinsic width 等比缩放,宽浮动布局不被正文列折行。原文仍走 rawHtml 原样序列化,往返不变。
+
+## DOCX 语义导出(PRD 5.6,2026-11-09)🔨 代码完成,真机待验
+
+目标:像 Typora 一样保持编辑器语义,链路固定 **PM doc → Pandoc AST → DOCX**,不把 Markdown 交给 Pandoc 二次解析。
+
+| 子项 | 状态 | 说明 |
+| --- | --- | --- |
+| AST 转换器 | ✅ | `src/export/pandoc-ast.ts`:标题/列表/任务状态(☐/☒)/引用/表格对齐与会话列宽/代码/行内与块级公式/图片/附件/双链/任意文字颜色/Callout/Details/RawHtml/Mermaid;不写 title metadata,避免正文顶部额外插入文件名。公式多行包 `gathered` 交给 Pandoc 转 OMML;未知节点/mark/资源显式 warning,不静默丢 |
+| 资源策略 | ✅ | 本地图片/附件只解析库内或单文件旁 `assets`,拒绝绝对路径与任意目录穿越;外链图片先收集并按设置确认。Mermaid 固定浅色主题渲染,按根节点 viewBox 等比生成 PNG(不误取内部节点宽高),失败保留源码并清理 Mermaid 12 留在 body 的错误 SVG 容器;SVG 含外链资源时拒绝渲染,避免绕过外链确认 |
+| Pandoc command | ✅ | `src-tauri/src/export.rs`:Pandoc 3+ 检测/路径配置、stdin 传 AST、固定参数(仅 reference doc、语法主题、resource-path)、临时文件成功后替换;大文档 stdin 写入独立线程防 stderr 管道死锁 |
+| 外链图片下载 | ✅ | 仅导出后请求文档中收集到的 http/https 图片 URL;无 Cookie/遥测,15s 超时,重定向 ≤5 且逐跳复检,DNS 解析结果 pin 到公网地址并强制直连(不走系统代理),禁 localhost/内网/组播/凭据,单图 25MB、总量 100MB,Content-Type 仅 image/*;失败降级 Link 并进入报告 |
+| 样式资源 | ✅ | 内置 `resources/yanzhi-reference.docx`(中文正文单倍行高、Callout/Details/居中图/代码底色)与 `yanzhi-highlight.theme`(由代码 token 色系生成);设置页可选择用户本地 reference doc |
+| 入口/设置 | ✅ | 原生菜单与编辑器右键均含「导出 Word (.docx)」;设置新增「导出」页(Pandoc 检测/路径/安装说明、reference doc、外链策略 ask/always/never);选择保存位置点击 Save 后立即显示全屏 loading 且至少展示 300ms;无异常仅成功提示,有 warning/降级才弹资源统计与降级报告 |
+| 自动化验证 | ✅ | `pnpm test` **319/319**(含全部 Markdown fixtures → PM → Pandoc AST → Pandoc DOCX),`cargo test` **13/13**(内网 URL 防护/AST 图片替换/Pandoc 实写 DOCX),`pnpm build`、`pnpm tauri build --no-bundle` 通过;浏览器 UI 已验设置页与右键入口 |
+| 手工验收 | ⏳ | 样本见 `docs/DOCX-导出测试文档.md`。macOS/Windows 真机走原生保存对话框导出、外链图片真实网络成功/失败、用户自定义 reference doc、中文路径与空格路径、Windows Pandoc 常见路径 |
 
 ## V2 导出与主题(6.4 批次,2026-10-31)✅ 全部完成
 

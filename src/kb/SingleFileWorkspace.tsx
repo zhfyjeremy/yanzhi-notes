@@ -1,6 +1,7 @@
 import { createPortal } from "react-dom";
 import {
   ChevronDown,
+  CircleCheck,
   Ellipsis,
   FileText,
   FolderInput,
@@ -32,7 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { Editor } from "@tiptap/react";
 import { YanzhiEditor } from "../editor/YanzhiEditor";
-import { EDITOR_COLUMN_MAX } from "../editor/layout";
+import { EDITOR_COLUMN_CLASS } from "../editor/layout";
 import { TocPanel } from "../editor/panel/TocPanel";
 import { StatusBar } from "./StatusBar";
 import type { ShortcutBindings } from "../shortcuts";
@@ -52,6 +53,7 @@ interface SingleFileWorkspaceProps {
   scrollRef: (el: HTMLDivElement | null) => void;
   scrollEl: HTMLDivElement | null;
   showToolbar: boolean;
+  tabIndentSize: number;
   cardBorder: boolean;
   tableCellCopy: boolean;
   onToggleTableCellCopy: () => void;
@@ -60,6 +62,8 @@ interface SingleFileWorkspaceProps {
   shortcuts: ShortcutBindings;
   codeLanguageRecents: string[];
   onCodeLanguageUsed: (language: string) => void;
+  /** 导出当前文档(DOCX) */
+  onExportDocx?: () => void;
   aiReady: boolean;
   aiSession: import("../ai/useAiSession").AiSession;
   onNeedAiSettings: () => void;
@@ -79,7 +83,7 @@ interface SingleFileWorkspaceProps {
   onPickImage: () => Promise<string[] | null>;
   onPickAttachment: () => Promise<{ name: string; href: string }[] | null>;
   onOpenAttachment: (href: string) => void;
-  toast: string | null;
+  toast: { message: string; kind: "info" | "success" | "error" } | null;
   pending: { description: string; nextWindow?: boolean } | null;
   onCancelPending: () => void;
   onSavePending: () => void;
@@ -129,7 +133,7 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
             {!props.focusMode && (
               <header className="w-full shrink-0 px-6 pt-6 pb-3">
                 {/* 两行即可:身份条 + 标题/主操作;低频动作收进「更多」 */}
-                <div className={`mx-auto flex w-full ${EDITOR_COLUMN_MAX} flex-col gap-2.5`}>
+                <div className={`mx-auto flex w-full ${EDITOR_COLUMN_CLASS} flex-col gap-2.5 px-16`}>
                   <div className="flex min-w-0 items-center gap-2 text-[11px]">
                     {/* 工作区切换唯一入口:含最近库直开(原右上「打开知识库 ▾」并入此处) */}
                     <DropdownMenu>
@@ -195,7 +199,7 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
                   </div>
 
                   <div className="flex items-end gap-3">
-                    <h1 className="min-w-0 flex-1 truncate text-[2rem] leading-tight font-semibold tracking-[-0.035em]">
+                    <h1 className="min-w-0 flex-1 truncate text-3xl leading-snug font-semibold tracking-[-0.03em]">
                       {single.fileStem || "未命名文档"}
                     </h1>
                     <div className="mb-1 flex shrink-0 items-center gap-1">
@@ -268,10 +272,12 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
               tableCellCopy={props.tableCellCopy}
               onToggleTableCellCopy={props.onToggleTableCellCopy}
               showToolbar={props.showToolbar && !props.focusMode}
+              tabIndentSize={props.tabIndentSize}
               typewriter={props.focusMode && props.typewriterMode}
               shortcuts={props.shortcuts}
               codeLanguageRecents={props.codeLanguageRecents}
               onCodeLanguageUsed={props.onCodeLanguageUsed}
+              onExportDocx={props.onExportDocx}
               aiReady={props.aiReady}
               aiSession={props.aiSession}
               onNeedAiSettings={props.onNeedAiSettings}
@@ -404,11 +410,18 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
       {props.toast &&
         createPortal(
           <div
-            role="status"
+            role={props.toast.kind === "error" ? "alert" : "status"}
             aria-live="polite"
-            className="bg-popover text-popover-foreground pointer-events-none fixed bottom-10 left-1/2 z-[100] -translate-x-1/2 rounded-md px-3 py-1.5 text-sm shadow-md ring-1 ring-foreground/10"
+            className={`bg-popover text-popover-foreground pointer-events-none fixed bottom-10 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-2 rounded-md px-3 py-1.5 text-sm shadow-md ring-1 ${
+              props.toast.kind === "success"
+                ? "text-[var(--callout-success)] ring-[color-mix(in_oklab,var(--callout-success)_35%,transparent)]"
+                : props.toast.kind === "error"
+                  ? "text-[var(--destructive)] ring-[color-mix(in_oklab,var(--destructive)_35%,transparent)]"
+                  : "ring-foreground/10"
+            }`}
           >
-            {props.toast}
+            {props.toast.kind === "success" && <CircleCheck className="size-4" aria-hidden />}
+            {props.toast.message}
           </div>,
           document.body,
         )}

@@ -22,31 +22,32 @@ export function isDarkMode(): boolean {
     : false;
 }
 
-async function getMermaid(): Promise<Mermaid> {
-  const dark = isDarkMode();
-  if (!mermaidPromise || dark !== currentDark) {
-    const promise = mermaidPromise ?? import("mermaid").then((m) => m.default);
-    mermaidPromise = promise;
-    const mermaid = await promise;
-    // initialize 可重复调用;主题切换时重设(浅 neutral / 深 dark,跟随 design token 体系)
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: "strict",
-      theme: dark ? "dark" : "neutral",
-    });
-    currentDark = dark;
-  }
-  return mermaidPromise;
-}
-
 /** 渲染 mermaid 源码为 svg 字符串;语法错误抛异常(调用方决定展示形态) */
-export function renderMermaid(code: string): Promise<string> {
+export function renderMermaid(code: string, darkOverride?: boolean): Promise<string> {
   seq += 1;
   const id = `yz-mmd-${seq}`;
+  const requestedDark = darkOverride ?? isDarkMode();
   const job = queue.then(async () => {
-    const mermaid = await getMermaid();
-    const { svg } = await mermaid.render(id, code);
-    return svg;
+    if (!mermaidPromise || requestedDark !== currentDark) {
+      const promise = mermaidPromise ?? import("mermaid").then((m) => m.default);
+      mermaidPromise = promise;
+      const mermaid = await promise;
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "strict",
+        theme: requestedDark ? "dark" : "neutral",
+      });
+      currentDark = requestedDark;
+    }
+    const mermaid = await mermaidPromise;
+    try {
+      const { svg } = await mermaid.render(id, code);
+      return svg;
+    } finally {
+      // Mermaid 12 在语法错误时会把 `d<id>` 错误 SVG 容器留在 body 末尾；
+      // 不清理会显示到状态栏下方，且多次失败会不断堆积炸弹错误图。
+      document.getElementById(`d${id}`)?.remove();
+    }
   });
   // 失败不堵队列;job 本身向上抛
   queue = job.catch(() => undefined);

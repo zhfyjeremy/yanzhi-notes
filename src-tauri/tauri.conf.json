@@ -32,7 +32,9 @@
     "targets": "all",
     "resources": {
       "icons/file-icon.ico": "file-icon.ico",
-      "icons/file-icon.icns": "file-icon.icns"
+      "icons/file-icon.icns": "file-icon.icns",
+      "resources/yanzhi-reference.docx": "resources/yanzhi-reference.docx",
+      "resources/yanzhi-highlight.theme": "resources/yanzhi-highlight.theme"
     },
     "macOS": {
       "infoPlist": "Info.plist",

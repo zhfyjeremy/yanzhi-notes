@@ -10,7 +10,6 @@ import {
   TableHeader,
   TableCell,
 } from "@tiptap/extension-table";
-import Placeholder from "@tiptap/extension-placeholder";
 import { markInputRule, markPasteRule } from "@tiptap/core";
 import { WikiLink } from "./extensions/wiki-link";
 import { RawHtml } from "./extensions/raw-html";
@@ -21,6 +20,8 @@ import { Details } from "./extensions/details";
 import { Attachment } from "./extensions/attachment";
 import { MathInline, MathBlock } from "./extensions/math";
 import { FontColor } from "./extensions/font-color";
+import { HeadingShortcuts } from "./extensions/heading-shortcuts";
+import { EmptyDocPlaceholder } from "./extensions/empty-doc-placeholder";
 
 /**
  * 斜体只用 *…*(与序列化一致)。默认 _…_ 粘贴/输入规则会把 `_SPECIAL_LABEL`
@@ -69,6 +70,7 @@ export const baseExtensions = [
   // italic 换 ItalicAsteriskOnly,禁用 _…_ 粘贴/输入规则
   StarterKit.configure({ codeBlock: false, link: false, italic: false }),
   ItalicAsteriskOnly,
+  HeadingShortcuts,
   Link.extend({
     addAttributes() {
       return {
@@ -98,7 +100,7 @@ export const baseExtensions = [
   TableRow,
   TableHeaderAligned,
   TableCellAligned,
-  Placeholder.configure({ placeholder: "开始写作…" }),
+  EmptyDocPlaceholder.configure({ placeholder: "开始写作…" }),
   WikiLink,
   RawHtml,
 ];

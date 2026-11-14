@@ -142,6 +142,17 @@ function normalizeDetails(root: HTMLElement): void {
   }
 }
 
+/** 修复聊天/Markdown 渲染器污染过的 img src: `[https://x](https://x)` → `https://x` */
+const MARKDOWN_LINK_SRC_RE = /^\[[^\]]*\]\((https?:\/\/[^)\s]+)(?:\s+"[^"]*")?\)$/;
+
+function normalizeMarkdownWrappedImageSrc(root: HTMLElement): void {
+  for (const img of [...root.querySelectorAll("img")]) {
+    const src = img.getAttribute("src") ?? "";
+    const match = src.trim().match(MARKDOWN_LINK_SRC_RE);
+    if (match) img.setAttribute("src", match[1]);
+  }
+}
+
 export function cleanPastedHtml(html: string): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
   const root = doc.body;
@@ -177,6 +188,7 @@ export function cleanPastedHtml(html: string): string {
   }
 
   // 6) 链接清洗 + 图片源校验(http(s) 之外不保留:PRD 禁 base64,剪贴板图片文件落盘在 M3)
+  normalizeMarkdownWrappedImageSrc(root);
   for (const a of root.querySelectorAll("a")) {
     const href = a.getAttribute("href");
     if (href == null) continue;

@@ -12,7 +12,8 @@ import {
   FolderPlus,
   House,
   ListChecks,
-  ListTree,
+  MoreHorizontal,
+  Palette,
   PenLine,
   Pin,
   Plus,
@@ -44,6 +45,8 @@ import {
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/hint";
 import { BatchDocActions } from "./BatchDocActions";
+import { IconPickerDialog } from "./IconPickerDialog";
+import { treeIconComponent } from "./tree-icons";
 import { foldersOf, type BatchRenameItem, type BatchResult } from "./batch";
 
 /**
@@ -73,6 +76,10 @@ interface DocTreeProps {
   indexReady: boolean;
   onToggleCollapse: (folderRel: string) => void;
   onSetAllCollapsed: (collapsed: boolean) => void;
+  /** 文件/文档 → 内置图标 ID;未知 ID 渲染层回退默认 */
+  iconMap: Map<string, string>;
+  /** 保存图标偏好(null = 恢复默认) */
+  onSetEntryIcon: (rel: string, isDir: boolean, icon: string | null) => void;
   onOpenDoc: (rel: string) => void;
   onRevealEntry: (rel: string) => void;
   onCreateDoc: (folderRel: string, title: string) => void;
@@ -235,11 +242,22 @@ function listAt(nodes: TreeNode[], parentRel: string): TreeNode[] {
   return [];
 }
 
+function findTreeNode(nodes: TreeNode[], path: string): TreeNode | null {
+  for (const node of nodes) {
+    if (node.path === path) return node;
+    const child = findTreeNode(node.children, path);
+    if (child) return child;
+  }
+  return null;
+}
+
 function TreeRow({
   node,
   depth,
   currentPath,
   collapsed,
+  iconMap,
+  onOpenIconPicker,
   pinnedSet,
   pinned,
   selectedPaths,
@@ -273,6 +291,8 @@ function TreeRow({
   depth: number;
   currentPath: string | null;
   collapsed: Set<string>;
+  iconMap: Map<string, string>;
+  onOpenIconPicker: (node: TreeNode) => void;
   pinnedSet: Set<string>;
   pinned: boolean;
   selectedPaths: Set<string>;
@@ -309,6 +329,10 @@ function TreeRow({
   // 缩进由子树导轨承担,行自身保持同一安全边;深度参数仅继续传给递归组件
   const pad = { paddingLeft: 2 };
   const hint = dropHint?.path === node.path ? dropHint.zone : null;
+  const iconId = iconMap.get(node.path);
+  const CustomIcon = treeIconComponent(iconId);
+  const renderIcon = (fallback: React.ReactNode) =>
+    CustomIcon ? <CustomIcon className="size-3.5" data-tree-icon={iconId} /> : fallback;
   // 置顶行不参与拖拽(永远在组内最上,落位无意义);筛选态全禁
   const noDrag = dragLocked || (pinned && !node.isDir);
   const renaming = renamingPath === node.path;
@@ -327,11 +351,11 @@ function TreeRow({
       >
         {node.isDir ? (
           <span className="text-primary flex size-5 shrink-0 items-center justify-center">
-            <FolderGlyph open className="size-3.5" />
+            {renderIcon(<FolderGlyph open className="size-3.5" />)}
           </span>
         ) : (
           <span className="text-muted-foreground flex size-5 shrink-0 items-center justify-center">
-            <DocGlyph className="size-3.5" />
+            {renderIcon(<DocGlyph className="size-3.5" />)}
           </span>
         )}
         <input
@@ -502,7 +526,7 @@ function TreeRow({
                     isCollapsed ? "text-primary/85" : "text-primary",
                   )}
                 >
-                  <FolderGlyph open={!isCollapsed} className="size-3.5" />
+                  {renderIcon(<FolderGlyph open={!isCollapsed} className="size-3.5" />)}
                 </span>
               </>
             ) : (
@@ -514,7 +538,7 @@ function TreeRow({
                     : "text-muted-foreground group-hover:text-foreground/70",
                 )}
               >
-                <DocGlyph className="size-3.5" />
+                {renderIcon(<DocGlyph className="size-3.5" />)}
               </span>
             )}
             <span className={cn("truncate", (active || node.isDir) && "font-medium")}>{node.name}</span>
@@ -590,6 +614,9 @@ function TreeRow({
             </>
           )}
           <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => onOpenIconPicker(node)}>
+            <Palette /> 更改图标
+          </ContextMenuItem>
           <ContextMenuItem onClick={() => onRevealEntry(node.path)}>
             <FolderOpen /> 在文件管理器中显示
           </ContextMenuItem>
@@ -640,6 +667,8 @@ function TreeRow({
               depth={depth + 1}
               currentPath={currentPath}
               collapsed={collapsed}
+              iconMap={iconMap}
+              onOpenIconPicker={onOpenIconPicker}
               pinnedSet={pinnedSet}
               pinned={pinnedSet.has(child.path)}
               selectedPaths={selectedPaths}
@@ -684,6 +713,8 @@ export function DocTree({
   indexReady,
   onToggleCollapse,
   onSetAllCollapsed,
+  iconMap,
+  onSetEntryIcon,
   onOpenDoc,
   onRevealEntry,
   onCreateDoc,
@@ -724,6 +755,7 @@ export function DocTree({
   const [dropHint, setDropHint] = useState<{ path: string; zone: DropZone } | null>(null);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [revealedPath, setRevealedPath] = useState<string | null>(null);
+  const [iconPickerPath, setIconPickerPath] = useState<string | null>(null);
   // Windows 路径是 `\`,不能只按 `/` 切——否则标题会变成整段 `C:\Users\…`
   const rootName = useMemo(() => {
     const parts = root.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean);
@@ -741,6 +773,9 @@ export function DocTree({
   const selectionAnchor = useRef<string | null>(null);
   const visibleDocs = useMemo(() => visibleDocPaths(tree, collapsed), [tree, collapsed]);
   const allVisibleSelected = visibleDocs.length > 0 && visibleDocs.every((p) => selectedPaths.has(p));
+  const iconPickerNode = iconPickerPath ? findTreeNode(tree, iconPickerPath) : null;
+
+  const openIconPicker = (node: TreeNode) => setIconPickerPath(node.path);
 
   const clearSelection = () => {
     setSelectionMode(false);
@@ -942,14 +977,14 @@ export function DocTree({
               </DropdownMenu>
               <span className="mt-1 flex shrink-0 gap-0.5">
                 <DropdownMenu>
-                  <Hint label="目录显示">
+                  <Hint label="更多目录操作">
                     <DropdownMenuTrigger asChild>
                       <button
                         type="button"
-                        aria-label="目录显示"
+                        aria-label="更多目录操作"
                         className="text-muted-foreground hover:text-foreground hover:bg-hover flex cursor-pointer rounded-md p-1.5"
                       >
-                        <ListTree className="size-4" />
+                        <MoreHorizontal className="size-4" />
                       </button>
                     </DropdownMenuTrigger>
                   </Hint>
@@ -966,18 +1001,12 @@ export function DocTree({
                     >
                       <FoldVertical /> 全部折叠
                     </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={enterSelection}>
+                      <ListChecks /> 进入批量选择
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-                <Hint label="进入批量选择">
-                  <button
-                    type="button"
-                    aria-label="进入批量选择"
-                    className="text-muted-foreground hover:text-foreground hover:bg-hover flex cursor-pointer rounded-md p-1.5"
-                    onClick={enterSelection}
-                  >
-                    <ListChecks className="size-4" />
-                  </button>
-                </Hint>
                 <DropdownMenu>
                   <Hint label="新建">
                     <DropdownMenuTrigger asChild>
@@ -1037,6 +1066,8 @@ export function DocTree({
                   depth={0}
                   currentPath={currentPath}
                   collapsed={collapsed}
+                  iconMap={iconMap}
+                  onOpenIconPicker={openIconPicker}
                   pinnedSet={pinnedSet}
                   pinned={pinnedSet.has(node.path)}
                   selectedPaths={selectedPaths}
@@ -1132,6 +1163,18 @@ export function DocTree({
           )}
         </button>
       </div>
+      <IconPickerDialog
+        open={!!iconPickerNode}
+        onOpenChange={(open) => {
+          if (!open) setIconPickerPath(null);
+        }}
+        targetName={iconPickerNode?.name ?? ""}
+        targetIcon={iconPickerNode ? (iconMap.get(iconPickerNode.path) ?? null) : null}
+        onSelect={(icon) => {
+          if (!iconPickerNode) return;
+          onSetEntryIcon(iconPickerNode.path, iconPickerNode.isDir, icon);
+        }}
+      />
     </aside>
   );
 }

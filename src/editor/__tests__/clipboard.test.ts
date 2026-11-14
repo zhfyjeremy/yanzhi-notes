@@ -37,7 +37,7 @@ describe("inlineStyles(复制为 HTML 的内联样式注入)", () => {
     const html = inlineStyles(toHtml("[[目标]]"));
     const doc = new DOMParser().parseFromString(html, "text/html");
     const wrap = doc.querySelector("div")!;
-    expect(wrap.style.lineHeight).toBe("1.75");
+    expect(wrap.style.lineHeight).toBe("1.6");
     expect(doc.querySelector("a")!.style.color).not.toBe("");
   });
 

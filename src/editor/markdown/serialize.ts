@@ -24,13 +24,17 @@ const MARK_ORDER = [
   "code",
 ];
 
-const ESCAPE_RE = /[\\`*_{}[\]()<>#!|~=]/g;
+const ESCAPE_RE = /[\\`*_{}[\]()<!#|~]/g;
 
 function escapeText(text: string, startOfLine: boolean): string {
   let out = text.replace(ESCAPE_RE, (ch) => `\\${ch}`);
   if (startOfLine) {
     // 行首的列表/分割线形态需要转义;"2.1" 这类非列表数字不转
-    if (/^\d{1,9}[.)](\s|$)/.test(text) || /^[.\-](\s|$)/.test(text)) {
+    if (
+      /^>(\s|$)/.test(text) ||
+      /^\d{1,9}[.)](\s|$)/.test(text) ||
+      /^[.\-](\s|$)/.test(text)
+    ) {
       out = `\\${out}`;
     }
   }
@@ -180,12 +184,13 @@ class MarkdownSerializer {
       this.lines.push(this.currentLine);
       this.currentLine = "";
     }
+    // 行尾只剥 ASCII 空格/Tab;EOF 也不用 \s*(含 NBSP),否则「仅缩进的空段落」会被吃掉
     return (
       this.lines
         .join("\n")
         .replace(/[ \t]+$/gm, "")
         .replace(/\n{3,}/g, "\n\n")
-        .replace(/\s*$/, "") + "\n"
+        .replace(/[ \t\r\n]*$/, "") + "\n"
     );
   }
 

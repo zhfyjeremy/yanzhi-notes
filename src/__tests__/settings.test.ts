@@ -120,13 +120,21 @@ describe("settings 解析(PRD §8)", () => {
   });
   it("V3 阅读参数与自定义主题:逐字段校验并钳制", () => {
     const s = parseSettings(
-      '{"customAccent":"#AABBCC","readerFont":"serif","readerFontSize":99,"readerLineHeight":1.4,"readerParagraphSpacing":0.4}',
+      '{"customAccent":"#AABBCC","readerFont":"serif","readerFontSize":99,"readerLineHeight":1.4,"readerParagraphSpacing":0.4,"editorWidthMode":"fixed","editorWidth":9999,"tabIndentSize":99}',
     );
     expect(s.customAccent).toBe("#aabbcc");
     expect(s.readerFont).toBe("serif");
     expect(s.readerFontSize).toBe(22);
     expect(s.readerLineHeight).toBe(1.4);
     expect(s.readerParagraphSpacing).toBe(0.4);
+    expect(s.editorWidthMode).toBe("fixed");
+    expect(s.editorWidth).toBe(1200);
+    expect(s.tabIndentSize).toBe(8);
+    expect(parseSettings('{"tabIndentSize":0}').tabIndentSize).toBe(1);
+    expect(parseSettings('{"editorWidthMode":"wide","editorWidth":100}')).toMatchObject({
+      editorWidthMode: "adaptive",
+      editorWidth: 600,
+    });
     expect(parseSettings('{"customAccent":"red","readerFont":"mono"}')).toMatchObject({
       customAccent: null,
       readerFont: "default",
@@ -204,6 +212,7 @@ describe("applyTheme 主色覆盖(浅/深两套)", () => {
         readerFontSize: 19,
         readerLineHeight: 1.9,
         readerParagraphSpacing: 1.1,
+        editorWidthMode: "adaptive",
       },
       false,
     );
@@ -213,6 +222,11 @@ describe("applyTheme 主色覆盖(浅/深两套)", () => {
     expect(root.style.getPropertyValue("--editor-paragraph-gap")).toBe("1.1em");
     expect(root.style.getPropertyValue("--editor-font-family")).toContain("Kaiti");
     expect(root.style.getPropertyValue("--primary")).toContain("210.0");
+    expect(root.style.getPropertyValue("--editor-content-max")).toBe("");
+    applyTheme({ ...DEFAULT_SETTINGS, editorWidthMode: "fixed", editorWidth: 940 }, false);
+    expect(root.style.getPropertyValue("--editor-content-max")).toBe("940px");
+    applyTheme({ ...DEFAULT_SETTINGS, editorWidthMode: "adaptive", editorWidth: 940 }, false);
+    expect(root.style.getPropertyValue("--editor-content-max")).toBe("");
   });
 });
 

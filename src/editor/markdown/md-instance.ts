@@ -8,7 +8,8 @@ import MarkdownIt from "markdown-it";
 export const md = new MarkdownIt({
   html: true, // <u>、<details> 等方言 HTML 片段须可解析
   breaks: false,
-  linkify: false,
+  // GFM 裸 URL 自动链接;已有文档里的普通地址打开即成链接,不依赖粘贴时转换
+  linkify: true,
 });
 
 /* 默认 normalizeLink 会把非 ASCII 链接目标百分号编码(中文文档路径重灾),
@@ -44,10 +45,52 @@ md.inline.ruler.before("escape", "yz_math_inline", (state, silent) => {
   return true;
 });
 
+/* 兼容 Obsidian 等编辑器导出的 `https\://…`:转义冒号会阻断 markdown-it linkify,
+ * 这里归一为链接;代码块/行内代码不进 inline 规则,原文不受影响。 */
+md.inline.ruler.before("text", "yz_escaped_autolink", (state, silent) => {
+  const tail = state.src.slice(state.pos);
+
+  // 情况 1:URL 在当前 inline 解析起点(如段落开头/行内规则重入)
+  const directScheme = tail.match(/^https?\\:\/\//i)?.[0];
+  // 情况 2:普通 text rule 先吃掉 scheme,停在反斜杠处;scheme 在 state.pending 末尾
+  const afterScheme = tail.match(/^\\:\/\//i)?.[0];
+  const pendingScheme = state.pending.match(/(https?)$/i)?.[1];
+  if (!directScheme && !(afterScheme && pendingScheme)) return false;
+
+  const escapedTail = afterScheme ?? "";
+  const pendingTailScheme = pendingScheme ?? "";
+  const normalizedTail = directScheme
+    ? tail.replace(/^https?\\:\/\//i, (scheme) => scheme.replace("\\:", ":"))
+    : `${pendingTailScheme}://${tail.slice(escapedTail.length)}`;
+  const match = state.md.linkify
+    .match(normalizedTail)
+    ?.find((item) => item.index === 0 && /^https?:$/.test(item.schema));
+  if (!match) return false;
+
+  const sourceAdvance = directScheme
+    ? match.raw.length + 1
+    : match.raw.length - pendingTailScheme.length + 1;
+  if (!silent) {
+    if (pendingTailScheme && !directScheme) {
+      state.pending = state.pending.slice(0, -pendingTailScheme.length);
+    }
+    const open = state.push("link_open", "a", 1);
+    open.attrSet("href", match.url);
+    const text = state.push("text", "", 0);
+    text.content = match.text;
+    state.push("link_close", "a", -1);
+  }
+  state.pos += sourceAdvance;
+  return true;
+});
+
 /* ==高亮== → <mark>…</mark>
  * 注:高亮内容按纯文本处理(内部不再解析强调),fixtures 锁定该行为 */
 md.inline.ruler.before("emphasis", "yz_highlight", (state, silent) => {
   if (state.src.slice(state.pos, state.pos + 2) !== "==") return false;
+  // `===>` / `======>` 是普通箭头文本,不是 ==高亮== 的开定界符
+  const third = state.src[state.pos + 2];
+  if (third === "=" || third === ">") return false;
   const end = state.src.indexOf("==", state.pos + 2);
   if (end === -1) return false;
   const content = state.src.slice(state.pos + 2, end);

@@ -1,10 +1,13 @@
 import type { Editor } from "@tiptap/react";
 import { useEditorState } from "@tiptap/react";
-import { Fragment } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { CircleAlert, Eye, EyeOff, ListTodo } from "lucide-react";
 import { Hint } from "@/components/hint";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { countDocStats, countWords } from "../editor/word-count";
+
+/** 状态栏统计与键入解耦:Tab/打字先上屏,字数稍后刷,避免同步扫全文抢一帧。 */
+const STATS_DEBOUNCE_MS = 120;
 
 /**
  * 状态栏(PRD §3):自动保存状态、当前文档名、库路径、字数统计(全文/选区)、专注模式入口。
@@ -77,10 +80,24 @@ function taskNavigationState(editor: Editor): {
 }
 
 function TaskProgress({ editor }: { editor: Editor }) {
-  const state = useEditorState({
-    editor,
-    selector: ({ editor }) => taskNavigationState(editor),
-  });
+  const [state, setState] = useState(() => taskNavigationState(editor));
+  useEffect(() => {
+    let timer = 0;
+    const refresh = () => {
+      timer = 0;
+      setState(taskNavigationState(editor));
+    };
+    const schedule = () => {
+      if (timer) return;
+      timer = window.setTimeout(refresh, STATS_DEBOUNCE_MS);
+    };
+    refresh();
+    editor.on("update", schedule);
+    return () => {
+      window.clearTimeout(timer);
+      editor.off("update", schedule);
+    };
+  }, [editor]);
   if (state.total === 0) return null;
   const allDone = state.done === state.total;
   return (
@@ -101,18 +118,29 @@ function TaskProgress({ editor }: { editor: Editor }) {
 }
 
 function WordCount({ editor }: { editor: Editor }) {
-  const { total, selected } = useEditorState({
-    editor,
-    selector: ({ editor }) => {
+  const [total, setTotal] = useState(() => countWords(editor.state.doc.textContent));
+  const [selected, setSelected] = useState<number | null>(null);
+  useEffect(() => {
+    let timer = 0;
+    const refresh = () => {
+      timer = 0;
       const { from, to, empty } = editor.state.selection;
-      return {
-        total: countWords(editor.state.doc.textContent),
-        selected: empty
-          ? null
-          : countWords(editor.state.doc.textBetween(from, to, " ")),
-      };
-    },
-  });
+      setTotal(countWords(editor.state.doc.textContent));
+      setSelected(empty ? null : countWords(editor.state.doc.textBetween(from, to, " ")));
+    };
+    const schedule = () => {
+      if (timer) return;
+      timer = window.setTimeout(refresh, STATS_DEBOUNCE_MS);
+    };
+    refresh();
+    editor.on("update", schedule);
+    editor.on("selectionUpdate", schedule);
+    return () => {
+      window.clearTimeout(timer);
+      editor.off("update", schedule);
+      editor.off("selectionUpdate", schedule);
+    };
+  }, [editor]);
   return (
     <span className="tabular-nums">
       {selected != null ? `${selected}/` : ""}

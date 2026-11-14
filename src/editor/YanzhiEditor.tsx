@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { Editor } from "@tiptap/react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { baseExtensions } from "./extensions";
@@ -30,13 +30,20 @@ import { TableCellCopy } from "./toolbar/TableCellCopy";
 import { WikiLinkSuggestExtension, type WikiDocRef } from "./wiki-link-command";
 import { HeadingBadge } from "./extensions/heading-badge";
 import { MoveBlock } from "./extensions/move-block";
+import { TabIndent, setTabIndentSize } from "./extensions/tab-indent";
 import { handleWikiLinkPaste } from "./wiki-link-paste";
+import { handleImageURLPaste } from "./image-url-paste";
+
+const MarkdownSourceEditor = lazy(() => import("./source-mode/MarkdownSourceEditor"));
+type MarkdownSourceOutlineController = import("./source-mode/MarkdownSourceEditor").MarkdownSourceOutlineController;
+type MarkdownSourceCursorApi = import("./source-mode/MarkdownSourceEditor").MarkdownSourceCursorApi;
+import { mdOffsetToPmPos, pmPosToMdOffset } from "./source-mode/cursor-map";
 import { DEFAULT_SHORTCUTS, shortcutMatches, type ShortcutBindings } from "../shortcuts";
 import { scrollCaretToTypewriterLine } from "./typewriter";
 import { AiChrome } from "../ai/AiChrome";
 import { setCardAiHandler } from "../ai/card-bridge";
 import { SelectionBubble } from "./toolbar/SelectionBubble";
-import { EDITOR_COLUMN_MAX } from "./layout";
+import { EDITOR_COLUMN_CLASS } from "./layout";
 import type { AiSession } from "../ai/useAiSession";
 import { TextSelection } from "@tiptap/pm/state";
 import "./editor.css";
@@ -60,10 +67,12 @@ interface YanzhiEditorProps {
   onReady?: (editor: Editor) => void;
   /** 编辑区滚动容器挂载回调(滚动联动面板消费) */
   scrollContainerRef?: (el: HTMLDivElement | null) => void;
+  /** 源码模式 CodeMirror 挂载/卸载;右侧大纲用它按源码行定位 */
+  onSourceOutlineController?: (controller: MarkdownSourceOutlineController | null) => void;
   /** `[[` 检索文档列表(每次唤起取最新;见 wiki-link-command) */
   wikiDocs?: () => WikiDocRef[];
   /** 点击双链跳转(应用层负责解析目标,未命中提示「目标不存在或已移动」) */
-  onOpenWikiLink?: (target: string) => void;
+  onOpenWikiLink?: (target: string, options?: { newTab?: boolean }) => void;
   /** 粘贴/拖拽图片字节 → assets 落盘,返回可插入 src;由应用层接知识库 */
   onImageFiles?: (files: File[]) => Promise<string[]>;
   /** 斜杠菜单「图片」的文件选择入口(返回 src 列表,取消 null) */
@@ -79,8 +88,18 @@ interface YanzhiEditorProps {
   /**
    * 打开文档后取回上次光标/滚动位置(应用层从内存/meta 取)。
    * 必须在 setContent **之前**取:换文档会重置选区,取晚了只剩起始位置。
+   * 传入即将呈现的文档 path,避免切文档瞬间 currentPath 与正文尚未对齐时读串。
    */
-  getRestoreCursor?: () => { pos: number; scrollTop: number } | null;
+  getRestoreCursor?: (path: string) => { pos: number; scrollTop: number } | null;
+  /** 当前 markdown 所属文档路径;切文档时与 markdown 同步变化,用于恢复点与就绪回调 */
+  contentPath?: string | null;
+  /** 正文已 setContent 并恢复选区后回调;应用层据此才开始把选区记到该 path */
+  onContentReady?: (path: string) => void;
+  /**
+   * 切文档前由应用层调用:立刻把去抖中的最新稿推给 onMarkdownChange。
+   * 必须在 path 切换之前冲刷,否则会把旧正文写进新 path 的 dirty。
+   */
+  flushPendingRef?: MutableRefObject<(() => void) | null>;
   /** §8 编辑器设置:特殊卡片边框;false → 容器挂 yz-flat-cards(边框透明) */
   cardBorder?: boolean;
   /** §8 编辑器:表格单元格悬停复制,默认关 */
@@ -88,6 +107,8 @@ interface YanzhiEditorProps {
   onToggleTableCellCopy?: () => void;
   /** 显示菜单「工具栏」:编辑器顶部格式条,默认显示 */
   showToolbar?: boolean;
+  /** 正文/代码块/源码态按一次 Tab 插入的缩进字符数 */
+  tabIndentSize?: number;
   /**
    * 打字机滚动(专注模式子项):输入/键盘移光标时保持光标在视口中线附近。
    * 由应用层在 focusMode && settings.typewriterMode 时打开。
@@ -101,6 +122,7 @@ interface YanzhiEditorProps {
   /** 导出当前文档(右键菜单「文档」分组) */
   onExportMd?: () => void;
   onExportHtml?: () => void;
+  onExportDocx?: () => void;
   /** AI BYOK(§7.8):总开关开且测试通过后才挂浮动条/右键;/ai 经 session */
   aiReady?: boolean;
   aiSession?: AiSession | null;
@@ -108,13 +130,16 @@ interface YanzhiEditorProps {
 }
 
 /**
- * 恢复上次编辑位置:选区按文档大小夹紧(内容变了会越界),
- * 滚动位置延后一帧设(图片等资源未加载时高度未定,立刻设会偏)。
+ * 恢复上次编辑位置:选区按文档大小夹紧(内容变了会越界)。
+ * 滚动多帧补写:长文 setContent 后图片/代码块 NodeView 会继续撑高,
+ * 只写一帧会被 clamp 到接近顶部,切回就像「没记位置」。
+ * isCurrent 与切文档代数对齐,过期的 rAF 不得改写新文档的 scrollTop。
  */
 function restoreCursor(
   editor: Editor,
   restore: { pos: number; scrollTop: number },
   scrollEl: HTMLElement | null,
+  isCurrent: () => boolean,
 ): void {
   const max = editor.state.doc.content.size;
   const pos = Math.max(0, Math.min(restore.pos, max));
@@ -127,11 +152,19 @@ function restoreCursor(
   } catch {
     /* 位置解析失败就算了,停在文首 */
   }
-  if (scrollEl && restore.scrollTop > 0) {
-    window.requestAnimationFrame(() => {
-      if (scrollEl.isConnected) scrollEl.scrollTop = restore.scrollTop;
-    });
-  }
+  if (!scrollEl) return;
+  const target = Math.max(0, restore.scrollTop);
+  let tries = 0;
+  const applyScroll = () => {
+    if (!isCurrent() || !scrollEl.isConnected) return;
+    scrollEl.scrollTop = target;
+    tries += 1;
+    // 高度未够/仍偏目标就再等一帧,上限约 0.5s
+    if (tries < 30 && Math.abs(scrollEl.scrollTop - target) > 1) {
+      window.requestAnimationFrame(applyScroll);
+    }
+  };
+  window.requestAnimationFrame(applyScroll);
 }
 
 export function YanzhiEditor({
@@ -139,6 +172,7 @@ export function YanzhiEditor({
   onMarkdownChange,
   onReady,
   scrollContainerRef,
+  onSourceOutlineController,
   wikiDocs,
   onOpenWikiLink,
   onImageFiles,
@@ -148,16 +182,21 @@ export function YanzhiEditor({
   onOpenAttachment,
   locateSignal,
   getRestoreCursor,
+  contentPath = null,
+  onContentReady,
+  flushPendingRef,
   cardBorder = true,
   tableCellCopy = false,
   onToggleTableCellCopy,
   showToolbar = true,
+  tabIndentSize = 4,
   typewriter = false,
   shortcuts = DEFAULT_SHORTCUTS,
   codeLanguageRecents = [],
   onCodeLanguageUsed,
   onExportMd,
   onExportHtml,
+  onExportDocx,
   aiReady = false,
   aiSession = null,
   onNeedAiSettings,
@@ -177,6 +216,11 @@ export function YanzhiEditor({
   replaceImageRef.current = onReplaceImage;
   const restoreCursorRef = useRef(getRestoreCursor);
   restoreCursorRef.current = getRestoreCursor;
+  const contentPathRef = useRef(contentPath);
+  contentPathRef.current = contentPath;
+  const onContentReadyRef = useRef(onContentReady);
+  onContentReadyRef.current = onContentReady;
+  const contentLoadSeqRef = useRef(0);
   const pickAttachmentRef = useRef(onPickAttachment);
   pickAttachmentRef.current = onPickAttachment;
   const openAttachmentRef = useRef(onOpenAttachment);
@@ -191,6 +235,144 @@ export function YanzhiEditor({
   };
   const timerRef = useRef<number | undefined>(undefined);
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+  const [sourceMode, setSourceMode] = useState(false);
+  const [sourceDraft, setSourceDraft] = useState(markdown);
+  const [sourceCursor, setSourceCursor] = useState(0);
+  const sourceDraftRef = useRef(markdown);
+  const sourceTimerRef = useRef<number | undefined>(undefined);
+  const sourceModeRef = useRef(false);
+  const sourceCursorApiRef = useRef<MarkdownSourceCursorApi | null>(null);
+  const scrollRestoreFrameRef = useRef<number | undefined>(undefined);
+  const editorRef = useRef<Editor | null>(null);
+
+  // 设置窗即时改 Tab 宽度:更新扩展 storage,不销毁 ProseMirror 实例。
+  useEffect(() => {
+    if (editorRef.current && !editorRef.current.isDestroyed) {
+      setTabIndentSize(editorRef.current, tabIndentSize);
+    }
+  }, [tabIndentSize]);
+
+  /* ---------------- 全文档 Markdown 源码模式 ---------------- */
+
+  const clearSourceTimer = () => window.clearTimeout(sourceTimerRef.current);
+
+  const scheduleSourceSave = (md: string) => {
+    window.clearTimeout(sourceTimerRef.current);
+    sourceTimerRef.current = window.setTimeout(() => onChangeRef.current?.(md), CHANGE_DEBOUNCE_MS);
+  };
+
+  const cancelPendingScrollRestore = () => {
+    if (scrollRestoreFrameRef.current == null) return;
+    window.cancelAnimationFrame(scrollRestoreFrameRef.current);
+  };
+
+  /** 把排版光标滚进外层滚动容器可视区(源码/排版高度不同,优先跟光标而不是比例) */
+  const scrollPmCaretIntoView = (ed: Editor) => {
+    const el = scrollElRef.current;
+    if (!el || ed.isDestroyed) return;
+    try {
+      const coords = ed.view.coordsAtPos(ed.state.selection.from);
+      const box = el.getBoundingClientRect();
+      if (coords.top >= box.top && coords.bottom <= box.bottom) return;
+      const mid = (coords.top + coords.bottom) / 2;
+      el.scrollTop += mid - (box.top + box.height / 2);
+    } catch {
+      /* 位置不可测时忽略 */
+    }
+  };
+
+  /** 光标不在可视区时(只滚没点),用视口中线对应的 PM 位映射源码行 */
+  const mdOffsetForSourceEnter = (ed: Editor): number => {
+    const caret = ed.state.selection.from;
+    const el = scrollElRef.current;
+    if (!el) return pmPosToMdOffset(ed.state.doc, caret);
+    try {
+      const coords = ed.view.coordsAtPos(caret);
+      const box = el.getBoundingClientRect();
+      const visible = coords.top < box.bottom && coords.bottom > box.top;
+      if (visible) return pmPosToMdOffset(ed.state.doc, caret);
+      const hit = ed.view.posAtCoords({
+        left: box.left + box.width / 2,
+        top: box.top + box.height / 2,
+      });
+      if (hit) return pmPosToMdOffset(ed.state.doc, hit.pos);
+    } catch {
+      /* 回落光标 */
+    }
+    return pmPosToMdOffset(ed.state.doc, caret);
+  };
+
+  /** 等 CM 真正挂上再滚;首次 lazy 可能要几十帧 */
+  const scrollSourceCursorWhenReady = (attempt = 0) => {
+    cancelPendingScrollRestore();
+    const api = sourceCursorApiRef.current;
+    if (api) {
+      api.scrollCursorIntoView();
+      return;
+    }
+    if (attempt >= 90) return;
+    scrollRestoreFrameRef.current = window.requestAnimationFrame(() => {
+      scrollSourceCursorWhenReady(attempt + 1);
+    });
+  };
+
+  const enterSourceMode = () => {
+    const ed = editorRef.current;
+    if (!ed || ed.isDestroyed) return;
+    window.clearTimeout(timerRef.current);
+    const md = docToMarkdown(ed.state.doc);
+    const mdPos = mdOffsetForSourceEnter(ed);
+    sourceDraftRef.current = md;
+    setSourceDraft(md);
+    setSourceCursor(mdPos);
+    setFindBar(false);
+    closeFind(ed);
+    sourceModeRef.current = true;
+    setSourceMode(true);
+    scheduleSourceSave(md);
+    scrollSourceCursorWhenReady();
+  };
+
+  const leaveSourceMode = () => {
+    const ed = editorRef.current;
+    if (!ed || ed.isDestroyed) return;
+    // 先读光标再卸源码树,否则 CM 销毁后拿不到位置
+    const mdCursor = sourceCursorApiRef.current?.getCursor() ?? sourceCursor;
+    clearSourceTimer();
+    cancelPendingScrollRestore(); // 取消「等 CM 挂载」的滚动轮询
+    const md = sourceDraftRef.current;
+    onChangeRef.current?.(md);
+    sourceModeRef.current = false;
+    setSourceMode(false);
+    ed.commands.setContent(mdToHtml(md), { emitUpdate: false });
+    const pmPos = mdOffsetToPmPos(ed.state.doc, mdCursor);
+    try {
+      const tr = ed.state.tr
+        .setSelection(TextSelection.near(ed.state.doc.resolve(pmPos)))
+        .setMeta("addToHistory", false);
+      ed.view.dispatch(tr);
+    } catch {
+      /* 解析失败停在 setContent 默认选区 */
+    }
+    cancelPendingScrollRestore();
+    scrollRestoreFrameRef.current = window.requestAnimationFrame(() => {
+      if (ed.isDestroyed) return;
+      ed.view.focus();
+      scrollPmCaretIntoView(ed);
+    });
+  };
+
+  const toggleSourceMode = () => {
+    if (sourceModeRef.current) leaveSourceMode();
+    else enterSourceMode();
+  };
+
+  const updateSourceDraft = (md: string) => {
+    sourceDraftRef.current = md;
+    setSourceDraft(md);
+    scheduleSourceSave(md);
+  };
+
   const [findBar, setFindBar] = useState(false);
   const [replaceRow, setReplaceRow] = useState(false);
 
@@ -198,6 +380,14 @@ export function YanzhiEditor({
   // 用 e.code 判断:macOS Option+F 的 e.key 是特殊字符(ƒ),code 不受影响
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // 源码态的查找条绑定 PM doc,textarea 场景先显式屏蔽,避免打开一个不可见目标。
+      if (
+        sourceModeRef.current &&
+        (shortcutMatches(e, shortcuts.find) || shortcutMatches(e, shortcuts.replace))
+      ) {
+        e.preventDefault();
+        return;
+      }
       if (shortcutMatches(e, shortcuts.replace)) {
         e.preventDefault();
         setFindBar(true);
@@ -206,11 +396,22 @@ export function YanzhiEditor({
         e.preventDefault();
         setFindBar(true);
         setReplaceRow(false);
+      } else if (shortcutMatches(e, "Mod+Slash")) {
+        e.preventDefault();
+        toggleSourceMode();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [shortcuts.find, shortcuts.replace]);
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(sourceTimerRef.current);
+      cancelPendingScrollRestore();
+    },
+    [],
+  );
 
   const editor = useEditor({
     // SlashMenu / WikiLinkSuggest / FindReplace 是 UI 交互插件不贡献 Schema,单独挂载(baseExtensions 保持纯 Schema 集合)
@@ -221,11 +422,12 @@ export function YanzhiEditor({
       FindReplaceExtension,
       HeadingBadge, // 标题层级徽标(视图装饰,不影响 Schema)
       MoveBlock, // ⌘⌥↑/↓ 块级上下移动
+      TabIndent.configure({ indentSize: tabIndentSize }), // 列表/表格之外:Tab/Shift+Tab 缩进文本,不移动焦点
     ],
     // HTML 字符串:编辑器内部 DOMParser 与 markdownToDoc 同一条路径(parse.ts)
     content: mdToHtml(markdown),
     editorProps: {
-      attributes: { class: "yz-editor-doc" },
+      attributes: { class: "yz-editor-doc", spellcheck: "false" },
       // 打字机:接管 PM 默认 scrollIntoView(键入/多数键盘命令会请求),鼠标拖选不走此路径
       handleScrollToSelection: (view) => {
         if (!typewriterRef.current) return false;
@@ -245,6 +447,24 @@ export function YanzhiEditor({
           }
           return false; // 内部拖动(文本/树节点)继续走 PM 自己的 dragover 处理
         },
+        // 单击双链跳转(语雀式);⌘/Ctrl 或中键在新标签页打开。
+        // 放光标可用键盘/拖选进入链接文本,所以不用 handleClick(拿不到修饰键)。
+        click: (view, event) => {
+          const e = event as MouseEvent;
+          if (e.button !== 0 && e.button !== 1) return false;
+          const at = view.posAtCoords({ left: e.clientX, top: e.clientY });
+          if (!at) return false;
+          const mark = view.state.doc
+            .resolve(at.pos)
+            .marks()
+            .find((m) => m.type.name === "wikiLink");
+          if (!mark) return false;
+          e.preventDefault();
+          openWikiRef.current?.(String(mark.attrs.target ?? ""), {
+            newTab: e.button === 1 || e.metaKey || e.ctrlKey,
+          });
+          return true;
+        },
       },
       // 粘贴清洗(PRD §5.7):微信/网页/Word HTML 先洗干净再进 schema
       transformPastedHTML: cleanPastedHtml,
@@ -252,10 +472,13 @@ export function YanzhiEditor({
       handlePaste: (view, event) => {
         if (handleWikiLinkPaste(view, event)) return true;
         const files = imageFilesOf(event.clipboardData?.files);
-        if (!files.length || !imageFilesRef.current) return false;
-        event.preventDefault();
-        void imageFilesRef.current(files);
-        return true;
+        if (files.length && imageFilesRef.current) {
+          event.preventDefault();
+          void imageFilesRef.current(files);
+          return true;
+        }
+        // 复制“图片地址”通常是纯文本 URL;不拦截会被 Link 扩展变成普通链接
+        return handleImageURLPaste(view, event);
       },
       // 拖入图片文件(moved=true 是编辑器内部拖动文本,不拦)
       handleDrop: (_view, event, _slice, moved) => {
@@ -278,16 +501,6 @@ export function YanzhiEditor({
         void imageFilesRef.current(files);
         return true;
       },
-      // 单击双链跳转(语雀式);放光标可用键盘/拖选进入链接文本
-      handleClick: (view, pos) => {
-        const mark = view.state.doc
-          .resolve(pos)
-          .marks()
-          .find((m) => m.type.name === "wikiLink");
-        if (!mark) return false;
-        openWikiRef.current?.(String(mark.attrs.target ?? ""));
-        return true;
-      },
     },
     onUpdate: ({ editor }) => {
       window.clearTimeout(timerRef.current);
@@ -296,6 +509,8 @@ export function YanzhiEditor({
       }, CHANGE_DEBOUNCE_MS);
     },
   });
+
+  editorRef.current = editor;
 
   /**
    * 点到正文列左右/上下留白时补聚焦(正文/链接/按钮仍走 PM 默认)。
@@ -415,28 +630,102 @@ export function YanzhiEditor({
     return () => window.cancelAnimationFrame(id);
   }, [editor, typewriter]);
 
-  // 外部内容切换(知识库 openDoc):markdown prop 变化 → 重载编辑器。
-  // setContent 默认 emitUpdate:false,不会回灌 onMarkdownChange;同时收起查找条。
-  // 派发挪进微任务:setContent 挂载 React NodeView(代码块/图片卡片)时 Tiptap
-  // 内部走 flushSync,effect 里同步调会触发 React「lifecycle 里 flushSync」警告
-  const lastLoadedRef = useRef(markdown);
+  // 切文档前冲刷去抖中的最新稿(由 App 在改 path 之前调用)
   useEffect(() => {
-    if (!editor || markdown === lastLoadedRef.current) return;
+    if (!flushPendingRef) return;
+    flushPendingRef.current = () => {
+      window.clearTimeout(timerRef.current);
+      window.clearTimeout(sourceTimerRef.current);
+      if (sourceModeRef.current) {
+        onChangeRef.current?.(sourceDraftRef.current);
+        return;
+      }
+      const ed = editorRef.current;
+      if (ed && !ed.isDestroyed) onChangeRef.current?.(docToMarkdown(ed.state.doc));
+    };
+    return () => {
+      flushPendingRef.current = null;
+    };
+  }, [flushPendingRef]);
+
+  // 外部内容切换(知识库 openDoc):markdown prop 变化 → 重载编辑器。
+  // 显式 emitUpdate:false,避免换文回灌 onMarkdownChange;同时收起查找条。
+  // 派发挪进微任务:setContent 挂载 React NodeView(代码块/图片卡片)时 Tiptap
+  // 内部走 flushSync,effect 里同步调会触发 React「lifecycle 里 flushSync」警告。
+  // 去抖冲刷必须在 path 切换前完成(见 flushPendingRef);这里只丢弃定时器,避免旧稿回灌。
+  const lastLoadedRef = useRef(markdown);
+  const lastLoadedPathRef = useRef<string | null | undefined>(contentPath);
+  useEffect(() => {
+    if (!editor) return;
+    // 同正文不同文档也要换载(空文档互切时 markdown 字面量相同)
+    if (markdown === lastLoadedRef.current && contentPath === lastLoadedPathRef.current) return;
+    const path = contentPath;
+    window.clearTimeout(timerRef.current);
+    window.clearTimeout(sourceTimerRef.current);
     lastLoadedRef.current = markdown;
-    queueMicrotask(() => {
-      if (editor.isDestroyed) return;
+    lastLoadedPathRef.current = path;
+    // 按即将呈现的 path 取恢复点(不要用「调用瞬间的 currentPath」闭包)
+    const restore = path ? (restoreCursorRef.current?.(path) ?? null) : null;
+    const seq = ++contentLoadSeqRef.current;
+    sourceDraftRef.current = markdown;
+    setSourceDraft(markdown);
+    // 先让出一帧画目录树高亮,再 mdToHtml + setContent。
+    // 长文主耗时在 setContent(React NodeView 同步挂载);高亮语言已改懒加载,不进这条关键路径。
+    window.requestAnimationFrame(() => {
+      if (editor.isDestroyed || seq !== contentLoadSeqRef.current) return;
       setFindBar(false);
       closeFind(editor);
-      // 先取恢复点再换内容:setContent 会把选区重置到文首
-      const restore = restoreCursorRef.current?.() ?? null;
-      editor.commands.setContent(mdToHtml(markdown));
-      if (restore) restoreCursor(editor, restore, scrollElRef.current);
+      const html = mdToHtml(markdown);
+      // emitUpdate:false:换文本身不进 onUpdate;选区在下一行手动恢复
+      editor.commands.setContent(html, { emitUpdate: false });
+      if (restore) {
+        restoreCursor(editor, restore, scrollElRef.current, () => seq === contentLoadSeqRef.current);
+      } else if (scrollElRef.current) {
+        const el = scrollElRef.current;
+        window.requestAnimationFrame(() => {
+          if (seq !== contentLoadSeqRef.current || !el.isConnected) return;
+          el.scrollTop = 0;
+        });
+      }
+      if (path) onContentReadyRef.current?.(path);
+      // 切文档后焦点落到正文;preventScroll 避免冲掉刚恢复的 scrollTop
+      window.requestAnimationFrame(() => {
+        if (editor.isDestroyed || seq !== contentLoadSeqRef.current) return;
+        if (sourceModeRef.current) {
+          sourceCursorApiRef.current?.focus();
+          return;
+        }
+        editor.view.focus();
+        // focus 后若仍有目标滚动,再补一帧(selectionToDOM 偶发带动外层滚动)
+        if (restore && scrollElRef.current) {
+          const el = scrollElRef.current;
+          const target = Math.max(0, restore.scrollTop);
+          window.requestAnimationFrame(() => {
+            if (seq !== contentLoadSeqRef.current || !el.isConnected) return;
+            if (Math.abs(el.scrollTop - target) > 1) el.scrollTop = target;
+          });
+        }
+      });
     });
-  }, [editor, markdown]);
+  }, [editor, markdown, contentPath]);
+
+  // 首篇挂载:useEditor 已带上 content,不会走上面的换文微任务
+  const didInitialReadyRef = useRef(false);
+  useEffect(() => {
+    if (!editor || !contentPath || didInitialReadyRef.current) return;
+    didInitialReadyRef.current = true;
+    onContentReadyRef.current?.(contentPath);
+    window.requestAnimationFrame(() => {
+      if (editor.isDestroyed) return;
+      editor.view.focus();
+    });
+  }, [editor, contentPath]);
 
   return (
     <div className={`flex min-h-0 flex-1 flex-col${cardBorder ? "" : " yz-flat-cards"}`}>
-      {editor && showToolbar && <EditorToolbar editor={editor} />}
+      {editor && showToolbar && (
+        <EditorToolbar editor={editor} sourceMode={sourceMode} onToggleSource={toggleSourceMode} />
+      )}
       {editor && findBar && (
         <FindReplaceBar
           editor={editor}
@@ -452,16 +741,16 @@ export function YanzhiEditor({
         {/* relative 是 TableToolbar/ImageToolbar/AiChrome 浮层的定位锚;
             打字机加大上下留白,首行/文末也能滚到视口中线 */}
         <div
-          className={`relative mx-auto flex w-full ${EDITOR_COLUMN_MAX} flex-1 flex-col px-16 ${
-            typewriter ? "pt-[42vh] pb-[58vh]" : "pt-10 pb-24"
+          className={`relative mx-auto flex w-full ${EDITOR_COLUMN_CLASS} flex-1 flex-col px-16 ${
+            typewriter && !sourceMode ? "pt-[42vh] pb-[58vh]" : "pt-5 pb-24"
           }`}
           onMouseDown={focusEditorFromBlankArea}
         >
           {editor ? (
             <>
               {/* 统一右键菜单(外层)+ 表格单元格菜单(内层):
-                  表格菜单先 preventDefault → 外层菜单不弹;反之外层接管并拦掉浏览器默认菜单。
-                  contents 包装只为把触发器落到真实 DOM 上(display:contents 不产生盒子,不影响布局) */}
+                  表格菜单先 preventDefault → 外层接管并拦掉浏览器默认菜单。
+                  源码态只隐藏同一棵 PM 编辑器树,避免切换时重挂载导致滚动被钳到顶部。 */}
               <EditorContextMenu
                 editor={editor}
                 aiSession={aiSession}
@@ -469,24 +758,45 @@ export function YanzhiEditor({
                 onNeedAiSettings={onNeedAiSettings}
                 onExportMd={onExportMd}
                 onExportHtml={onExportHtml}
+                onExportDocx={onExportDocx}
               >
-                <div className="contents">
+                <div className={sourceMode ? "hidden" : "contents"}>
                   <TableContextMenu editor={editor}>
                     <EditorContent editor={editor} className="flex flex-1 flex-col" />
                   </TableContextMenu>
                 </div>
               </EditorContextMenu>
-              <TableToolbar
-                editor={editor}
-                cellCopy={tableCellCopy}
-                onToggleCellCopy={onToggleTableCellCopy}
-              />
+              {!sourceMode && (
+                <TableToolbar
+                  editor={editor}
+                  cellCopy={tableCellCopy}
+                  onToggleCellCopy={onToggleTableCellCopy}
+                />
+              )}
+              {sourceMode && (
+                <Suspense
+                  fallback={
+                    <div className="text-muted-foreground min-h-16 py-1 font-mono text-sm">
+                      加载源码模式…
+                    </div>
+                  }
+                >
+                  <MarkdownSourceEditor
+                    value={sourceDraft}
+                    indentSize={tabIndentSize}
+                    initialCursor={sourceCursor}
+                    onChange={updateSourceDraft}
+                    onOutlineController={onSourceOutlineController}
+                    cursorApiRef={sourceCursorApiRef}
+                  />
+                </Suspense>
+              )}
             </>
           ) : (
             <EditorContent editor={editor} className="flex flex-1 flex-col" />
           )}
-          {editor && <TableCellCopy editor={editor} enabled={tableCellCopy} />}
-          {editor && (
+          {editor && !sourceMode && <TableCellCopy editor={editor} enabled={tableCellCopy} />}
+          {editor && !sourceMode && (
             <ImageToolbar
               editor={editor}
               onPreview={setPreviewSrc}
@@ -497,7 +807,7 @@ export function YanzhiEditor({
               }
             />
           )}
-          {editor && (
+          {editor && !sourceMode && (
             <SelectionBubble
               editor={editor}
               ai={
@@ -507,7 +817,7 @@ export function YanzhiEditor({
               }
             />
           )}
-          {editor && aiSession && (
+          {editor && !sourceMode && aiSession && (
             <AiChrome
               editor={editor}
               session={aiSession}

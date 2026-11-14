@@ -17,12 +17,15 @@ export type ThemeMode = "system" | "light" | "dark";
 /** §8 通用-启动:last = 直开上次的知识库(5.0.4 默认);welcome = 总是先看欢迎页 */
 export type LaunchMode = "last" | "welcome";
 export type ReaderFont = "default" | "serif" | "kai";
+/** 正文列宽:adaptive 保持现有 48/56rem 断点;fixed 使用用户设定 */
+export type EditorWidthMode = "adaptive" | "fixed";
 
 /**
  * 壳层 UI 风格(外观):只改工作区面板怎么摆,不改 Markdown / token 色源。
  * card = 浮卡台面(圆角+阴影+留白);flat = 线框平铺(贴边+发丝分隔)。
  */
 export type UiStyle = "card" | "flat";
+export type DocxRemoteImageMode = "ask" | "always" | "never";
 
 /** 主色预设(§12:仅覆盖主色系 token,浅/深两套;自定义色值仍 V3)。
  *  accent 系是「主色相的浅灰底/深字」(hover 态),跟随色相走 */
@@ -260,13 +263,19 @@ export interface AppSettings {
   readerFontSize: number;
   readerLineHeight: number;
   readerParagraphSpacing: number;
+  /** 正文列宽模式;默认随窗口使用现有断点 */
+  editorWidthMode: EditorWidthMode;
+  /** fixed 模式下的正文内容宽度(不含左右留白);adaptive 下作为下次切换初始值 */
+  editorWidth: number;
   /** §8 编辑器设置:特殊卡片(代码块/表格/图片)显示边框,默认开 */
   cardBorder: boolean;
   /** §8 编辑器:表格单元格悬停显示复制按钮,默认关(账号/口令类表才需要) */
   tableCellCopy: boolean;
   /** §8 编辑器:打字机滚动(专注模式子项),默认关;仅专注模式下生效 */
   typewriterMode: boolean;
-  /** §8 图片:粘贴自动压缩(WebP 质量 85),默认开 */
+  /** 正文普通文本/代码块与 Markdown 源码态按一次 Tab 插入的缩进字符数 */
+  tabIndentSize: number;
+  /** §8 图片:粘贴自动压缩(无透明 JPG q85 / 有透明 PNG),默认开 */
   imageCompress: boolean;
   /** §8 通用:启动时直开上次库(默认,5.0.4-1)或显示欢迎页 */
   launch: LaunchMode;
@@ -291,6 +300,13 @@ export interface AppSettings {
   recentDocs: Record<string, string[]>;
   /** 代码块语言选择的最近使用项(最多 5 个) */
   recentCodeLanguages: string[];
+  /* ---- DOCX 导出(PRD 5.6;Pandoc 为用户自装外部工具) ---- */
+  /** 手动指定的 pandoc 路径;null = 自动检测 PATH / 常见安装位置 */
+  pandocPath: string | null;
+  /** 用户自定义 Word reference doc;null = 使用内置模板 */
+  docxReferencePath: string | null;
+  /** 外链图片导出策略:ask = 每次询问,always = 总是下载嵌入,never = 降级链接 */
+  docxRemoteImageMode: DocxRemoteImageMode;
   /* ---- AI 助手 BYOK(§7.8);Key 不进本结构,走安全存储 ---- */
   /** 总开关,默认关;关则隐藏编辑器 AI 入口 */
   aiEnabled: boolean;
@@ -314,11 +330,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   customAccent: null,
   readerFont: "default",
   readerFontSize: 16,
-  readerLineHeight: 1.75,
+  readerLineHeight: 1.6,
   readerParagraphSpacing: 0.75,
+  editorWidthMode: "adaptive",
+  editorWidth: 800,
   cardBorder: true,
   tableCellCopy: false,
   typewriterMode: false,
+  tabIndentSize: 4,
   imageCompress: true,
   launch: "last",
   closeToTray: false,
@@ -333,6 +352,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   shortcuts: { ...DEFAULT_SHORTCUTS },
   recentDocs: {},
   recentCodeLanguages: [],
+  pandocPath: null,
+  docxReferencePath: null,
+  docxRemoteImageMode: "ask",
   aiEnabled: false,
   aiProvider: "custom",
   aiBaseUrl: "https://api.openai.com/v1",
@@ -354,6 +376,8 @@ const clampNumber = (v: unknown, dflt: number, min: number, max: number): number
 const THEME_MODES: readonly ThemeMode[] = ["system", "light", "dark"];
 const UI_STYLES: readonly UiStyle[] = ["card", "flat"];
 const READER_FONTS: readonly ReaderFont[] = ["default", "serif", "kai"];
+const EDITOR_WIDTH_MODES: readonly EditorWidthMode[] = ["adaptive", "fixed"];
+const DOCX_REMOTE_IMAGE_MODES: readonly DocxRemoteImageMode[] = ["ask", "always", "never"];
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 const stringList = (value: unknown, max: number): string[] => {
@@ -396,11 +420,16 @@ export function parseSettings(raw: string): AppSettings {
         ? (v.readerFont as ReaderFont)
         : "default",
       readerFontSize: clampInt(v?.readerFontSize, 16, 13, 22),
-      readerLineHeight: clampNumber(v?.readerLineHeight, 1.75, 1.3, 2.2),
+      readerLineHeight: clampNumber(v?.readerLineHeight, 1.6, 1.3, 2.2),
       readerParagraphSpacing: clampNumber(v?.readerParagraphSpacing, 0.75, 0.2, 1.6),
+      editorWidthMode: EDITOR_WIDTH_MODES.includes(v?.editorWidthMode as EditorWidthMode)
+        ? (v.editorWidthMode as EditorWidthMode)
+        : "adaptive",
+      editorWidth: clampInt(v?.editorWidth, 800, 600, 1200),
       cardBorder: typeof v?.cardBorder === "boolean" ? v.cardBorder : true,
       tableCellCopy: typeof v?.tableCellCopy === "boolean" ? v.tableCellCopy : false,
       typewriterMode: typeof v?.typewriterMode === "boolean" ? v.typewriterMode : false,
+      tabIndentSize: clampInt(v?.tabIndentSize, 4, 1, 8),
       imageCompress: typeof v?.imageCompress === "boolean" ? v.imageCompress : true,
       launch: v?.launch === "welcome" ? "welcome" : "last",
       closeToTray: typeof v?.closeToTray === "boolean" ? v.closeToTray : false,
@@ -415,6 +444,14 @@ export function parseSettings(raw: string): AppSettings {
       shortcuts: normalizeShortcutBindings(v?.shortcuts),
       recentDocs: recentDocsMap(v?.recentDocs),
       recentCodeLanguages: stringList(v?.recentCodeLanguages, 5),
+      pandocPath: typeof v?.pandocPath === "string" && v.pandocPath.trim() ? v.pandocPath.trim() : null,
+      docxReferencePath:
+        typeof v?.docxReferencePath === "string" && v.docxReferencePath.trim()
+          ? v.docxReferencePath.trim()
+          : null,
+      docxRemoteImageMode: DOCX_REMOTE_IMAGE_MODES.includes(v?.docxRemoteImageMode as DocxRemoteImageMode)
+        ? (v.docxRemoteImageMode as DocxRemoteImageMode)
+        : "ask",
       aiEnabled: typeof v?.aiEnabled === "boolean" ? v.aiEnabled : false,
       aiBaseUrl: (() => {
         const raw =
@@ -525,6 +562,8 @@ export function applyTheme(
     | "readerFontSize"
     | "readerLineHeight"
     | "readerParagraphSpacing"
+    | "editorWidthMode"
+    | "editorWidth"
   >,
   systemDark: boolean,
 ): void {
@@ -556,6 +595,12 @@ export function applyTheme(
   root.style.setProperty("--editor-font-size", `${s.readerFontSize}px`);
   root.style.setProperty("--editor-line-height", String(s.readerLineHeight));
   root.style.setProperty("--editor-paragraph-gap", `${s.readerParagraphSpacing}em`);
+  // adaptive 不能留 inline 覆盖,否则 editor.css 的 1600px 断点永远失效
+  if (s.editorWidthMode === "fixed") {
+    root.style.setProperty("--editor-content-max", `${s.editorWidth}px`);
+  } else {
+    root.style.removeProperty("--editor-content-max");
+  }
 }
 
 const systemDark = (): boolean => window.matchMedia("(prefers-color-scheme: dark)").matches;

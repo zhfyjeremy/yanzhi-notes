@@ -83,6 +83,14 @@ describe("cleanPastedHtml:链接与图片", () => {
     expect(out).toContain("点我");
   });
 
+  it("修复被 Markdown 链接语法包住的 img src", () => {
+    const out = cleanPastedHtml(
+      `<p><img src="[https://e.com/a.png](https://e.com/a.png)" style="width:200px"></p>`,
+    );
+    expect(out).toContain(`<img src="https://e.com/a.png"`);
+    expect(out).not.toContain("width:200px");
+  });
+
   it("http 图片保留,data:/blob: 图片删除(禁 base64,落盘 M3)", () => {
     const out = cleanPastedHtml(
       `<p><img src="https://e.com/a.png" alt="图"><img src="data:image/png;base64,xxx"><img src="blob:xx"></p>`,

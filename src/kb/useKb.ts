@@ -2,6 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { KbConflictError, KbIsYanzhiError, KbNotEmptyError, kbBackend } from "./backend";
 import { parseSettings, type AppSettings } from "../settings";
 import type { HistoryEntry, RecentState, TreeNode, TrashEntry } from "./types";
+import {
+  closeOtherTabs,
+  closeTab,
+  closeTabsToLeft,
+  closeTabsToRight,
+  openInTabs,
+  parseWorkspace,
+  pruneTabs,
+  reorderTabs,
+  restoreTabs,
+  rewriteTabPaths,
+  workspaceOf,
+  type DocTab,
+} from "./doc-tabs";
 import { WikiRefIndex, type BacklinkRow } from "./backlinks";
 import { flattenDocs, resolveWikiTarget } from "./wiki-refs";
 import {
@@ -21,6 +35,7 @@ import {
   rewriteTreePaths,
   serializeMeta,
   setCollapsed as metaSetCollapsed,
+  setEntryIcon,
   setDocPinned,
   setDocTags,
   setFoldersCollapsed,
@@ -90,6 +105,7 @@ function topLevelTrashCount(entries: TrashEntry[]): number {
 
 export function useKb(settings: AppSettings) {
   const [booted, setBooted] = useState(false);
+  const [openingKb, setOpeningKb] = useState(false);
   const [kbRoot, setKbRoot] = useState<string | null>(null);
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [currentPath, setCurrentPath] = useState<string | null>(null);
@@ -98,9 +114,11 @@ export function useKb(settings: AppSettings) {
   const [savedAt, setSavedAt] = useState("");
   const [recent, setRecent] = useState<RecentState>({ last: null, recent: [] });
   const [bootError, setBootError] = useState<string | null>(null);
-  // 浏览历史(双链跳转/树点击的前进后退):栈存 ref,can* 存 state 驱动按钮禁用态
-  const backRef = useRef<string[]>([]);
-  const frontRef = useRef<string[]>([]);
+  // 文档标签页:tab 只存路径;前进/后退历史属于 active tab,切换 tab 不互串
+  const [tabs, setTabs] = useState<DocTab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const tabsRef = useRef<DocTab[]>([]);
+  const activeTabIdRef = useRef<string | null>(null);
   const [canBack, setCanBack] = useState(false);
   const [canFront, setCanFront] = useState(false);
   // meta(排序/折叠)与搜索索引
@@ -125,6 +143,25 @@ export function useKb(settings: AppSettings) {
   // 不能用 markdown state 兜底——flushSave 不 setMarkdown(prop 变化会整体重载
   // 编辑器),编辑后闲置 2s dirty 清空,state 仍停在 openDoc 版本(导出/快照会拿旧文)
   const savedMdRef = useRef<string>(markdown);
+  /** 已打开文档的正文缓存:切 tab 命中则免 readDoc,手感明显更顺 */
+  const docCacheRef = useRef(new Map<string, string>());
+  const rewriteDocCache = (oldRel: string, newRel: string) => {
+    const next = new Map<string, string>();
+    for (const [k, v] of docCacheRef.current) {
+      next.set(k === oldRel ? newRel : k.startsWith(oldRel + "/") ? newRel + k.slice(oldRel.length) : k, v);
+    }
+    docCacheRef.current = next;
+  };
+  const dropDocCache = (rel: string) => {
+    const next = new Map<string, string>();
+    for (const [k, v] of docCacheRef.current) {
+      if (k === rel || k.startsWith(rel + "/")) continue;
+      next.set(k, v);
+    }
+    docCacheRef.current = next;
+  };
+  /** 切文档前由 App 注册:冲刷编辑器去抖中的最新稿到 dirtyRef */
+  const beforeSwitchRef = useRef<(() => void) | null>(null);
   const saveTimer = useRef<number | undefined>(undefined);
   const rootRef = useRef<string | null>(null);
   const pathRef = useRef<string | null>(null);
@@ -165,17 +202,18 @@ export function useKb(settings: AppSettings) {
   }, []);
 
   const syncNav = () => {
-    setCanBack(backRef.current.length > 0);
-    setCanFront(frontRef.current.length > 0);
+    const active = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current);
+    setCanBack(!!active?.back.length);
+    setCanFront(!!active?.front.length);
   };
 
-  const flushSave = useCallback(async () => {
+  const flushSave = useCallback(async (): Promise<boolean> => {
     window.clearTimeout(saveTimer.current);
     const content = dirtyRef.current;
-    if (content == null) return;
+    if (content == null) return true;
     const root = rootRef.current;
     const rel = pathRef.current;
-    if (!root || !rel) return;
+    if (!root || !rel) return false;
     dirtyRef.current = null;
     setSaveState("saving");
     try {
@@ -183,6 +221,7 @@ export function useKb(settings: AppSettings) {
       await kbBackend.writeDoc(root, rel, content);
       setSaveState("saved");
       savedMdRef.current = content;
+      docCacheRef.current.set(rel, content);
       searchRef.current.add(rel, content, metaRef.current.docs[rel]?.tags); // 保存时增量更新索引(5.5.3)
       wikiRefIdx.current.update(rel, content); // 出链随内容变(反向链接即时反映)
       bumpRefs();
@@ -191,24 +230,80 @@ export function useKb(settings: AppSettings) {
       setSavedAt(
         `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`,
       );
+      return true;
     } catch (e) {
       // 落盘失败:内容留在 dirty,下轮再试
       dirtyRef.current = content;
       setSaveState("error");
       console.error("[kb] 自动保存失败:", e);
+      return false;
     }
+  }, []);
+
+  /**
+   * 后台落盘指定文档(切 tab 不阻塞 UI)。失败时把内容放回 dirty 并标 error,
+   * 若仍停在该文档则下次 flush 会重试;已切走则 cache 里仍保留最新稿。
+   */
+  const writeDocBackground = useCallback((rel: string, content: string) => {
+    const root = rootRef.current;
+    if (!root) return;
+    docCacheRef.current.set(rel, content);
+    setSaveState("saving");
+    markSelfWrite();
+    void kbBackend
+      .writeDoc(root, rel, content)
+      .then(() => {
+        if (pathRef.current === rel) {
+          savedMdRef.current = content;
+          setSaveState("saved");
+          const now = new Date();
+          setSavedAt(
+            `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`,
+          );
+        }
+        searchRef.current.add(rel, content, metaRef.current.docs[rel]?.tags);
+        wikiRefIdx.current.update(rel, content);
+        bumpRefs();
+        void maybeAutoSnapshot(rel, content);
+      })
+      .catch((e) => {
+        console.error("[kb] 后台保存失败:", e);
+        docCacheRef.current.set(rel, content);
+        if (pathRef.current === rel) {
+          dirtyRef.current = content;
+          setSaveState("error");
+        }
+      });
   }, []);
 
   /** 编辑器内容变更(编辑器内已 300ms 去抖):挂起 2s 落盘 */
   const onMarkdownChange = useCallback(
     (md: string) => {
       dirtyRef.current = md;
+      const rel = pathRef.current;
+      if (rel) docCacheRef.current.set(rel, md);
       setSaveState("dirty");
       window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(() => void flushSave(), AUTOSAVE_MS);
     },
     [flushSave],
   );
+
+  /** App 注册:切文档前冲刷编辑器去抖稿 */
+  const setBeforeSwitch = useCallback((fn: (() => void) | null) => {
+    beforeSwitchRef.current = fn;
+  }, []);
+
+  /** 切走前:冲刷去抖 → 若有未保存稿则后台写盘(不 await) */
+  const prepareSwitch = useCallback(() => {
+    beforeSwitchRef.current?.();
+    window.clearTimeout(saveTimer.current);
+    const content = dirtyRef.current;
+    const rel = pathRef.current;
+    if (content == null || !rel) return;
+    dirtyRef.current = null;
+    writeDocBackground(rel, content);
+  }, [writeDocBackground]);
 
   /** 当前最新正文(dirty 优先,落盘版兜底;导出/复制/快照等即时消费用,不等落盘) */
   const getMarkdownNow = useCallback((): string => dirtyRef.current ?? savedMdRef.current, []);
@@ -336,75 +431,229 @@ export function useKb(settings: AppSettings) {
   }, []);
 
   /** 读取并呈现文档(不动历史栈);openDoc/navBack/navForward 共用。
-   *  读取失败(被外部删除/权限)置 docError 供上层 toast,返回 false */
+   *  读取失败(被外部删除/权限)置 docError 供上层 toast,返回 false。
+   *  优先走内存缓存,已打开过的 tab 切回去不打 readDoc。 */
   const [docError, setDocError] = useState<string | null>(null);
-  const loadDoc = useCallback(async (rel: string): Promise<boolean> => {
-    const root = rootRef.current;
-    if (!root) return false;
-    try {
-      const content = await kbBackend.readDoc(root, rel);
-      dirtyRef.current = null;
-      pathRef.current = rel; // 同步写 ref:await 后立刻可读,不等重渲染
-      setCurrentPath(rel);
-      setMarkdown(content);
-      savedMdRef.current = content;
-      setSaveState("saved");
-      setDocError(null);
+  const presentDoc = useCallback((rel: string, content: string, saveStateNext: SaveState = "saved") => {
+    dirtyRef.current = saveStateNext === "dirty" ? content : null;
+    pathRef.current = rel; // 同步写 ref:立刻可读,不等重渲染
+    setCurrentPath(rel);
+    setMarkdown(content);
+    savedMdRef.current = content;
+    docCacheRef.current.set(rel, content);
+    setSaveState(saveStateNext);
+    setDocError(null);
+    // 搜索/双链索引更新挪出关键路径:长文 tokenize 不挡首帧高亮与 setContent
+    queueMicrotask(() => {
+      if (pathRef.current !== rel) return;
       if (searchRef.current.size > 0) searchRef.current.add(rel, content, metaRef.current.docs[rel]?.tags);
       wikiRefIdx.current.update(rel, content);
-      kbBackend.setLastDoc(rel).catch(() => {});
+    });
+    kbBackend.setLastDoc(rel).catch(() => {});
+  }, []);
+
+  const loadDoc = useCallback(async (rel: string, opts?: { bypassCache?: boolean }): Promise<boolean> => {
+    const root = rootRef.current;
+    if (!root) return false;
+    if (!opts?.bypassCache) {
+      const cached = docCacheRef.current.get(rel);
+      if (cached != null) {
+        presentDoc(rel, cached);
+        return true;
+      }
+    }
+    try {
+      const content = await kbBackend.readDoc(root, rel);
+      presentDoc(rel, content);
       return true;
     } catch (e) {
       console.error("[kb] 打开文档失败:", e);
       setDocError(rel);
       return false;
     }
+  }, [presentDoc]);
+
+  /** 应用 tab 状态并同步持久化;root 未就绪时只更新内存(开库恢复用) */
+  const applyTabs = useCallback(
+    (next: { tabs: DocTab[]; activeId: string | null; changed: boolean }, persist = true) => {
+      if (!next.changed) return;
+      tabsRef.current = next.tabs;
+      activeTabIdRef.current = next.activeId;
+      setTabs(next.tabs);
+      setActiveTabId(next.activeId);
+      syncNav();
+      const root = rootRef.current;
+      if (persist && root) {
+        markSelfWrite();
+        const content = JSON.stringify(workspaceOf(next.tabs, next.activeId));
+        kbBackend.writeWorkspace(root, content).catch((e) =>
+          console.error("[kb] 保存标签页失败:", e),
+        );
+      }
+    },
+    [],
+  );
+
+  const clearCurrentDoc = useCallback(() => {
+    pathRef.current = null;
+    setCurrentPath(null);
+    setMarkdown("");
+    savedMdRef.current = "";
+    setSaveState("saved");
   }, []);
 
-  /** 打开文档(入历史栈);读取失败不动历史栈(否则后退栈被无效项污染) */
+  const resetTabs = useCallback(() => {
+    applyTabs({ tabs: [], activeId: null, changed: true }, false);
+    docCacheRef.current.clear();
+  }, [applyTabs]);
+
+  /**
+   * 打开文档统一入口:
+   * - existing-or-new:目录树/搜索/图谱,已有 tab 激活,没有则新 tab
+   * - current:双链默认在当前 tab 内跳转;目标已有其它 tab 时激活既有 tab,避免同文档重复 tab
+   */
   const openDoc = useCallback(
-    async (rel: string) => {
-      const cur = pathRef.current;
-      if (rel === cur) return;
-      await flushSave(); // 切换前冲刷上一篇
+    async (rel: string, behavior: "existing-or-new" | "current" = "existing-or-new") => {
+      const active = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current);
+      if (rel === pathRef.current && active?.path === rel) return;
+      prepareSwitch(); // 冲刷去抖 + 后台保存,不阻塞切换
+      applyTabs(openInTabs(tabsRef.current, activeTabIdRef.current, rel, behavior));
       if (!(await loadDoc(rel))) return;
-      if (cur) backRef.current = [...backRef.current, cur];
-      frontRef.current = [];
-      syncNav();
     },
-    [flushSave, loadDoc],
+    [applyTabs, loadDoc, prepareSwitch],
+  );
+
+  const activateTab = useCallback(
+    async (tabId: string): Promise<boolean> => {
+      const target = tabsRef.current.find((tab) => tab.id === tabId);
+      if (!target) return false;
+      if (target.id === activeTabIdRef.current && target.path === pathRef.current) return true;
+      prepareSwitch();
+      // 与 openInTabs 同口径:切到已有 tab 也记后退,左右导航才有内容
+      applyTabs(openInTabs(tabsRef.current, activeTabIdRef.current, target.path, "existing-or-new"));
+      if (!(await loadDoc(target.path))) return false;
+      return true;
+    },
+    [applyTabs, loadDoc, prepareSwitch],
+  );
+
+  const closeTabById = useCallback(
+    async (tabId: string): Promise<boolean> => {
+      const target = tabsRef.current.find((tab) => tab.id === tabId);
+      if (!target) return false;
+      const closingActive = tabId === activeTabIdRef.current;
+      if (closingActive) prepareSwitch();
+      const change = closeTab(tabsRef.current, activeTabIdRef.current, tabId);
+      applyTabs(change);
+      if (closingActive) {
+        const nextActive = change.tabs.find((tab) => tab.id === change.activeId);
+        if (nextActive) {
+          if (!(await loadDoc(nextActive.path))) return false;
+        } else {
+          clearCurrentDoc();
+        }
+      }
+      return true;
+    },
+    [applyTabs, clearCurrentDoc, loadDoc, prepareSwitch],
+  );
+
+  const closeOthers = useCallback(
+    async (tabId: string): Promise<boolean> => {
+      const target = tabsRef.current.find((tab) => tab.id === tabId);
+      if (!target) return false;
+      if (activeTabIdRef.current !== tabId) return activateTab(tabId);
+      applyTabs(closeOtherTabs(tabsRef.current, tabId));
+      return true;
+    },
+    [activateTab, applyTabs],
+  );
+
+  const closeLeft = useCallback(
+    async (tabId: string): Promise<boolean> => {
+      const index = tabsRef.current.findIndex((tab) => tab.id === tabId);
+      if (index < 0) return false;
+      const active = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current);
+      const activeIndex = active ? tabsRef.current.indexOf(active) : -1;
+      const needsSwitch = activeIndex >= 0 && activeIndex < index;
+      if (needsSwitch) prepareSwitch();
+      applyTabs(closeTabsToLeft(tabsRef.current, activeTabIdRef.current, tabId));
+      if (needsSwitch) {
+        const target = tabsRef.current.find((tab) => tab.id === tabId);
+        if (target && !(await loadDoc(target.path))) return false;
+      }
+      return true;
+    },
+    [applyTabs, loadDoc, prepareSwitch],
+  );
+
+  const closeRight = useCallback(
+    async (tabId: string): Promise<boolean> => {
+      const index = tabsRef.current.findIndex((tab) => tab.id === tabId);
+      if (index < 0) return false;
+      const active = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current);
+      const activeIndex = active ? tabsRef.current.indexOf(active) : -1;
+      const needsSwitch = activeIndex > index;
+      if (needsSwitch) prepareSwitch();
+      applyTabs(closeTabsToRight(tabsRef.current, activeTabIdRef.current, tabId));
+      if (needsSwitch) {
+        const target = tabsRef.current.find((tab) => tab.id === tabId);
+        if (target && !(await loadDoc(target.path))) return false;
+      }
+      return true;
+    },
+    [applyTabs, loadDoc, prepareSwitch],
+  );
+
+  const reorderDocTabs = useCallback(
+    (from: number, to: number) => {
+      applyTabs(reorderTabs(tabsRef.current, activeTabIdRef.current, from, to));
+    },
+    [applyTabs],
   );
 
   const navBack = useCallback(async () => {
-    const back = backRef.current;
-    if (!back.length) return;
-    const cur = pathRef.current;
-    const target = back[back.length - 1];
-    await flushSave();
-    if (target !== pathRef.current && !(await loadDoc(target))) return; // 失败:栈保持原状
-    backRef.current = back.slice(0, -1);
-    if (cur) frontRef.current = [cur, ...frontRef.current];
-    syncNav();
-  }, [flushSave, loadDoc]);
+    const active = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current);
+    if (!active?.back.length) return;
+    const cur = active.path;
+    const target = active.back[active.back.length - 1];
+    prepareSwitch();
+    applyTabs({
+      tabs: tabsRef.current.map((tab) =>
+        tab.id === active.id
+          ? { ...tab, path: target, back: tab.back.slice(0, -1), front: [cur, ...tab.front] }
+          : tab,
+      ),
+      activeId: active.id,
+      changed: true,
+    });
+    if (!(await loadDoc(target))) return;
+  }, [applyTabs, loadDoc, prepareSwitch]);
 
   const navForward = useCallback(async () => {
-    const front = frontRef.current;
-    if (!front.length) return;
-    const cur = pathRef.current;
-    const target = front[0];
-    await flushSave();
-    if (target !== pathRef.current && !(await loadDoc(target))) return;
-    frontRef.current = front.slice(1);
-    if (cur) backRef.current = [...backRef.current, cur];
-    syncNav();
-  }, [flushSave, loadDoc]);
+    const active = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current);
+    if (!active?.front.length) return;
+    const cur = active.path;
+    const target = active.front[0];
+    prepareSwitch();
+    applyTabs({
+      tabs: tabsRef.current.map((tab) =>
+        tab.id === active.id
+          ? { ...tab, path: target, back: [...tab.back, cur], front: tab.front.slice(1) }
+          : tab,
+      ),
+      activeId: active.id,
+      changed: true,
+    });
+    if (!(await loadDoc(target))) return;
+  }, [applyTabs, loadDoc, prepareSwitch]);
 
-  /** 双链跳转:解析目标 → 打开;未命中返回 null(调用方提示「目标不存在或已移动」) */
+  /** 双链跳转:解析目标 → 打开;未命中返回 null(上层提示「目标不存在或已移动」) */
   const openWikiLink = useCallback(
-    async (target: string): Promise<string | null> => {
+    async (target: string, newTab = false): Promise<string | null> => {
       const rel = resolveWikiTarget(flattenDocs(treeRef.current), target);
       if (!rel) return null;
-      await openDoc(rel);
+      await openDoc(rel, newTab ? "existing-or-new" : "current");
       return rel;
     },
     [openDoc],
@@ -514,12 +763,39 @@ export function useKb(settings: AppSettings) {
     return searchRef.current.search(q);
   }, [indexReady]);
 
+  /** 树变化后清理失效 tab;active 被外部删除且有未保存稿时仍先走外部改动确认。 */
+  const reconcileTabs = useCallback(async () => {
+    const activeBefore = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current);
+    const valid = new Set(flattenDocs(treeRef.current).map((doc) => doc.path));
+    const change = pruneTabs(tabsRef.current, activeTabIdRef.current, valid);
+    if (
+      activeBefore &&
+      !valid.has(activeBefore.path) &&
+      dirtyRef.current != null &&
+      activeBefore.path === pathRef.current
+    ) {
+      setExternalChange(activeBefore.path);
+      return;
+    }
+    if (!change.changed) return;
+    const nextActive = change.tabs.find((tab) => tab.id === change.activeId);
+    if (change.activeId !== activeTabIdRef.current) {
+      if (nextActive) {
+        if (!(await flushSave())) return;
+        if (!(await loadDoc(nextActive.path))) return;
+      } else {
+        clearCurrentDoc();
+      }
+    }
+    applyTabs(change);
+  }, [applyTabs, clearCurrentDoc, flushSave, loadDoc]);
+
   /* ---------------- 文件监听(5.2.6) ---------------- */
 
-  /** 外部改当前文档且本地干净 → 静默重载 */
-  const reloadCurrent = useCallback(async () => {
+  /** 外部改当前文档且本地干净 → 静默重载(强制读盘,不走 tab 缓存) */
+  const reloadCurrent = useCallback(async (): Promise<boolean> => {
     const cur = pathRef.current;
-    if (cur) await loadDoc(cur);
+    return cur ? loadDoc(cur, { bypassCache: true }) : false;
   }, [loadDoc]);
 
   const scheduleIndexRebuild = useCallback(() => {
@@ -532,7 +808,7 @@ export function useKb(settings: AppSettings) {
     let alive = true;
     void kbBackend.listenFsEvent((paths) => {
       if (!alive || Date.now() < selfWriteUntil.current) return;
-      void refreshTree().then(refreshOrphans); // 外部改名/移动/删除 → 重扫失联 meta
+      void refreshTree().then(refreshOrphans).then(() => reconcileTabs()); // 外部改名/移动/删除 → 重扫失联 meta + 清理 tab
       const cur = pathRef.current;
       if (cur && paths.includes(cur)) {
         if (dirtyRef.current != null) setExternalChange(cur);
@@ -555,64 +831,101 @@ export function useKb(settings: AppSettings) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kbRoot]);
 
+  // 乐观刷新/恢复回收站等没有 FS 事件兜底的树变化,也统一清理失效 tab
+  useEffect(() => {
+    if (!kbRoot) return;
+    void reconcileTabs();
+  }, [kbRoot, reconcileTabs, tree]);
+
   /** 外部改动弹窗结果(保留我的 / 载入磁盘版本) */
   const resolveExternal = useCallback(
     async (keep: boolean) => {
       setExternalChange(null);
-      if (!keep) await reloadCurrent(); // 载入磁盘版:丢弃 dirty 重读
+      if (!keep) {
+        dirtyRef.current = null;
+        const ok = await reloadCurrent(); // 载入磁盘版:丢弃 dirty 重读
+        if (!ok) await reconcileTabs(); // 文件已不存在:清掉/切换失效 tab
+      }
       // 保留我的:继续编辑,下一轮自动保存会覆盖磁盘版本
     },
-    [reloadCurrent],
+    [reconcileTabs, reloadCurrent],
   );
 
   /* ---------------- 开库/关库 ---------------- */
 
   const enterKb = useCallback(
     async (root: string) => {
-      backRef.current = [];
-      frontRef.current = [];
-      syncNav();
-      snapRef.current.clear(); // 换库:快照节流状态不跨库复用
-      await kbBackend.setRecent(root);
-      setRecent(await kbBackend.getRecent());
-      setKbRoot(root);
-      rootRef.current = root;
-      // 开库兜底:欢迎页期间调小 keep 也能在进库时裁到合规
-      void kbBackend.pruneHistory(root, settingsRef.current.snapshotKeep).catch((e) => {
-        console.error("[kb] 开库裁剪历史失败:", e);
-      });
-      void refreshTrashCount();
-      // meta 先于树加载:排序/折叠要参与首帧渲染
-      metaRef.current = parseMeta(await kbBackend.readMeta(root).catch(() => ""));
-      setCollapsed(collapsedFolders(metaRef.current));
-      const nodes = await kbBackend.scanTree(root).catch(() => [] as TreeNode[]);
-      const sorted = sortTree(nodes, metaRef.current);
-      treeRef.current = sorted;
-      setTree(sorted);
-      setOrphanMeta(findOrphanMeta(metaRef.current, sorted));
-      // 搜索索引后台构建,不阻塞首帧(5.5.3)
-      setIndexReady(false);
-      void rebuildIndex();
-      // 打开上次文档(5.0.4);无效则第一篇;空库给空白草稿
-      const lastDoc = (await kbBackend.getRecent()).lastDoc;
-      const firstDoc_ = firstDoc(nodes);
-      if (lastDoc && lastDoc !== pathRef.current) {
-        try {
-          await openDoc(lastDoc);
-          return;
-        } catch {
-          /* 上次文档已不存在 → 回退第一篇 */
-        }
-      }
-      if (firstDoc_) {
-        await openDoc(firstDoc_);
-      } else {
+      setOpeningKb(true);
+      try {
+        // 直接换库也必须先保住旧库未落盘内容;保存失败不切库
+        if (rootRef.current && rootRef.current !== root && !(await flushSave())) return;
+        resetTabs();
+        dirtyRef.current = null;
+        pathRef.current = null;
         setCurrentPath(null);
-        setMarkdown("# 未命名文档\n");
-        savedMdRef.current = "# 未命名文档\n";
+        setMarkdown("");
+        savedMdRef.current = "";
+        setSaveState("saved");
+        snapRef.current.clear(); // 换库:快照节流状态不跨库复用
+        await kbBackend.setRecent(root);
+        setRecent(await kbBackend.getRecent());
+        setKbRoot(root);
+        rootRef.current = root;
+        // 开库兜底:欢迎页期间调小 keep 也能在进库时裁到合规
+        void kbBackend.pruneHistory(root, settingsRef.current.snapshotKeep).catch((e) => {
+          console.error("[kb] 开库裁剪历史失败:", e);
+        });
+        void refreshTrashCount();
+        // meta 先于树加载:排序/折叠要参与首帧渲染
+        metaRef.current = parseMeta(await kbBackend.readMeta(root).catch(() => ""));
+        setCollapsed(collapsedFolders(metaRef.current));
+        const nodes = await kbBackend.scanTree(root).catch(() => [] as TreeNode[]);
+        const valid = new Set(flattenDocs(nodes).map((doc) => doc.path));
+        const sorted = sortTree(nodes, metaRef.current);
+        treeRef.current = sorted;
+        setTree(sorted);
+        setOrphanMeta(findOrphanMeta(metaRef.current, sorted));
+        // 搜索索引后台构建,不阻塞首帧(5.5.3)
+        setIndexReady(false);
+        void rebuildIndex();
+        // 恢复标签页;首次无 workspace 时用 lastDoc/第一篇初始化一个 tab
+        const workspace = parseWorkspace(
+          await kbBackend.readWorkspace(root).catch(() => ""),
+        );
+        const workspacePaths = (workspace?.tabs ?? []).filter((path) => valid.has(path));
+        const workspaceActive =
+          workspace?.activePath && valid.has(workspace.activePath) ? workspace.activePath : null;
+        const lastDoc = (await kbBackend.getRecent()).lastDoc;
+        const firstDoc_ = firstDoc(nodes);
+        const initialPath =
+          workspaceActive ??
+          workspacePaths[0] ??
+          (lastDoc && valid.has(lastDoc) ? lastDoc : firstDoc_);
+        if (initialPath) {
+          const restored = workspacePaths.length
+            ? restoreTabs(workspacePaths, workspaceActive)
+            : restoreTabs([initialPath], initialPath);
+          const activeRestored = restored.tabs.find((tab) => tab.id === restored.activeId);
+          // active 读失败(权限/短暂外部变化)时尝试 workspace 中的后续 tab,不把整个恢复卡死
+          const candidates = [
+            ...(activeRestored ? [activeRestored.path] : []),
+            ...restored.tabs.map((tab) => tab.path).filter((path) => path !== initialPath),
+          ];
+          for (const path of candidates) {
+            if (await loadDoc(path)) {
+              applyTabs(restoreTabs(restored.tabs.map((tab) => tab.path), path));
+              break;
+            }
+          }
+        } else {
+          clearCurrentDoc();
+          applyTabs({ tabs: [], activeId: null, changed: true });
+        }
+      } finally {
+        setOpeningKb(false);
       }
     },
-    [openDoc, rebuildIndex, refreshTrashCount],
+    [applyTabs, clearCurrentDoc, flushSave, loadDoc, rebuildIndex, refreshTrashCount, resetTabs],
   );
 
   const openKbAt = useCallback(
@@ -675,7 +988,8 @@ export function useKb(settings: AppSettings) {
   }, [openKbAt]);
 
   const closeKb = useCallback(async () => {
-    await flushSave();
+    if (!(await flushSave())) return; // 保存失败留在当前库,避免丢最新稿
+    resetTabs();
     fsUnRef.current?.();
     fsUnRef.current = null;
     setKbRoot(null);
@@ -684,14 +998,14 @@ export function useKb(settings: AppSettings) {
     setCurrentPath(null);
     setOrphanMeta([]);
     setTrashCount(0);
-  }, [flushSave]);
+  }, [flushSave, resetTabs]);
 
   /* ---------------- 增删改(目录树操作) ---------------- */
 
   const createDoc = useCallback(
-    async (folderRel: string, title: string, content?: string) => {
+    async (folderRel: string, title: string, content?: string): Promise<string | null> => {
       const root = rootRef.current;
-      if (!root) return;
+      if (!root) return null;
       try {
         markSelfWrite();
         const rel = await kbBackend.createDoc(root, folderRel, title, content);
@@ -709,8 +1023,10 @@ export function useKb(settings: AppSettings) {
         wikiRefIdx.current.update(rel, content ?? "");
         await refreshTree();
         await openDoc(rel);
+        return rel;
       } catch (e) {
         console.error("[kb] 新建文档失败:", e);
+        return null;
       }
     },
     [openDoc, persistMeta, refreshTree],
@@ -745,10 +1061,11 @@ export function useKb(settings: AppSettings) {
     async (rel: string) => {
       const root = rootRef.current;
       if (!root) return;
-      await flushSave();
+      if (!(await flushSave())) return;
       try {
         markSelfWrite();
         await kbBackend.moveToTrash(root, rel);
+        dropDocCache(rel);
         void refreshTrashCount();
         metaRef.current = removeMetaKeys(metaRef.current, rel, !(rel.endsWith(".md")));
         persistMeta();
@@ -760,23 +1077,12 @@ export function useKb(settings: AppSettings) {
         }
         void refreshTrashRefs(); // 刚入站的文档转为「已删除」引用来源
         await refreshTree();
-        // 删的是当前文档或其祖先文件夹 → 打开树上第一篇
-        const cur = pathRef.current;
-        if (cur === rel || (cur?.startsWith(rel + "/") ?? false)) {
-          const nodes = await kbBackend.scanTree(root);
-          const first = firstDoc(nodes);
-          if (first) await openDoc(first);
-          else {
-            setCurrentPath(null);
-            setMarkdown("# 未命名文档\n");
-            savedMdRef.current = "# 未命名文档\n";
-          }
-        }
+        // tab 保留右/左邻文档策略,由 tree effect 的 reconcileTabs 统一处理
       } catch (e) {
         console.error("[kb] 删除失败:", e);
       }
     },
-    [flushSave, openDoc, persistMeta, refreshTree, refreshTrashCount, refreshTrashRefs],
+    [flushSave, persistMeta, refreshTree, refreshTrashCount, refreshTrashRefs],
   );
 
   /** 批量移入回收站:只处理 .md;一次 flush / 刷树 / 索引清理。 */
@@ -784,7 +1090,7 @@ export function useKb(settings: AppSettings) {
     async (rels: string[]): Promise<BatchResult> => {
       const root = rootRef.current;
       if (!root) return { ok: 0, failed: rels.length, errors: ["未打开知识库"] };
-      await flushSave();
+      if (!(await flushSave())) return { ok: 0, failed: rels.length, errors: ["自动保存失败,已取消批量删除"] };
       const unique = [...new Set(rels.filter((rel) => rel.toLowerCase().endsWith(".md")))];
       let ok = 0;
       const errors: string[] = [];
@@ -792,6 +1098,7 @@ export function useKb(settings: AppSettings) {
         try {
           markSelfWrite();
           await kbBackend.moveToTrash(root, rel);
+          dropDocCache(rel);
           metaRef.current = removeMetaKeys(metaRef.current, rel, false);
           searchRef.current.remove(rel);
           wikiRefIdx.current.remove(rel);
@@ -805,21 +1112,11 @@ export function useKb(settings: AppSettings) {
         void refreshTrashCount();
         void refreshTrashRefs();
         await refreshTree();
-        const cur = pathRef.current;
-        if (cur && unique.includes(cur)) {
-          const nodes = await kbBackend.scanTree(root);
-          const first = firstDoc(nodes);
-          if (first) await openDoc(first);
-          else {
-            setCurrentPath(null);
-            setMarkdown("# 未命名文档\n");
-            savedMdRef.current = "# 未命名文档\n";
-          }
-        }
+        // tab 保留右/左邻文档策略,由 tree effect 的 reconcileTabs 统一处理
       }
       return { ok, failed: unique.length - ok, errors };
     },
-    [flushSave, openDoc, persistMeta, refreshTree, refreshTrashCount, refreshTrashRefs],
+    [flushSave, persistMeta, refreshTree, refreshTrashCount, refreshTrashRefs],
   );
 
   /** 重命名 + 双链引用联动(5.1):flushSave 后由后端扫全库替换;
@@ -829,7 +1126,7 @@ export function useKb(settings: AppSettings) {
     async (rel: string, newTitle: string) => {
       const root = rootRef.current;
       if (!root) return null;
-      await flushSave(); // 磁盘替换引用前,当前文档最新内容必须先落盘
+      if (!(await flushSave())) return null; // 磁盘替换引用前,当前文档最新内容必须先落盘
       try {
         markSelfWrite();
         const result = await kbBackend.renameEntry(root, rel, newTitle);
@@ -850,6 +1147,7 @@ export function useKb(settings: AppSettings) {
         window.clearTimeout(metaWriteTimer.current);
         void kbBackend.writeMeta(root, serializeMeta(metaRef.current)).catch(() => {});
         rewriteSnapKeys(rel, newPath); // 快照节流状态跟随新路径
+        rewriteDocCache(rel, newPath);
         // 索引 key 迁移:旧路径条目挪到新路径(内容从索引外重读太贵,直接重建该条)
         const affected = flattenDocs(treeRef.current)
           .map((d) => d.path)
@@ -877,8 +1175,7 @@ export function useKb(settings: AppSettings) {
           setCurrentPath(newCur);
           if (newCur !== rel) kbBackend.setLastDoc(newCur).catch(() => {});
         }
-        backRef.current = backRef.current.map(rewrite);
-        frontRef.current = frontRef.current.map(rewrite);
+        applyTabs(rewriteTabPaths(tabsRef.current, activeTabIdRef.current, rel, newPath));
         markSelfWrite(); // 拉长静默窗,挡住 rename 触发的 FS 重扫抢在乐观树之前
         await refreshTree();
         // refresh 后 dual-check:确保高亮仍钉在新路径(防中途被旧 lastDoc/监听冲掉)
@@ -891,6 +1188,7 @@ export function useKb(settings: AppSettings) {
             dirtyRef.current = null;
             setMarkdown(content);
             savedMdRef.current = content;
+            docCacheRef.current.set(newCur, content);
             setSaveState("saved");
           }
         }
@@ -900,7 +1198,7 @@ export function useKb(settings: AppSettings) {
         return null;
       }
     },
-    [flushSave, persistMeta, refreshTree, rewriteSnapKeys, scheduleIndexRebuild],
+    [applyTabs, flushSave, persistMeta, refreshTree, rewriteSnapKeys, scheduleIndexRebuild],
   );
 
   /* ---------------- 移动(拖拽调整层级,5.1) ---------------- */
@@ -909,7 +1207,7 @@ export function useKb(settings: AppSettings) {
     async (srcRel: string, destFolderRel: string, orderedPaths?: string[]) => {
       const root = rootRef.current;
       if (!root) return null;
-      await flushSave();
+      if (!(await flushSave())) return null;
       try {
         markSelfWrite();
         const result = await kbBackend.moveEntry(root, srcRel, destFolderRel);
@@ -917,6 +1215,7 @@ export function useKb(settings: AppSettings) {
         const isDir = !srcRel.endsWith(".md");
         metaRef.current = renameMetaKeys(metaRef.current, srcRel, result.newPath, isDir);
         rewriteSnapKeys(srcRel, result.newPath); // 快照节流状态跟随新路径
+        rewriteDocCache(srcRel, result.newPath);
         // 跨组 before/after 带 orderedPaths → 按落位;into → 目标组落尾
         metaRef.current =
           orderedPaths && orderedPaths.length
@@ -955,8 +1254,7 @@ export function useKb(settings: AppSettings) {
           pathRef.current = newCur;
           setCurrentPath(newCur);
         }
-        backRef.current = backRef.current.map(rewrite);
-        frontRef.current = frontRef.current.map(rewrite);
+        applyTabs(rewriteTabPaths(tabsRef.current, activeTabIdRef.current, srcRel, result.newPath));
         await refreshTree();
         // 引用被联动改写的当前文档:重读落盘版,避免编辑器旧内容盖回
         if (newCur && result.updatedFiles.includes(newCur)) {
@@ -974,7 +1272,7 @@ export function useKb(settings: AppSettings) {
         return null;
       }
     },
-    [flushSave, persistMeta, refreshTree, rewriteSnapKeys, scheduleIndexRebuild],
+    [applyTabs, flushSave, persistMeta, refreshTree, rewriteSnapKeys, scheduleIndexRebuild],
   );
 
   /* ---------------- 排序/折叠(meta) ---------------- */
@@ -1036,6 +1334,20 @@ export function useKb(settings: AppSettings) {
       });
       metaRef.current = setFoldersCollapsed(metaRef.current, unique, false);
       persistMeta();
+    },
+    [persistMeta],
+  );
+
+  /* ---------------- 目录树内置图标(5.1 UI 偏好) ---------------- */
+
+  /** 设置/清除文件或文件夹图标;meta 持久化,树引用刷新以驱动图标渲染 */
+  const setTreeIcon = useCallback(
+    (rel: string, isDir: boolean, icon: string | null) => {
+      metaRef.current = setEntryIcon(metaRef.current, rel, isDir, icon);
+      persistMeta();
+      const sorted = sortTree(treeRef.current, metaRef.current);
+      treeRef.current = sorted;
+      setTree(sorted);
     },
     [persistMeta],
   );
@@ -1136,6 +1448,17 @@ export function useKb(settings: AppSettings) {
     () => metaRef.current.docs[currentPath ?? ""]?.tags ?? [],
     [tree, currentPath],
   );
+  /** 文件/文档 → 内置图标 ID(meta 偏好;目录树渲染用) */
+  const entryIcons = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [rel, v] of Object.entries(metaRef.current.folders)) {
+      if (v.icon) map.set(rel, v.icon);
+    }
+    for (const [rel, v] of Object.entries(metaRef.current.docs)) {
+      if (v.icon) map.set(rel, v.icon);
+    }
+    return map;
+  }, [tree, kbRoot]);
   /** 置顶文档路径集合(树序已在 sortTree 提前;此集合供图标与拖拽豁免) */
   const pinnedDocs = useMemo(() => {
     const s = new Set<string>();
@@ -1356,10 +1679,13 @@ export function useKb(settings: AppSettings) {
 
   return {
     booted,
+    openingKb,
     bootError,
     kbRoot,
     tree,
     currentPath,
+    tabs,
+    activeTabId,
     markdown,
     saveState,
     savedAt,
@@ -1373,6 +1699,12 @@ export function useKb(settings: AppSettings) {
     getMarkdownNow,
     openDoc,
     openWikiLink,
+    activateTab,
+    closeTabById,
+    closeOthers,
+    closeLeft,
+    closeRight,
+    reorderDocTabs,
     navBack,
     navForward,
     openKbAt,
@@ -1382,6 +1714,8 @@ export function useKb(settings: AppSettings) {
     closeKb,
     /** 立即冲刷未落盘内容(关窗/退出/挂后台前调用) */
     flushSave,
+    /** App 注册切文档前钩子(冲刷编辑器去抖稿) */
+    setBeforeSwitch,
     createDoc,
     createFolder,
     removeEntry,
@@ -1395,6 +1729,8 @@ export function useKb(settings: AppSettings) {
     setAllCollapsed,
     expandFolders,
     persistSiblingOrder,
+    setTreeIcon,
+    entryIcons,
     togglePinned,
     setTags,
     setTagsMany,

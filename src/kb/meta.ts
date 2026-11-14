@@ -9,6 +9,8 @@ import type { TreeNode } from "./types";
 export interface DocMeta {
   sortIndex?: number;
   pinned?: boolean;
+  /** 目录树内置图标 ID(仅 UI 偏好;未知 ID 渲染时回退默认图标) */
+  icon?: string;
   /** 文档标签(6.3-2;不进正文,只存 meta) */
   tags?: string[];
   /**
@@ -20,6 +22,8 @@ export interface DocMeta {
 export interface FolderMeta {
   sortIndex?: number;
   collapsed?: boolean;
+  /** 目录树内置图标 ID(仅 UI 偏好;未知 ID 渲染时回退默认图标) */
+  icon?: string;
 }
 export interface KbMeta {
   version: number;
@@ -219,6 +223,31 @@ export function setDocPinned(meta: KbMeta, rel: string, pinned: boolean): KbMeta
   return { ...meta, docs: { ...meta.docs, [rel]: prev } };
 }
 
+/** 设置文件/文件夹目录树图标;null 恢复默认,空偏好不留失联 meta 键 */
+export function setEntryIcon(
+  meta: KbMeta,
+  rel: string,
+  isDir: boolean,
+  icon: string | null,
+): KbMeta {
+  const record = isDir ? meta.folders : meta.docs;
+  if (record[rel]?.icon === icon) return meta;
+  const prev = { ...record[rel] };
+  const next: KbMeta = {
+    ...meta,
+    docs: { ...meta.docs },
+    folders: { ...meta.folders },
+  };
+  const target = isDir ? next.folders : next.docs;
+  if (icon) target[rel] = { ...prev, icon };
+  else {
+    delete prev.icon;
+    if (Object.keys(prev).length) target[rel] = prev;
+    else delete target[rel];
+  }
+  return next;
+}
+
 /** 文档标签整体替换(6.3-2;去重 + 去空白,输入序保持) */
 export function setDocTags(meta: KbMeta, rel: string, tags: string[]): KbMeta {
   const next: string[] = [];
@@ -272,6 +301,7 @@ function isCursorOnly(meta: DocMeta): boolean {
   return (
     !meta.tags?.length &&
     !meta.pinned &&
+    !meta.icon &&
     meta.sortIndex === undefined &&
     !!meta.cursor
   );

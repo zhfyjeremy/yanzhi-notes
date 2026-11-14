@@ -106,7 +106,7 @@ export function inlineStyles(html: string): string {
   const wrap = doc.createElement("div");
   wrap.style.color = COPY_COLORS.fg;
   wrap.style.fontSize = "16px";
-  wrap.style.lineHeight = "1.75";
+  wrap.style.lineHeight = "1.6";
   wrap.append(...Array.from(body.childNodes));
   return wrap.outerHTML;
 }

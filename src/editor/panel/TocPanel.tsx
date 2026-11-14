@@ -4,6 +4,7 @@ import { useEditorState } from "@tiptap/react";
 import { ChevronDown, ChevronRight, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/hint";
+import type { MarkdownSourceOutlineController } from "../source-mode/MarkdownSourceEditor";
 
 /**
  * 右栏文档大纲 TOC(PRD §5.4):自动抓取 H1~H6、点击跳转、滚动高亮当前标题、可折叠。
@@ -22,9 +23,11 @@ const SCROLL_TOP_THRESHOLD = 32;
 export function TocPanel({
   editor,
   scrollContainer,
+  sourceOutlineController,
 }: {
   editor: Editor;
   scrollContainer: HTMLElement | null;
+  sourceOutlineController?: MarkdownSourceOutlineController | null;
 }) {
   const [activePos, setActivePos] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -34,7 +37,7 @@ export function TocPanel({
   const itemRefs = useRef(new Map<number, HTMLButtonElement>());
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const headings = useEditorState({
+  const editorHeadings = useEditorState({
     editor,
     selector: ({ editor }) => {
       const items: HeadingItem[] = [];
@@ -50,6 +53,10 @@ export function TocPanel({
       return items;
     },
   });
+  // 源码态 PM 树只是隐藏镜像,DOM 位置不可用于滚动;改用 CodeMirror doc offset。
+  const headings = sourceOutlineController
+    ? sourceOutlineController.headings()
+    : editorHeadings;
 
   const visibleHeadings = useMemo(() => {
     const q = query.trim().toLocaleLowerCase();
@@ -70,15 +77,19 @@ export function TocPanel({
     let raf = 0;
     const update = () => {
       raf = 0;
-      if (editor.isDestroyed || !editor.view) return;
       const containerTop = scrollContainer.getBoundingClientRect().top;
       let active: number | null = null;
       for (const heading of headings) {
-        const dom = editor.view.domAtPos(heading.pos + 1);
-        const el =
-          dom.node.nodeType === 1
-            ? (dom.node as HTMLElement)
-            : dom.node.parentElement;
+        const el = sourceOutlineController
+          ? sourceOutlineController.headingElement(heading.pos)
+          : !editor.isDestroyed && editor.view
+            ? (() => {
+                const dom = editor.view.domAtPos(heading.pos + 1);
+                return dom.node.nodeType === 1
+                  ? (dom.node as HTMLElement)
+                  : dom.node.parentElement;
+              })()
+            : null;
         if (!el) continue;
         if (el.getBoundingClientRect().top - containerTop <= SCROLL_TOP_THRESHOLD) {
           active = heading.pos;
@@ -95,7 +106,7 @@ export function TocPanel({
       scrollContainer.removeEventListener("scroll", onScroll);
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [editor, scrollContainer, headings]);
+  }, [editor, scrollContainer, headings, sourceOutlineController]);
 
   // 长文档滚动时让当前标题始终留在右栏可视区,避免高亮项滚出面板
   useEffect(() => {
@@ -104,6 +115,23 @@ export function TocPanel({
   }, [activePos]);
 
   const jumpTo = (pos: number) => {
+    const sourceElement = sourceOutlineController?.locateHeading(pos) ?? null;
+    if (sourceOutlineController) {
+      if (!sourceElement || !scrollContainer) return;
+      window.requestAnimationFrame(() => {
+        const top =
+          scrollContainer.scrollTop +
+          sourceElement.getBoundingClientRect().top -
+          scrollContainer.getBoundingClientRect().top -
+          16;
+        const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth";
+        scrollContainer.scrollTo({ top: Math.max(0, top), behavior });
+      });
+      return;
+    }
+
     if (editor.isDestroyed || !editor.view) return;
     editor.chain().focus().setTextSelection(pos + 1).run();
     if (!scrollContainer) return;

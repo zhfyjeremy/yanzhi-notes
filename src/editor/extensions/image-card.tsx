@@ -1,12 +1,13 @@
 import Image from "@tiptap/extension-image";
 import type { Editor } from "@tiptap/core";
-import { NodeSelection, Plugin, PluginKey } from "@tiptap/pm/state";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { NodeViewProps } from "@tiptap/react";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import { useCallback, useRef, useState } from "react";
 import { ImageOff } from "lucide-react";
-import { resolveRenderSrc } from "@/kb/asset-src";
+import { isExternalSrc, resolveRenderSrc } from "@/kb/asset-src";
+import { insertImageAtSelection } from "../image-insert";
 
 /**
  * 图片卡片(PRD §5.3.7):attrs.src 始终存 md 相对引用(`./assets/x.png`),
@@ -146,6 +147,7 @@ function ImageCardView({ node, selected, updateAttributes, editor }: NodeViewPro
           src={renderSrc}
           alt={alt ?? ""}
           draggable={false}
+          referrerPolicy={isExternalSrc(renderSrc) ? "no-referrer" : undefined}
           onError={() => setFailedSrc(renderSrc)}
         />
       )}
@@ -169,21 +171,7 @@ function ImageCardView({ node, selected, updateAttributes, editor }: NodeViewPro
 
 /** 插入独立段落的图片并选中(浮出工具条,便于立即改地址/宽度) */
 export function insertImage(editor: Editor, attrs: { src: string; alt?: string | null }): void {
-  const { state } = editor;
-  const tr = state.tr;
-  const img = state.schema.nodes.image.create({ alt: null, ...attrs });
-  const para = state.schema.nodes.paragraph.create(null, img);
-  tr.replaceSelectionWith(para, false);
-  // 块级插入后 selection 与插入内容的间隔不定(可能隔着后续块的开标签),
-  // 以节点引用比对在插入点附近探测图片真实位置
-  const around = tr.selection.from;
-  for (let p = around; p >= 0 && p >= around - para.nodeSize - 2; p--) {
-    if (tr.doc.nodeAt(p) === img) {
-      tr.setSelection(NodeSelection.create(tr.doc, p));
-      break;
-    }
-  }
-  editor.view.dispatch(tr);
+  insertImageAtSelection(editor.view, attrs);
 }
 
 export const ImageCard = Image.extend({

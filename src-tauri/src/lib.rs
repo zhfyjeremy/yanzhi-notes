@@ -1,4 +1,5 @@
 mod ai;
+mod export;
 mod file_icon;
 mod kb;
 
@@ -302,7 +303,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     let export_md = IconMenuItem::with_id_and_native_icon(
         app,
         "yz_export_md",
-        "导出当前文档…",
+        "导出 Markdown…",
         true,
         Some(NativeIcon::Share),
         None::<&str>,
@@ -315,6 +316,22 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         Some(NativeIcon::Share),
         None::<&str>,
     )?;
+    let export_docx = IconMenuItem::with_id_and_native_icon(
+        app,
+        "yz_export_docx",
+        "导出 Word (.docx)…",
+        true,
+        Some(NativeIcon::Share),
+        None::<&str>,
+    )?;
+    let export_refs: Vec<&dyn tauri::menu::IsMenuItem<_>> = [&export_md as _, &export_html as _, &export_docx as _]
+        .into_iter()
+        .collect();
+    let export_menu = SubmenuBuilder::new(app, "导出")
+        .items(&export_refs)
+        .submenu_native_icon(NativeIcon::Share)
+        .build()?;
+
     // 设置:mac 在应用菜单(惯例 + ⌘,);Win 放「文件」末尾,避免标题栏「砚知」旁再挂一级「砚知」菜单
     // 「关于」:macOS 只放应用菜单;Windows 只放「帮助」(见下方 help_menu),避免双入口。
     let settings = IconMenuItem::with_id_and_native_icon(
@@ -337,8 +354,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .item(&save_single_to_kb)
         .separator()
         .item(&import_md)
-        .item(&export_md)
-        .item(&export_html);
+        .item(&export_menu);
     #[cfg(not(target_os = "macos"))]
     let file = file.separator().item(&settings).separator().quit();
     let file = file.build()?;
@@ -459,11 +475,28 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .fullscreen()
         .build()?;
 
+    // 浏览器式标签页:Cmd/Ctrl+W 归「关闭标签页」;关闭窗口用 Shift+W,
+    // 避免标准 Close Window 预定义项抢走 Cmd/Ctrl+W。
+    let close_tab = MenuItem::with_id(
+        app,
+        "yz_close_tab",
+        "关闭标签页",
+        !single,
+        Some("CmdOrCtrl+W"),
+    )?;
+    let close_window = MenuItem::with_id(
+        app,
+        "yz_close_window",
+        "关闭窗口",
+        true,
+        Some("CmdOrCtrl+Shift+W"),
+    )?;
     let window = SubmenuBuilder::new(app, "窗口")
         .minimize()
         .maximize()
         .separator()
-        .close_window()
+        .item(&close_tab)
+        .item(&close_window)
         .build()?;
 
     // 帮助:快捷键参考;关于入口在应用菜单(macOS 惯例),Windows 补在帮助里
@@ -707,12 +740,21 @@ pub fn run() {
         })
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
+            // 走 onCloseRequested:仍复用前端关闭确认 / 托盘设置
+            if id == "yz_close_window" {
+                if let Some(main) = app.get_webview_window("main") {
+                    let _ = main.close();
+                }
+                return;
+            }
             let payload = if id == "yz_new_kb" {
                 serde_json::json!({ "action": "new" })
             } else if id == "yz_open_kb" {
                 serde_json::json!({ "action": "open" })
             } else if id == "yz_open_single" {
                 serde_json::json!({ "action": "open-single" })
+            } else if id == "yz_close_tab" {
+                serde_json::json!({ "action": "close-tab" })
             } else if id == "yz_save_doc" {
                 serde_json::json!({ "action": "save-doc" })
             } else if id == "yz_save_single_as" {
@@ -729,6 +771,8 @@ pub fn run() {
                 serde_json::json!({ "action": "export-md" })
             } else if id == "yz_export_html" {
                 serde_json::json!({ "action": "export-html" })
+            } else if id == "yz_export_docx" {
+                serde_json::json!({ "action": "export-docx" })
             } else if id == "yz_about" || id == "yz_about_help" {
                 serde_json::json!({ "action": "about" })
             } else if id == "yz_help_keys" {
@@ -809,6 +853,8 @@ pub fn run() {
             kb::set_settings,
             kb::read_meta,
             kb::write_meta,
+            kb::read_workspace,
+            kb::write_workspace,
             kb::get_recent,
             kb::set_recent,
             kb::get_recent_files,
@@ -858,6 +904,10 @@ pub fn run() {
             ai::ai_cancel,
             kb::import_docs,
             kb::export_text,
+            export::detect_pandoc,
+            export::pick_export_path,
+            export::pick_docx_output_path,
+            export::export_docx,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

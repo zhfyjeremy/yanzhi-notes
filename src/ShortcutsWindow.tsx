@@ -42,11 +42,24 @@ const FIXED_GROUPS: { title: string; rows: [string, string][] }[] = [
   {
     title: "块级",
     rows: [
+      ["标题 H1–H6(重复同键回正文)", "⌘1–6"],
       ["引用", "⌘⇧B"],
       ["无序 / 有序列表", "⌘⇧8 · ⌘⇧7"],
       ["任务列表项", "⌘⇧9"],
       ["段落上下移动", "⌘⌥↑ · ⌘⌥↓"],
     ],
+  },
+  {
+    title: "标签页",
+    rows: [
+      ["关闭当前标签页", "⌘W · Ctrl+W"],
+      ["上一个 / 下一个标签页", "⌘⇧[ · ⌘⇧] · Ctrl+Tab"],
+      ["切换到第 1–9 个标签页", "⌘⌥1–9 · Ctrl+Alt+1–9"],
+    ],
+  },
+  {
+    title: "视图",
+    rows: [["排版视图 / Markdown 源码", "⌘/Ctrl+/"]],
   },
   {
     title: "查找条内",
@@ -206,7 +219,7 @@ export function ShortcutsWindow() {
 
       {/* 固定条目:点线引线的规格表 */}
       <section className="px-7 pt-1 pb-8">
-        <GroupLabel>固定 · Tiptap 内置</GroupLabel>
+        <GroupLabel>固定 · 应用与编辑器</GroupLabel>
         <div className="mt-3 columns-2 gap-10 sm:[column-fill:_balance]">
           {FIXED_GROUPS.map((g) => (
             <div key={g.title} className="mb-6 break-inside-avoid">
