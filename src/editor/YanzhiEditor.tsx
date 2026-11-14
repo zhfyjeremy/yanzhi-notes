@@ -135,15 +135,17 @@ interface YanzhiEditorProps {
 
 /**
  * 恢复上次编辑位置:选区按文档大小夹紧(内容变了会越界)。
- * 滚动多帧补写:长文 setContent 后图片/代码块 NodeView 会继续撑高,
+ * 滚动先同步写一次,再多帧补写:长文 setContent 后图片/代码块 NodeView 会继续撑高,
  * 只写一帧会被 clamp 到接近顶部,切回就像「没记位置」。
  * isCurrent 与切文档代数对齐,过期的 rAF 不得改写新文档的 scrollTop。
+ * onReady:前几帧滚动稳定后回调(切文档时用来揭开被藏住的正文,避免闪旧文/跳滚动)。
  */
 function restoreCursor(
   editor: Editor,
   restore: { pos: number; scrollTop: number },
   scrollEl: HTMLElement | null,
   isCurrent: () => boolean,
+  onReady?: () => void,
 ): void {
   const max = editor.state.doc.content.size;
   const pos = Math.max(0, Math.min(restore.pos, max));
@@ -156,16 +158,32 @@ function restoreCursor(
   } catch {
     /* 位置解析失败就算了,停在文首 */
   }
-  if (!scrollEl) return;
+  if (!scrollEl) {
+    onReady?.();
+    return;
+  }
   const target = Math.max(0, restore.scrollTop);
+  scrollEl.scrollTop = target;
   let tries = 0;
+  let readySent = false;
+  const notifyReady = () => {
+    if (readySent) return;
+    readySent = true;
+    onReady?.();
+  };
   const applyScroll = () => {
-    if (!isCurrent() || !scrollEl.isConnected) return;
+    if (!isCurrent() || !scrollEl.isConnected) {
+      notifyReady();
+      return;
+    }
     scrollEl.scrollTop = target;
     tries += 1;
-    // 高度未够/仍偏目标就再等一帧,上限约 0.5s
+    // 先揭开正文(约 2 帧),后续 NodeView 撑高仍静默补滚动
+    if (tries >= 2) notifyReady();
     if (tries < 30 && Math.abs(scrollEl.scrollTop - target) > 1) {
       window.requestAnimationFrame(applyScroll);
+    } else {
+      notifyReady();
     }
   };
   window.requestAnimationFrame(applyScroll);
@@ -235,6 +253,8 @@ export function YanzhiEditor({
   const typewriterRef = useRef(typewriter);
   typewriterRef.current = typewriter;
   const scrollElRef = useRef<HTMLDivElement | null>(null);
+  /** 切文档时先藏正文再换文,避免 Windows 上「旧文一帧 + 滚动跳变」闪一下 */
+  const contentSurfaceRef = useRef<HTMLDivElement | null>(null);
   const bindScrollRef = (el: HTMLDivElement | null) => {
     scrollElRef.current = el;
     scrollContainerRef?.(el);
@@ -687,6 +707,8 @@ export function YanzhiEditor({
   // 派发挪进微任务:setContent 挂载 React NodeView(代码块/图片卡片)时 Tiptap
   // 内部走 flushSync,effect 里同步调会触发 React「lifecycle 里 flushSync」警告。
   // 去抖冲刷必须在 path 切换前完成(见 flushPendingRef);这里只丢弃定时器,避免旧稿回灌。
+  // Windows 切文档曾闪一下:旧文多画一帧 → setContent → 滚动从旧位置跳到恢复位。
+  // 换文期间 visibility:hidden 藏正文,滚动就位后再揭开,并用 preventScroll 聚焦。
   const lastLoadedRef = useRef(markdown);
   const lastLoadedPathRef = useRef<string | null | undefined>(contentPath);
   useEffect(() => {
@@ -703,43 +725,43 @@ export function YanzhiEditor({
     const seq = ++contentLoadSeqRef.current;
     sourceDraftRef.current = markdown;
     setSourceDraft(markdown);
-    // 先让出一帧画目录树高亮,再 mdToHtml + setContent。
-    // 长文主耗时在 setContent(React NodeView 同步挂载);高亮语言已改懒加载,不进这条关键路径。
-    window.requestAnimationFrame(() => {
+    const surface = contentSurfaceRef.current;
+    if (surface) surface.style.visibility = "hidden";
+    const revealAndFocus = () => {
+      if (seq !== contentLoadSeqRef.current) return;
+      if (surface?.isConnected) surface.style.visibility = "";
+      if (editor.isDestroyed) return;
+      if (sourceModeRef.current) {
+        sourceCursorApiRef.current?.focus();
+        return;
+      }
+      try {
+        editor.view.dom.focus({ preventScroll: true });
+      } catch {
+        editor.view.focus();
+      }
+    };
+    queueMicrotask(() => {
       if (editor.isDestroyed || seq !== contentLoadSeqRef.current) return;
       setFindBar(false);
       closeFind(editor);
       const html = mdToHtml(markdown);
       // emitUpdate:false:换文本身不进 onUpdate;选区在下一行手动恢复
       editor.commands.setContent(html, { emitUpdate: false });
+      const scrollEl = scrollElRef.current;
       if (restore) {
-        restoreCursor(editor, restore, scrollElRef.current, () => seq === contentLoadSeqRef.current);
-      } else if (scrollElRef.current) {
-        const el = scrollElRef.current;
-        window.requestAnimationFrame(() => {
-          if (seq !== contentLoadSeqRef.current || !el.isConnected) return;
-          el.scrollTop = 0;
-        });
+        restoreCursor(
+          editor,
+          restore,
+          scrollEl,
+          () => seq === contentLoadSeqRef.current,
+          revealAndFocus,
+        );
+      } else {
+        if (scrollEl) scrollEl.scrollTop = 0;
+        revealAndFocus();
       }
       if (path) onContentReadyRef.current?.(path);
-      // 切文档后焦点落到正文;preventScroll 避免冲掉刚恢复的 scrollTop
-      window.requestAnimationFrame(() => {
-        if (editor.isDestroyed || seq !== contentLoadSeqRef.current) return;
-        if (sourceModeRef.current) {
-          sourceCursorApiRef.current?.focus();
-          return;
-        }
-        editor.view.focus();
-        // focus 后若仍有目标滚动,再补一帧(selectionToDOM 偶发带动外层滚动)
-        if (restore && scrollElRef.current) {
-          const el = scrollElRef.current;
-          const target = Math.max(0, restore.scrollTop);
-          window.requestAnimationFrame(() => {
-            if (seq !== contentLoadSeqRef.current || !el.isConnected) return;
-            if (Math.abs(el.scrollTop - target) > 1) el.scrollTop = target;
-          });
-        }
-      });
     });
   }, [editor, markdown, contentPath]);
 
@@ -775,6 +797,7 @@ export function YanzhiEditor({
         {/* relative 是 TableToolbar/ImageToolbar/AiChrome 浮层的定位锚;
             打字机加大上下留白,首行/文末也能滚到视口中线 */}
         <div
+          ref={contentSurfaceRef}
           className={`relative mx-auto flex w-full ${EDITOR_COLUMN_CLASS} flex-1 flex-col px-16 ${
             typewriter && !sourceMode ? "pt-[42vh] pb-[58vh]" : "pt-5 pb-24"
           }`}

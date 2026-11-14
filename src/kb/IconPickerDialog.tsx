@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { Search, type LucideIcon } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -21,9 +21,48 @@ interface IconPickerDialogProps {
   onSelect: (icon: string | null) => void;
 }
 
+/** 预拼搜索串,避免每次过滤再 join/toLowerCase 一百多次 */
+const ICON_ENTRIES = TREE_ICONS.map((icon) => ({
+  ...icon,
+  haystack: [icon.id, icon.label, icon.group, ...icon.keywords].join(" ").toLowerCase(),
+}));
+
+const IconCell = memo(function IconCell({
+  id,
+  label,
+  Icon,
+  selected,
+  onPick,
+}: {
+  id: string;
+  label: string;
+  Icon: LucideIcon;
+  selected: boolean;
+  onPick: (id: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      aria-pressed={selected}
+      className={cn(
+        "hover:bg-hover text-muted-foreground hover:text-foreground flex size-7 cursor-pointer items-center justify-center rounded-md",
+        selected && "bg-primary/10 text-primary ring-primary/30 ring-1",
+      )}
+      onClick={() => onPick(id)}
+    >
+      <Icon className="size-4" />
+    </button>
+  );
+});
+
 /**
  * 目录树内置图标选择器:所有分组同页展示;
- * 左侧小分组名 + 右侧 12 列紧凑网格,避免旧版 7/8 列导致的信息密度过低。
+ * 左侧小分组名 + 右侧 14 列紧凑网格。
+ * Windows WebView2 上一次挂 100+ Lucide SVG 很贵,所以先画空壳再延后挂网格;
+ * 网格区用固定高度,避免矮壳居中后再被内容撑高、看起来像从下面挪到中间。
+ * 选中后由外层先关弹窗再写 meta,避免关窗与整棵树重渲抢同一帧。
  */
 export function IconPickerDialog({
   open,
@@ -33,26 +72,42 @@ export function IconPickerDialog({
   onSelect,
 }: IconPickerDialogProps) {
   const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const [gridReady, setGridReady] = useState(false);
 
   useEffect(() => {
-    if (open) setQuery("");
+    if (!open) {
+      setQuery("");
+      setGridReady(false);
+      return;
+    }
+    // 等右键菜单退场 + Dialog 壳先上屏,再挂图标网格
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!cancelled) setGridReady(true);
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [open, targetName]);
 
   const visibleGroups = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const matched = q
-      ? TREE_ICONS.filter((icon) =>
-          [icon.id, icon.label, icon.group, ...icon.keywords]
-            .join(" ")
-            .toLowerCase()
-            .includes(q),
-        )
-      : TREE_ICONS;
+    const q = deferredQuery.trim().toLowerCase();
+    const matched = q ? ICON_ENTRIES.filter((icon) => icon.haystack.includes(q)) : ICON_ENTRIES;
     return TREE_ICON_GROUPS.map((group) => ({
       group,
       icons: matched.filter((icon) => icon.group === group),
     })).filter((g) => g.icons.length > 0);
-  }, [query]);
+  }, [deferredQuery]);
+
+  const pickIcon = useCallback(
+    (id: string) => {
+      onOpenChange(false);
+      onSelect(id);
+    },
+    [onOpenChange, onSelect],
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -72,42 +127,35 @@ export function IconPickerDialog({
             placeholder="搜索图标"
             className="h-8 pl-8 text-[13px]"
             aria-label="搜索内置图标"
+            disabled={!gridReady}
           />
         </div>
 
-        <div className="border-border-subtle max-h-[54vh] overflow-y-auto rounded-lg border p-2">
-          {visibleGroups.length ? (
+        <div className="border-border-subtle h-[min(54vh,420px)] overflow-y-auto rounded-lg border p-2 [content-visibility:auto]">
+          {!gridReady ? (
+            <p className="text-muted-foreground flex h-full min-h-full items-center justify-center text-xs">
+              加载图标…
+            </p>
+          ) : visibleGroups.length ? (
             visibleGroups.map(({ group, icons }) => (
               <section
                 key={group}
-                className="flex items-center gap-2 border-border-subtle/70 border-b py-1.5 last:border-b-0 last:pb-0 first:pt-0"
+                className="flex items-center gap-2 border-border-subtle/70 border-b py-1.5 last:border-b-0 last:pb-0 first:pt-0 [content-visibility:auto] [contain-intrinsic-size:auto_40px]"
               >
                 <span className="text-muted-foreground w-11 shrink-0 text-right text-[10px] leading-7">
                   {group}
                 </span>
                 <div className="grid min-w-0 flex-1 grid-cols-[repeat(14,minmax(0,1fr))] gap-1">
-                  {icons.map(({ id, label, Icon }) => {
-                    const selected = targetIcon === id;
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        title={label}
-                        aria-label={label}
-                        aria-pressed={selected}
-                        className={cn(
-                          "hover:bg-hover text-muted-foreground hover:text-foreground flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors",
-                          selected && "bg-primary/10 text-primary ring-primary/30 ring-1",
-                        )}
-                        onClick={() => {
-                          onSelect(id);
-                          onOpenChange(false);
-                        }}
-                      >
-                        <Icon className="size-4" />
-                      </button>
-                    );
-                  })}
+                  {icons.map(({ id, label, Icon }) => (
+                    <IconCell
+                      key={id}
+                      id={id}
+                      label={label}
+                      Icon={Icon}
+                      selected={targetIcon === id}
+                      onPick={pickIcon}
+                    />
+                  ))}
                 </div>
               </section>
             ))
@@ -128,8 +176,8 @@ export function IconPickerDialog({
               variant="ghost"
               className="h-7 px-2 text-xs"
               onClick={() => {
-                onSelect(null);
                 onOpenChange(false);
+                onSelect(null);
               }}
             >
               恢复默认

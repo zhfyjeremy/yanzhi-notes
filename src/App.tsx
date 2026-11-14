@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { ChevronLeft, ChevronRight, CircleCheck, Folder, Loader2 } from "lucide-react";
-import { SourceModeToggle } from "./editor/SourceModeToggle";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/hint";
 import { YanzhiEditor } from "./editor/YanzhiEditor";
@@ -2248,7 +2247,6 @@ function App() {
                       </span>
                     ))}
                   </nav>
-                  <SourceModeToggle active={sourceMode} onToggle={toggleSourceMode} />
                 </div>
                 <div className="mt-1 flex min-w-0 items-center gap-1">
                   {/* 按标题内容撑开宽度,AI 贴在文字旁而不是栏尾 */}

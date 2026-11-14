@@ -775,7 +775,10 @@ export function DocTree({
   const allVisibleSelected = visibleDocs.length > 0 && visibleDocs.every((p) => selectedPaths.has(p));
   const iconPickerNode = iconPickerPath ? findTreeNode(tree, iconPickerPath) : null;
 
-  const openIconPicker = (node: TreeNode) => setIconPickerPath(node.path);
+  /** 等右键菜单先卸掉,再开弹窗;否则 Windows 上菜单退场与 100+ SVG 同帧抢渲染 */
+  const openIconPicker = (node: TreeNode) => {
+    window.setTimeout(() => setIconPickerPath(node.path), 0);
+  };
 
   const clearSelection = () => {
     setSelectionMode(false);
@@ -1171,8 +1174,11 @@ export function DocTree({
         targetName={iconPickerNode?.name ?? ""}
         targetIcon={iconPickerNode ? (iconMap.get(iconPickerNode.path) ?? null) : null}
         onSelect={(icon) => {
-          if (!iconPickerNode) return;
-          onSetEntryIcon(iconPickerNode.path, iconPickerNode.isDir, icon);
+          const node = iconPickerNode;
+          setIconPickerPath(null);
+          if (!node) return;
+          // 先关弹窗再写 meta/刷树,避免关窗动画与整栏重渲抢同一帧
+          window.setTimeout(() => onSetEntryIcon(node.path, node.isDir, icon), 0);
         }}
       />
     </aside>

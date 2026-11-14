@@ -126,6 +126,8 @@ export function useKb(settings: AppSettings) {
   const treeRef = useRef<TreeNode[]>([]);
   treeRef.current = tree;
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  /** 图标偏好变更不改变树序,只靠这个 revision 刷新 entryIcons,避免整树 sort/换引用 */
+  const [iconRevision, setIconRevision] = useState(0);
   const searchRef = useRef(new KbSearchIndex());
   const [indexReady, setIndexReady] = useState(false);
   // 未识别条目(5.2.1):外部改名/移动/删除导致的失联 meta;只在开库/外部变动/整理动作后重扫
@@ -1340,14 +1342,12 @@ export function useKb(settings: AppSettings) {
 
   /* ---------------- 目录树内置图标(5.1 UI 偏好) ---------------- */
 
-  /** 设置/清除文件或文件夹图标;meta 持久化,树引用刷新以驱动图标渲染 */
+  /** 设置/清除文件或文件夹图标;meta 持久化,不重排树(图标不影响序) */
   const setTreeIcon = useCallback(
     (rel: string, isDir: boolean, icon: string | null) => {
       metaRef.current = setEntryIcon(metaRef.current, rel, isDir, icon);
       persistMeta();
-      const sorted = sortTree(treeRef.current, metaRef.current);
-      treeRef.current = sorted;
-      setTree(sorted);
+      setIconRevision((n) => n + 1);
     },
     [persistMeta],
   );
@@ -1458,7 +1458,7 @@ export function useKb(settings: AppSettings) {
       if (v.icon) map.set(rel, v.icon);
     }
     return map;
-  }, [tree, kbRoot]);
+  }, [tree, kbRoot, iconRevision]);
   /** 置顶文档路径集合(树序已在 sortTree 提前;此集合供图标与拖拽豁免) */
   const pinnedDocs = useMemo(() => {
     const s = new Set<string>();
