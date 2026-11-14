@@ -190,7 +190,8 @@
 ## CI 双端打包(2026-11-01)✅
 
 - 新增 `.github/workflows/desktop-release.yml`:支持 `workflow_dispatch` 手动打包与 `v*` tag 自动发布。
-- macOS `macos-15` 构建 `universal-apple-darwin`,产出未签名 Universal `.dmg`。构建时设 `TAURI_BUNDLER_DMG_IGNORE_CI=true`,否则 Actions 的 `CI=true` 会跳过安装盘排版,打开后只能直接运行应用。Windows `windows-latest` 构建 `x86_64-pc-windows-msvc`,`--bundles nsis`,只产出 NSIS `.exe`。
+- macOS `macos-15` 构建 `universal-apple-darwin`,产出未签名 Universal `.dmg`。构建时设 `TAURI_BUNDLER_DMG_IGNORE_CI=true`,否则 Actions 的 `CI=true` 会跳过安装盘排版,打开后只能直接运行应用。Windows `windows-latest` 构建 `x86_64-pc-windows-msvc`,`--bundles nsis`,再由 `scripts/package-windows-portable.ps1` 把同一份 `yanzhi-notes.exe` 和资源打成免安装 zip。`dist-windows/` 同时有 NSIS 安装器与 `yanzhi-notes-windows-x64.zip`。
+- 2026-11-14 增加 Windows 免安装包,NSIS 保留。zip 内布局与安装目录一致(exe 旁 `file-icon.ico` 与 `resources/`)。不注册文件关联、不安装 WebView2;配置仍在 `%APPDATA%\com.yanzhi.notes`。真机解压运行待验。
 - 双平台并行构建,产物分别上传 Actions artifacts;tag 触发时合并产物并自动创建 GitHub Release。当前未接入代码签名与公证,正式分发仍需补 Apple Developer ID、公证与 Windows 代码签名密钥。
 - 2026-11-03 修复 Windows MSI 在 GitHub Actions 的 WiX `LGHT0311`:中文 `productName` 搭配默认 `en-US` 会落到 code page 1252,现设 `bundle.windows.wix.language = zh-CN`;同时将 workflow actions 升级到 Node.js 24 runtime;待重新触发 Actions 验证。
 
@@ -275,7 +276,7 @@
 | 异常恢复 | ✅ | 验收 4:read_doc/read_all_docs 非法 UTF-8 → lossy 呈现能打开能存(cargo test `read_doc_lossy_on_invalid_utf8`);meta `parseMeta` 字段异型(数组/数字/字符串)回空对象;mock `setLastDoc` 对损坏 recent.json 容错(原裸 parse 会炸打开链路);loadDoc 失败 → `docError` 状态 → App toast「无法打开」,openDoc/navBack/navForward 失败不动历史栈;已有底子:原子写 + `.tmp` 不入索引、meta/recent/settings 文件级容错、重建索引入口 |
 | 千文档性能 | ✅(mock 链 + 真机) | 验收 3 全过(mock 链,1000 篇=950 扁平+5 组×10):索引构建 5ms(<5000)/ 搜索端到端(去抖后含渲染)8ms(<100)/ 树滚动最大帧间隔 28ms(<50);真机实测 1000 篇目录用户确认无问题。`search.bench.test.ts` 回归断言(千篇 build <5s、三类查询中位 <100ms,实测 build ~30ms、查询 ~1ms)。E2E:`/tmp/yanzhi-drive/perf1k.js`(注意:勿预置 recent,否则自动开库欢迎页不出现;搜索计时用 insertText+MutationObserver,勿逐字 type) |
 | IME 回归 | ⬜ | Windows/macOS 中文长文输入无异常 + 跨段连续划选(验收 2,真机为主) |
-| 安装包 | ✅ macOS(dmg)+Windows(exe/nsis) | macOS:`砚知.app` / dmg 真机冒烟过(2026-10-30);Windows:`dist-windows` 已出包。未签名/公证(本机可用,分发需后续补) |
+| 安装包 | ✅ macOS(dmg)+Windows(nsis + 免安装 zip) | macOS:`砚知.app` / dmg 真机冒烟过(2026-10-30);Windows NSIS 已出包。2026-11-14 CI 同时上传 `yanzhi-notes-windows-x64.zip`(解压即用),真机待验。未签名/公证(本机可用,分发需后续补) |
 
 ## 交互打磨批次(2026-11-08)✅
 

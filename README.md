@@ -33,17 +33,23 @@ TAURI_BUNDLER_DMG_IGNORE_CI=true pnpm tauri build --target universal-apple-darwi
 src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
 ```
 
-### Windows x64(NSIS 安装器)
+### Windows x64(NSIS 安装器 + 免安装 zip)
 
 ```bash
 pnpm tauri build --target x86_64-pc-windows-msvc --bundles nsis
+pwsh scripts/package-windows-portable.ps1
 ```
 
-产物:
+产物在 `dist-windows/`：NSIS 安装器，以及 `yanzhi-notes-windows-x64.zip`。zip 解压后直接运行 `yanzhi-notes.exe`，资源布局与安装目录一致：
 
 ```text
-src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+yanzhi-notes.exe
+file-icon.ico
+resources/yanzhi-reference.docx
+resources/yanzhi-highlight.theme
 ```
+
+免安装包不注册文件关联，也不安装 WebView2。Windows 10（1803 及以后）和 Windows 11 已自带该运行时。窗口位置与配置仍写在 `%APPDATA%\com.yanzhi.notes`。
 
 > 国内网络:`src-tauri/.cargo/config.toml` 已配置 crates.io 镜像,代理可用时可删除。
 
