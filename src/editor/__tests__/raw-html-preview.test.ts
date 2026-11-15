@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { createElement } from "react";
 import { setAssetResolver } from "../../kb/asset-src";
 import { markdownToDoc } from "../markdown/parse";
 import { getSchema } from "../markdown/schema";
 import { docToMarkdown } from "../markdown/serialize";
 import { sanitizeRawHtmlPreview } from "../extensions/raw-html-preview";
+import { YanzhiEditor } from "../YanzhiEditor";
 
 describe("Raw HTML 安全预览", () => {
   beforeEach(() => setAssetResolver(null));
@@ -39,5 +43,41 @@ describe("Raw HTML 安全预览", () => {
     expect(raw?.type.name).toBe("rawHtml");
     expect(String(raw?.attrs.content).trim()).toBe('<div class="x" onclick="alert(1)">HTML</div>');
     expect(docToMarkdown(doc)).toBe(md);
+  });
+
+  it("restores preview when the source textarea blurs", () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const elementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => null;
+    try {
+      act(() =>
+        root.render(
+          createElement(YanzhiEditor, {
+            markdown: '<div><img src="https://example.com/a.png"></div>\n\nOther line',
+          }),
+        ),
+      );
+
+      const preview = container.querySelector<HTMLElement>(".yz-raw-html-preview");
+      expect(preview).not.toBeNull();
+      act(() => preview!.click());
+
+      const source = container.querySelector<HTMLTextAreaElement>(".yz-raw-html-source");
+      expect(source).not.toBeNull();
+      expect(document.activeElement).toBe(source);
+      expect(source!.selectionStart).toBe(source!.value.length);
+      expect(source!.selectionEnd).toBe(source!.value.length);
+      act(() => source!.blur());
+
+      expect(container.querySelector(".yz-raw-html-source")).toBeNull();
+      expect(container.querySelector(".yz-raw-html-preview")).not.toBeNull();
+    } finally {
+      document.elementFromPoint = elementFromPoint;
+      act(() => root.unmount());
+      container.remove();
+    }
   });
 });

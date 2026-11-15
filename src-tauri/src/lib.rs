@@ -4,9 +4,17 @@ mod file_icon;
 mod kb;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::menu::{CheckMenuItem, IconMenuItem, Menu, MenuItem, NativeIcon, SubmenuBuilder};
+use tauri::menu::{
+    CheckMenuItem, IconMenuItem, Menu, MenuItem, NativeIcon, Submenu, SubmenuBuilder,
+};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+
+/// 菜单项类型带 Runtime 泛参;本应用固定用 wry,这里起别名省得每处写 `::<tauri::Wry>`。
+type CheckItem = CheckMenuItem<tauri::Wry>;
+type PlainItem = MenuItem<tauri::Wry>;
+type IconItem = IconMenuItem<tauri::Wry>;
+type SubMenu = Submenu<tauri::Wry>;
 
 /// 关闭主窗时是否隐藏到托盘(状态源在前端 settings.closeToTray,经 set_close_to_tray 同步)
 struct CloseToTray(AtomicBool);
@@ -160,6 +168,55 @@ impl Default for ViewFlagsInner {
 #[derive(Default)]
 struct ViewFlags(std::sync::Mutex<ViewFlagsInner>);
 
+/// 需要随显示状态就地刷新的菜单项句柄(不重建菜单,见 `set_view_state`)。
+///
+/// **为什么不能每次重建整个菜单**:Windows 上 `AppHandle::set_menu` 会先
+/// `SetMenu(hwnd, NULL)` 摘掉菜单栏、再重新挂上,两步落在事件循环的**两轮**里。
+/// 中间那一帧客户区没有菜单栏、比平时高约 20px,下一帧又缩回去 ——
+/// WebView2 视口跟着拉伸再弹回,表现就是「整个界面抖一下、底部栏被顶上去再下来」。
+/// 切文档/切源码都会触发(前端每次都回写 set_view_state)。
+///
+/// 所以:菜单项建一次就留着,后续只 `set_checked` / `set_enabled` 原地改状态
+/// (muda 走 `CheckMenuItem`/`EnableMenuItem`,不动 HMENU 结构,客户区不变)。
+#[derive(Default)]
+struct MenuHandles {
+    /// 「显示」菜单里的勾选项
+    view: std::sync::Mutex<ViewMenuHandles>,
+    /// 「文件」菜单里随「最近打开」列表变化而刷新的子菜单
+    recent: std::sync::Mutex<RecentMenuHandles>,
+}
+
+#[derive(Default)]
+struct ViewMenuHandles {
+    panel: Option<CheckItem>,
+    outline: Option<CheckItem>,
+    backlinks: Option<CheckItem>,
+    tags: Option<CheckItem>,
+    history: Option<CheckItem>,
+    toolbar: Option<CheckItem>,
+    source: Option<CheckItem>,
+    focus: Option<CheckItem>,
+    /// 单文件专用项:随 single_file 变灰
+    save_single_as: Option<PlainItem>,
+    close_single: Option<PlainItem>,
+    save_single_to_kb: Option<IconItem>,
+    /// 知识库专用项:单文件态变灰
+    import_md: Option<IconItem>,
+    graph: Option<IconItem>,
+    /// 「保存」文案随模式变(单文件=保存 / 知识库=立即保存)
+    save_doc: Option<PlainItem>,
+    /// 「关闭标签页」仅知识库模式可用
+    close_tab: Option<PlainItem>,
+}
+
+#[derive(Default)]
+struct RecentMenuHandles {
+    /// 「打开最近文件夹」子菜单
+    folders: Option<SubMenu>,
+    /// 「打开最近文件」子菜单
+    files: Option<SubMenu>,
+}
+
 /// 辅助窗创建互斥:async 命令下并发 invoke 会在 get_webview_window 未登记前
 /// 同时 build 同 label,Windows 上出现多原生窗 / "failed to acquire webview reference"。
 #[derive(Default)]
@@ -174,9 +231,78 @@ fn take_startup_single_file(app: tauri::AppHandle) -> Result<Option<String>, Str
     Ok(app.state::<StartupSingleFile>().0.lock().unwrap().take())
 }
 
+/// 「打开最近文件夹」子菜单就地刷新(清空旧项 → 塞入 recent.json 里的库路径)。
+///
+/// 子菜单本身不动,只换它的子项 —— 不摘挂 Win32 菜单栏,客户区尺寸不变。
+fn refresh_recent_folders(app: &tauri::AppHandle, submenu: &SubMenu) -> tauri::Result<()> {
+    let recent = kb::read_recent(app).recent;
+    let items: Vec<PlainItem> = if recent.is_empty() {
+        vec![MenuItem::with_id(
+            app,
+            "yz_recent_none",
+            "暂无最近打开",
+            false,
+            None::<&str>,
+        )?]
+    } else {
+        // id 只带序号:路径放 id 里会被 muda 净化,事件侧按序号回查 recent.json
+        recent
+            .iter()
+            .take(10)
+            .enumerate()
+            .map(|(i, root)| {
+                MenuItem::with_id(app, format!("yz_recent::{i}"), root, true, None::<&str>)
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    replace_submenu_items(submenu, &items)
+}
+
+/// 「打开最近文件」子菜单就地刷新(同 `refresh_recent_folders`)。
+fn refresh_recent_files(app: &tauri::AppHandle, submenu: &SubMenu) -> tauri::Result<()> {
+    let recent_files = kb::read_recent_files(app).recent;
+    let items: Vec<PlainItem> = if recent_files.is_empty() {
+        vec![MenuItem::with_id(
+            app,
+            "yz_recent_file_none",
+            "暂无最近文件",
+            false,
+            None::<&str>,
+        )?]
+    } else {
+        recent_files
+            .iter()
+            .take(10)
+            .enumerate()
+            .map(|(i, path)| {
+                MenuItem::with_id(
+                    app,
+                    format!("yz_recent_file::{i}"),
+                    path,
+                    true,
+                    None::<&str>,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    replace_submenu_items(submenu, &items)
+}
+
+/// 把子菜单的子项整体换成 `items`(先清空再按序追加)。
+///
+/// 只动子菜单的子项,不碰顶层 HMENU —— 菜单栏高度不变,界面不抖。
+fn replace_submenu_items(submenu: &SubMenu, items: &[PlainItem]) -> tauri::Result<()> {
+    // 先摘掉旧的(每次删第 0 项直到空)
+    while submenu.remove_at(0).ok().flatten().is_some() {}
+    for item in items {
+        submenu.append(item)?;
+    }
+    Ok(())
+}
+
 /// 应用菜单(参考 Typora,全量中文重建):砚知 / 文件 / 编辑 / 显示 / 窗口。
 /// 编辑与窗口用预定义项(快捷键、系统行为由 OS 接管);文件/显示里的自定义项
-/// 经 `kb-menu` 事件转发前端执行。recent 列表取自 recent.json,set_recent 时整体重建。
+/// 经 `kb-menu` 事件转发前端执行。recent 列表取自 recent.json,set_recent 时刷新子菜单。
 fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     let app_name = app
         .config()
@@ -212,68 +338,17 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .item(&new_kb)
         .item(&open_kb)
         .separator();
-    // 最近打开收进子菜单(macOS 惯例「Open Recent ▸」):顶级只占一行,列表 hover 展开
-    let recent = kb::read_recent(app).recent;
-    let recent_items: Vec<_> = if recent.is_empty() {
-        vec![MenuItem::with_id(
-            app,
-            "yz_recent_none",
-            "暂无最近打开",
-            false,
-            None::<&str>,
-        )?]
-    } else {
-        // id 只带序号:路径放 id 里会被 muda 净化,事件侧按序号回查 recent.json
-        recent
-            .iter()
-            .take(10)
-            .enumerate()
-            .map(|(i, root)| {
-                MenuItem::with_id(app, format!("yz_recent::{i}"), root, true, None::<&str>)
-            })
-            .collect::<Result<Vec<_>, _>>()?
-    };
-    let recent_refs: Vec<&dyn tauri::menu::IsMenuItem<_>> = recent_items
-        .iter()
-        .map(|i| i as &dyn tauri::menu::IsMenuItem<_>)
-        .collect();
+    // 最近打开收进子菜单(macOS 惯例「Open Recent ▸」):顶级只占一行,列表 hover 展开。
+    // 列表内容后续会变(打开新库/新文件),但子菜单本身留着就地改 ——
+    // 重建整个菜单会摘挂 Win32 菜单栏 → 客户区高度跳变 → 界面抖一下(见 MenuHandles)。
     let recent_menu = SubmenuBuilder::new(app, "打开最近文件夹")
-        .items(&recent_refs)
         .submenu_native_icon(NativeIcon::Folder)
         .build()?;
-    let recent_files = kb::read_recent_files(app).recent;
-    let recent_file_items: Vec<_> = if recent_files.is_empty() {
-        vec![MenuItem::with_id(
-            app,
-            "yz_recent_file_none",
-            "暂无最近文件",
-            false,
-            None::<&str>,
-        )?]
-    } else {
-        recent_files
-            .iter()
-            .take(10)
-            .enumerate()
-            .map(|(i, path)| {
-                MenuItem::with_id(
-                    app,
-                    format!("yz_recent_file::{i}"),
-                    path,
-                    true,
-                    None::<&str>,
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?
-    };
-    let recent_file_refs: Vec<&dyn tauri::menu::IsMenuItem<_>> = recent_file_items
-        .iter()
-        .map(|i| i as &dyn tauri::menu::IsMenuItem<_>)
-        .collect();
+    refresh_recent_folders(app, &recent_menu)?;
     let recent_file_menu = SubmenuBuilder::new(app, "打开最近文件")
-        .items(&recent_file_refs)
         .submenu_native_icon(NativeIcon::MultipleDocuments)
         .build()?;
+    refresh_recent_files(app, &recent_file_menu)?;
     // 另存为/关闭/存入知识库 = 单文件专用;知识库页灰掉避免「点了没反应」
     let flags = *app.state::<ViewFlags>().0.lock().unwrap();
     let single = flags.single_file;
@@ -410,78 +485,88 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     )?;
     // 单文件:右侧面板/反链/标签/历史无意义 → 灰掉;
     // 「大纲」保留并可勾选,镜像左侧单文件大纲(与知识库右栏 outline 独立)。
+    // 各项句柄留到 MenuHandles:后续显示状态变化只就地改勾选/置灰,不重建菜单
+    // (重建会摘挂 Win32 菜单栏 → 客户区高度跳变 → 界面抖一下)。
+    let view_panel = CheckMenuItem::with_id(
+        app,
+        "yz_view_panel",
+        "右侧面板",
+        !single,
+        flags.panel,
+        None::<&str>,
+    )?;
+    let view_outline = CheckMenuItem::with_id(
+        app,
+        "yz_view_outline",
+        "大纲",
+        if single { true } else { flags.panel },
+        if single {
+            flags.single_outline
+        } else {
+            flags.outline
+        },
+        None::<&str>,
+    )?;
+    let view_backlinks = CheckMenuItem::with_id(
+        app,
+        "yz_view_backlinks",
+        "反向链接",
+        !single && flags.panel,
+        flags.backlinks,
+        None::<&str>,
+    )?;
+    let view_tags = CheckMenuItem::with_id(
+        app,
+        "yz_view_tags",
+        "标签",
+        !single && flags.panel,
+        flags.tags,
+        None::<&str>,
+    )?;
+    let view_history = CheckMenuItem::with_id(
+        app,
+        "yz_view_history",
+        "历史版本",
+        !single && flags.panel,
+        flags.history,
+        None::<&str>,
+    )?;
+    let view_toolbar = CheckMenuItem::with_id(
+        app,
+        "yz_view_toolbar",
+        "工具栏",
+        true,
+        flags.toolbar,
+        None::<&str>,
+    )?;
+    let view_source = CheckMenuItem::with_id(
+        app,
+        "yz_view_source",
+        "源码模式",
+        flags.source_enabled,
+        flags.source,
+        None::<&str>,
+    )?;
+    let view_focus = CheckMenuItem::with_id(
+        app,
+        "yz_focus",
+        "专注模式",
+        true,
+        flags.focus,
+        None::<&str>,
+    )?;
     let view = SubmenuBuilder::new(app, "显示")
-        .item(&CheckMenuItem::with_id(
-            app,
-            "yz_view_panel",
-            "右侧面板",
-            !single,
-            flags.panel,
-            None::<&str>,
-        )?)
+        .item(&view_panel)
         .separator()
-        .item(&CheckMenuItem::with_id(
-            app,
-            "yz_view_outline",
-            "大纲",
-            if single { true } else { flags.panel },
-            if single {
-                flags.single_outline
-            } else {
-                flags.outline
-            },
-            None::<&str>,
-        )?)
-        .item(&CheckMenuItem::with_id(
-            app,
-            "yz_view_backlinks",
-            "反向链接",
-            !single && flags.panel,
-            flags.backlinks,
-            None::<&str>,
-        )?)
-        .item(&CheckMenuItem::with_id(
-            app,
-            "yz_view_tags",
-            "标签",
-            !single && flags.panel,
-            flags.tags,
-            None::<&str>,
-        )?)
-        .item(&CheckMenuItem::with_id(
-            app,
-            "yz_view_history",
-            "历史版本",
-            !single && flags.panel,
-            flags.history,
-            None::<&str>,
-        )?)
+        .item(&view_outline)
+        .item(&view_backlinks)
+        .item(&view_tags)
+        .item(&view_history)
         .separator()
-        .item(&CheckMenuItem::with_id(
-            app,
-            "yz_view_toolbar",
-            "工具栏",
-            true,
-            flags.toolbar,
-            None::<&str>,
-        )?)
-        .item(&CheckMenuItem::with_id(
-            app,
-            "yz_view_source",
-            "源码模式",
-            flags.source_enabled,
-            flags.source,
-            None::<&str>,
-        )?)
+        .item(&view_toolbar)
+        .item(&view_source)
         .separator()
-        .item(&CheckMenuItem::with_id(
-            app,
-            "yz_focus",
-            "专注模式",
-            true,
-            flags.focus,
-            None::<&str>,
-        )?)
+        .item(&view_focus)
         .separator()
         .item(&graph)
         .separator()
@@ -565,7 +650,44 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     #[cfg(not(target_os = "macos"))]
     let menu = Menu::with_items(app, &[&file, &edit, &view, &window, &help_menu])?;
     app.set_menu(menu)?;
+    // 记下句柄:后续显示状态变化走 set_view_state 就地改,不再重建整个菜单。
+    {
+        let handles = app.state::<MenuHandles>();
+        let mut h = handles.view.lock().unwrap();
+        *h = ViewMenuHandles {
+            panel: Some(view_panel),
+            outline: Some(view_outline),
+            backlinks: Some(view_backlinks),
+            tags: Some(view_tags),
+            history: Some(view_history),
+            toolbar: Some(view_toolbar),
+            source: Some(view_source),
+            focus: Some(view_focus),
+            save_single_as: Some(save_single_as),
+            close_single: Some(close_single),
+            save_single_to_kb: Some(save_single_to_kb),
+            import_md: Some(import_md),
+            graph: Some(graph),
+            save_doc: Some(save_doc),
+            close_tab: Some(close_tab),
+        };
+        let mut r = handles.recent.lock().unwrap();
+        r.folders = Some(recent_menu);
+        r.files = Some(recent_file_menu);
+    }
     Ok(())
+}
+
+/// recent.json 变化后刷新「最近打开」子菜单(就地换子项,不重建整个菜单)。
+pub fn refresh_recent_menus(app: &tauri::AppHandle) {
+    let handles = app.state::<MenuHandles>();
+    let r = handles.recent.lock().unwrap();
+    if let Some(sub) = &r.folders {
+        let _ = refresh_recent_folders(app, sub);
+    }
+    if let Some(sub) = &r.files {
+        let _ = refresh_recent_files(app, sub);
+    }
 }
 
 /// 打开辅助独立窗口(label = settings / shortcuts / help / graph):已开则聚焦。
@@ -642,8 +764,11 @@ async fn open_aux_window(
     Ok(())
 }
 
-/// 前端状态变化后回写显示菜单勾选态(菜单点击 → 前端应用 → 回写 → 重建勾);
+/// 前端状态变化后回写显示菜单勾选态(菜单点击 → 前端应用 → 回写 → 就地翻勾);
 /// `single_file` 同步启用/禁用单文件专用菜单项。
+///
+/// **只就地改菜单项,不重建整个菜单**:Windows 上重建 = 摘掉再挂上 Win32 菜单栏,
+/// 客户区高度会跳一下(WebView2 视口跟着抖)。详见 `MenuHandles` 注释。
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 fn set_view_state(
@@ -660,7 +785,7 @@ fn set_view_state(
     source: Option<bool>,
     source_enabled: Option<bool>,
 ) {
-    {
+    let flags = {
         let state = app.state::<ViewFlags>();
         let mut flags = state.0.lock().unwrap();
         if let Some(v) = panel {
@@ -696,8 +821,79 @@ fn set_view_state(
         if let Some(v) = source_enabled {
             flags.source_enabled = v;
         }
+        *flags
+    };
+    apply_view_flags_to_menu(&app, flags);
+}
+
+/// 把显示状态就地刷到已有菜单项上(勾选 + 置灰),不动菜单结构。
+///
+/// muda 的 `set_checked` / `set_enabled` 在 Windows 上走 `CheckMenuItem` /
+/// `EnableMenuItem`,只改单个菜单项的状态位并 `DrawMenuBar` 重绘,
+/// **不会摘挂 HMENU**,客户区尺寸不变 → 界面不抖。
+fn apply_view_flags_to_menu(app: &tauri::AppHandle, flags: ViewFlagsInner) {
+    let single = flags.single_file;
+    let handles = app.state::<MenuHandles>();
+    let h = handles.view.lock().unwrap();
+
+    // 勾选项:勾选态 + 可用态(总开关关时分区置灰)
+    if let Some(i) = &h.panel {
+        let _ = i.set_checked(flags.panel);
+        let _ = i.set_enabled(!single);
     }
-    let _ = build_app_menu(&app);
+    if let Some(i) = &h.outline {
+        let _ = i.set_checked(if single {
+            flags.single_outline
+        } else {
+            flags.outline
+        });
+        let _ = i.set_enabled(if single { true } else { flags.panel });
+    }
+    if let Some(i) = &h.backlinks {
+        let _ = i.set_checked(flags.backlinks);
+        let _ = i.set_enabled(!single && flags.panel);
+    }
+    if let Some(i) = &h.tags {
+        let _ = i.set_checked(flags.tags);
+        let _ = i.set_enabled(!single && flags.panel);
+    }
+    if let Some(i) = &h.history {
+        let _ = i.set_checked(flags.history);
+        let _ = i.set_enabled(!single && flags.panel);
+    }
+    if let Some(i) = &h.toolbar {
+        let _ = i.set_checked(flags.toolbar);
+    }
+    if let Some(i) = &h.source {
+        let _ = i.set_checked(flags.source);
+        let _ = i.set_enabled(flags.source_enabled);
+    }
+    if let Some(i) = &h.focus {
+        let _ = i.set_checked(flags.focus);
+    }
+
+    // 单文件 / 知识库互斥项:置灰与文案随模式走
+    if let Some(i) = &h.save_doc {
+        let _ = i.set_text(if single { "保存" } else { "立即保存" });
+    }
+    if let Some(i) = &h.save_single_as {
+        let _ = i.set_enabled(single);
+    }
+    if let Some(i) = &h.close_single {
+        let _ = i.set_enabled(single);
+    }
+    if let Some(i) = &h.save_single_to_kb {
+        let _ = i.set_enabled(single);
+    }
+    if let Some(i) = &h.import_md {
+        let _ = i.set_enabled(!single);
+    }
+    if let Some(i) = &h.graph {
+        let _ = i.set_enabled(!single);
+    }
+    if let Some(i) = &h.close_tab {
+        let _ = i.set_enabled(!single);
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -739,6 +935,7 @@ pub fn run() {
         .manage(kb::WatchState(std::sync::Mutex::new(None)))
         .manage(ai::AiCancelMap::default())
         .manage(ViewFlags::default())
+        .manage(MenuHandles::default())
         .manage(AuxWindowLock::default())
         .manage(StartupSingleFile::default())
         .manage(CloseToTray(AtomicBool::new(false)))

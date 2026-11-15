@@ -1,5 +1,14 @@
-import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
-import { Search, type LucideIcon } from "lucide-react";
+import {
+  memo,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type UIEvent,
+} from "react";
+import { Search } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +20,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { TREE_ICON_GROUPS, TREE_ICONS, treeIconLabel } from "./tree-icons";
+import {
+  TREE_ICON_GROUPS,
+  TREE_ICONS,
+  TREE_ICON_GLYPHS,
+  TreeIconSprite,
+  treeIconLabel,
+  type TreeIconDef,
+  type TreeIconGlyph,
+} from "./tree-icons";
 
 interface IconPickerDialogProps {
   open: boolean;
@@ -21,8 +38,20 @@ interface IconPickerDialogProps {
   onSelect: (icon: string | null) => void;
 }
 
-/** 预拼搜索串,避免每次过滤再 join/toLowerCase 一百多次 */
-const ICON_ENTRIES = TREE_ICONS.map((icon) => ({
+type IconEntry = TreeIconDef & { haystack: string };
+type PickerRow =
+  | { kind: "header"; group: string }
+  | { kind: "icons"; group: string; icons: IconEntry[] };
+
+/** Windows WebView2 不适合一次挂 100+ SVG;虚拟列表只保留视口附近两行。 */
+const ICONS_PER_ROW = 7;
+const HEADER_HEIGHT = 30;
+const ROW_HEIGHT = 48;
+const VIEWPORT_HEIGHT = 420;
+const OVERSCAN_ROWS = 1;
+
+/** 预拼搜索串,避免每次过滤都 join/toLowerCase 一百多次 */
+const ICON_ENTRIES: IconEntry[] = TREE_ICONS.map((icon) => ({
   ...icon,
   haystack: [icon.id, icon.label, icon.group, ...icon.keywords].join(" ").toLowerCase(),
 }));
@@ -30,13 +59,13 @@ const ICON_ENTRIES = TREE_ICONS.map((icon) => ({
 const IconCell = memo(function IconCell({
   id,
   label,
-  Icon,
+  glyph,
   selected,
   onPick,
 }: {
   id: string;
   label: string;
-  Icon: LucideIcon;
+  glyph: TreeIconGlyph;
   selected: boolean;
   onPick: (id: string) => void;
 }) {
@@ -47,22 +76,31 @@ const IconCell = memo(function IconCell({
       aria-label={label}
       aria-pressed={selected}
       className={cn(
-        "hover:bg-hover text-muted-foreground hover:text-foreground flex size-7 cursor-pointer items-center justify-center rounded-md",
-        selected && "bg-primary/10 text-primary ring-primary/30 ring-1",
+        "hover:bg-hover text-muted-foreground hover:text-foreground flex size-10 cursor-pointer items-center justify-center rounded-lg",
+        selected && "bg-primary/10 text-primary ring-primary/40 ring-1",
       )}
       onClick={() => onPick(id)}
     >
-      <Icon className="size-4" />
+      <svg
+        viewBox="0 0 24 24"
+        aria-hidden
+        className={cn("size-5", glyph.colorClass)}
+        fill={glyph.solid ? "currentColor" : "none"}
+        strokeWidth={glyph.solid ? 1.5 : glyph.colorClass ? 2.35 : 2}
+      >
+        <use href={`#yz-tree-icon-${glyph.shape}`} />
+      </svg>
     </button>
   );
 });
 
 /**
- * 目录树内置图标选择器:所有分组同页展示;
- * 左侧小分组名 + 右侧 14 列紧凑网格。
- * Windows WebView2 上一次挂 100+ Lucide SVG 很贵,所以先画空壳再延后挂网格;
- * 网格区用固定高度,避免矮壳居中后再被内容撑高、看起来像从下面挪到中间。
- * 选中后由外层先关弹窗再写 meta,避免关窗与整棵树重渲抢同一帧。
+ * 目录树内置图标选择器。
+ *
+ * Windows WebView2 滚动时同屏维护过多 SVG 会掉帧。这里改为:
+ * - 7 列大图标,减少每行 DOM 数量;
+ * - 组头 + 图标行统一固定行高;
+ * - 只渲染滚动视口附近 ±1 行,外侧行用上下 spacer 占位。
  */
 export function IconPickerDialog({
   open,
@@ -73,24 +111,20 @@ export function IconPickerDialog({
 }: IconPickerDialogProps) {
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
-  const [gridReady, setGridReady] = useState(false);
+  const [scrollTop, setScrollTop] = useState(0);
+  const scrollFrameRef = useRef<number | null>(null);
+  const spriteMountedRef = useRef(false);
+  if (open) spriteMountedRef.current = true;
 
   useEffect(() => {
-    if (!open) {
-      setQuery("");
-      setGridReady(false);
-      return;
-    }
-    // 等右键菜单退场 + Dialog 壳先上屏,再挂图标网格
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      if (!cancelled) setGridReady(true);
-    }, 0);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [open, targetName]);
+    if (open) return;
+    setQuery("");
+    setScrollTop(0);
+  }, [open]);
+
+  useEffect(() => () => {
+    if (scrollFrameRef.current !== null) window.cancelAnimationFrame(scrollFrameRef.current);
+  }, []);
 
   const visibleGroups = useMemo(() => {
     const q = deferredQuery.trim().toLowerCase();
@@ -101,6 +135,54 @@ export function IconPickerDialog({
     })).filter((g) => g.icons.length > 0);
   }, [deferredQuery]);
 
+  const rows = useMemo<PickerRow[]>(() => {
+    const out: PickerRow[] = [];
+    for (const { group, icons } of visibleGroups) {
+      out.push({ kind: "header", group });
+      for (let i = 0; i < icons.length; i += ICONS_PER_ROW) {
+        out.push({ kind: "icons", group, icons: icons.slice(i, i + ICONS_PER_ROW) });
+      }
+    }
+    return out;
+  }, [visibleGroups]);
+
+  /** offsets[i] = 第 i 行顶部位置;额外一项用于总高度和切片右边界。 */
+  const rowOffsets = useMemo(() => {
+    const offsets = new Array<number>(rows.length + 1);
+    offsets[0] = 0;
+    rows.forEach((row, i) => {
+      offsets[i + 1] = offsets[i] + (row.kind === "header" ? HEADER_HEIGHT : ROW_HEIGHT);
+    });
+    return offsets;
+  }, [rows]);
+
+  // 搜索结果变化后回到顶部,避免旧 scrollTop 落在新内容的空白 spacer。
+  useEffect(() => {
+    setScrollTop(0);
+  }, [deferredQuery]);
+
+  const handleScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    const target = event.currentTarget;
+    if (scrollFrameRef.current !== null) return;
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      setScrollTop(target.scrollTop);
+    });
+  }, []);
+
+  const { startIndex, endIndex, totalHeight } = useMemo(() => {
+    let first = 0;
+    while (first + 1 < rows.length && rowOffsets[first + 1] <= scrollTop) first++;
+    const bottom = scrollTop + VIEWPORT_HEIGHT;
+    let last = first;
+    while (last < rows.length && rowOffsets[last] < bottom) last++;
+    return {
+      startIndex: Math.max(0, first - OVERSCAN_ROWS),
+      endIndex: Math.min(rows.length, last + OVERSCAN_ROWS),
+      totalHeight: rowOffsets[rows.length],
+    };
+  }, [rowOffsets, rows.length, scrollTop]);
+
   const pickIcon = useCallback(
     (id: string) => {
       onOpenChange(false);
@@ -110,8 +192,14 @@ export function IconPickerDialog({
   );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-3 p-4 sm:max-w-[600px]">
+    <>
+      {/* 只缓存基础形状 sprite,不缓存 Dialog/overlay;关闭弹窗仍会完整卸载遮罩。 */}
+      {spriteMountedRef.current ? <TreeIconSprite /> : null}
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          className="gap-3 p-4 sm:max-w-[520px]"
+          overlayClassName="supports-backdrop-filter:backdrop-blur-none"
+        >
         <DialogHeader className="gap-1">
           <DialogTitle>更改图标</DialogTitle>
           <DialogDescription className="line-clamp-1">
@@ -127,40 +215,48 @@ export function IconPickerDialog({
             placeholder="搜索图标"
             className="h-8 pl-8 text-[13px]"
             aria-label="搜索内置图标"
-            disabled={!gridReady}
           />
         </div>
 
-        <div className="border-border-subtle h-[min(54vh,420px)] overflow-y-auto rounded-lg border p-2 [content-visibility:auto]">
-          {!gridReady ? (
-            <p className="text-muted-foreground flex h-full min-h-full items-center justify-center text-xs">
-              加载图标…
-            </p>
-          ) : visibleGroups.length ? (
-            visibleGroups.map(({ group, icons }) => (
-              <section
-                key={group}
-                className="flex items-center gap-2 border-border-subtle/70 border-b py-1.5 last:border-b-0 last:pb-0 first:pt-0 [content-visibility:auto] [contain-intrinsic-size:auto_40px]"
-              >
-                <span className="text-muted-foreground w-11 shrink-0 text-right text-[10px] leading-7">
-                  {group}
-                </span>
-                <div className="grid min-w-0 flex-1 grid-cols-[repeat(14,minmax(0,1fr))] gap-1">
-                  {icons.map(({ id, label, Icon }) => (
-                    <IconCell
-                      key={id}
-                      id={id}
-                      label={label}
-                      Icon={Icon}
-                      selected={targetIcon === id}
-                      onPick={pickIcon}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))
+        <div
+          className="border-border-subtle h-[420px] overflow-y-auto rounded-lg border p-2"
+          onScroll={handleScroll}
+        >
+          {rows.length ? (
+            <div className="relative" style={{ height: totalHeight }}>
+              {rows.slice(startIndex, endIndex).map((row, visibleIndex) => {
+                const rowIndex = startIndex + visibleIndex;
+                const top = rowOffsets[rowIndex];
+                return row.kind === "header" ? (
+                  <div
+                    key={`${row.group}-header`}
+                    className="text-muted-foreground absolute inset-x-0 flex h-[30px] items-center px-1 text-[11px]"
+                    style={{ transform: `translateY(${top}px)`, contain: "layout style paint" }}
+                  >
+                    {row.group}
+                  </div>
+                ) : (
+                  <div
+                    key={`${row.group}-${row.icons[0]?.id}`}
+                    className="absolute inset-x-0 grid h-12 grid-cols-[repeat(7,minmax(0,1fr))] gap-x-3 gap-y-0 px-1"
+                    style={{ transform: `translateY(${top}px)`, contain: "layout style paint" }}
+                  >
+                    {row.icons.map(({ id, label }) => (
+                      <IconCell
+                        key={id}
+                        id={id}
+                        label={label}
+                        glyph={TREE_ICON_GLYPHS.get(id)!}
+                        selected={targetIcon === id}
+                        onPick={pickIcon}
+                      />
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
           ) : (
-            <p className="text-muted-foreground flex h-28 items-center justify-center text-xs">
+            <p className="text-muted-foreground flex h-40 items-center justify-center text-xs">
               没有匹配的图标
             </p>
           )}
@@ -192,7 +288,8 @@ export function IconPickerDialog({
             </Button>
           </span>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

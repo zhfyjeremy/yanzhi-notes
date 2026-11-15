@@ -70,7 +70,7 @@
   --callout-caution: hsl(4 78% 44%);
   --callout-caution-bg: hsl(4 70% 96%);
 
-  /* Markdown 源码模式专用语义色(HBuilder/Typora 式彩色源码,浅色) */
+  /* Markdown 源码模式专用语义色;代码块 token 直接复用排版视图 Shiki 的 --code-* 色槽 */
   --source-h1: hsl(204 88% 34%);
   --source-h2: hsl(190 68% 28%);
   --source-h3: hsl(258 55% 44%);
@@ -79,19 +79,19 @@
   --source-h6: hsl(348 68% 40%);
   --source-marker: hsl(25 8% 46%);
   --source-emphasis: hsl(32 88% 32%);
-  --source-inline-code: hsl(348 68% 38%);
-  --source-code-bg: hsl(220 26% 96%);
-  --source-code-edge: hsl(220 18% 87%);
-  --source-code-comment: hsl(25 8% 45%);
-  --source-code-string: hsl(130 38% 29%);
-  --source-code-number: hsl(212 82% 38%);
-  --source-code-keyword: hsl(258 58% 45%);
-  --source-code-type: hsl(190 68% 27%);
-  --source-code-function: hsl(204 84% 33%);
-  --source-code-property: hsl(32 82% 36%);
-  --source-code-operator: hsl(348 62% 46%);
-  --source-code-variable: hsl(25 15% 26%);
-  --source-code-atom: hsl(4 72% 44%);
+  --source-inline-code: var(--code-str);
+  --source-code-bg: var(--code-bg);
+  --source-code-edge: var(--border);
+  --source-code-comment: var(--code-cm);
+  --source-code-string: var(--code-str);
+  --source-code-number: var(--code-num);
+  --source-code-keyword: var(--code-kw);
+  --source-code-type: var(--code-fn);
+  --source-code-function: var(--code-fn);
+  --source-code-property: var(--code-num);
+  --source-code-operator: var(--code-op);
+  --source-code-variable: var(--code-var);
+  --source-code-atom: var(--code-num);
 }
 
 .dark {
@@ -151,7 +151,7 @@
   --callout-caution: hsl(4 72% 68%);
   --callout-caution-bg: hsl(4 26% 15%);
 
-  /* Markdown 源码模式专用语义色(HBuilder/Typora 式彩色源码,暗色) */
+  /* Markdown 源码模式专用语义色;代码块 token 直接复用排版视图 Shiki 的 --code-* 色槽 */
   --source-h1: hsl(200 92% 72%);
   --source-h2: hsl(180 72% 66%);
   --source-h3: hsl(258 66% 77%);
@@ -160,19 +160,19 @@
   --source-h6: hsl(348 75% 73%);
   --source-marker: hsl(30 9% 58%);
   --source-emphasis: hsl(36 88% 68%);
-  --source-inline-code: hsl(348 75% 72%);
-  --source-code-bg: hsl(220 20% 12%);
-  --source-code-edge: hsl(220 18% 22%);
-  --source-code-comment: hsl(25 9% 55%);
-  --source-code-string: hsl(130 40% 64%);
-  --source-code-number: hsl(212 88% 70%);
-  --source-code-keyword: hsl(258 66% 76%);
-  --source-code-type: hsl(190 68% 68%);
-  --source-code-function: hsl(204 86% 70%);
-  --source-code-property: hsl(36 82% 68%);
-  --source-code-operator: hsl(348 72% 72%);
-  --source-code-variable: hsl(36 18% 82%);
-  --source-code-atom: hsl(4 74% 70%);
+  --source-inline-code: var(--code-str);
+  --source-code-bg: var(--code-bg);
+  --source-code-edge: var(--border);
+  --source-code-comment: var(--code-cm);
+  --source-code-string: var(--code-str);
+  --source-code-number: var(--code-num);
+  --source-code-keyword: var(--code-kw);
+  --source-code-type: var(--code-fn);
+  --source-code-function: var(--code-fn);
+  --source-code-property: var(--code-num);
+  --source-code-operator: var(--code-op);
+  --source-code-variable: var(--code-var);
+  --source-code-atom: var(--code-num);
 }
 
 @theme inline {

@@ -80,6 +80,13 @@ export interface TreeIconDef {
 }
 type LucideProps = ComponentProps<LucideIcon>;
 
+/** 图标选择器需要从彩色包装器取回基础形状与样式,用于缓存 SVG sprite。 */
+type TreeIconRuntime = LucideIcon & {
+  __yanzhiBase?: LucideIcon;
+  __yanzhiColor?: string;
+  __yanzhiSolid?: boolean;
+};
+
 /**
  * 彩色线条图标:不加底色、不缩放图形,与单色图标占满同一尺寸;
  * 颜色仍来自 design tokens,浅深主题各自适配。
@@ -249,6 +256,62 @@ export const TREE_ICONS: TreeIconDef[] = [
   { id: "solid-music-purple", label: "面性紫色音乐", group: "彩色面性", keywords: ["音乐", "面性", "紫色"], Icon: solidColorIcon(Music, "text-[var(--code-fn)]") },
   { id: "solid-palette-purple", label: "面性紫色创作", group: "彩色面性", keywords: ["创作", "面性", "紫色"], Icon: solidColorIcon(Palette, "text-[var(--code-fn)]") },
 ];
+
+export interface TreeIconGlyph {
+  shape: string;
+  colorClass?: string;
+  solid?: boolean;
+}
+
+const SHAPE_BY_BASE = new Map<LucideIcon, string>();
+for (const def of TREE_ICONS) {
+  const runtime = def.Icon as TreeIconRuntime;
+  const base = runtime.__yanzhiBase ?? runtime;
+  if (!SHAPE_BY_BASE.has(base)) SHAPE_BY_BASE.set(base, def.id);
+}
+
+/**
+ * 图标选择器的轻量缓存:每个基础形状只渲染一次。
+ * 弹窗关闭后这个 sprite 可留在 IconPickerDialog 外层复用,但不保留 Dialog overlay/content。
+ */
+export function TreeIconSprite() {
+  const solidIcons = TREE_ICONS.filter((def) => (def.Icon as TreeIconRuntime).__yanzhiSolid);
+  return (
+    <svg aria-hidden className="pointer-events-none absolute size-0 overflow-hidden">
+      {[...SHAPE_BY_BASE].map(([base, shape]) => {
+        const Base = base;
+        return <Base key={shape} id={"yz-tree-icon-" + shape} />;
+      })}
+      {solidIcons.map((def) => {
+        const runtime = def.Icon as TreeIconRuntime;
+        const Base = runtime.__yanzhiBase ?? runtime;
+        return (
+          <Base
+            key={def.id}
+            id={"yz-tree-icon-" + def.id}
+            fill="currentColor"
+            strokeWidth={1.5}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+export const TREE_ICON_GLYPHS = new Map<string, TreeIconGlyph>(
+  TREE_ICONS.map((def): [string, TreeIconGlyph] => {
+    const runtime = def.Icon as TreeIconRuntime;
+    const base = runtime.__yanzhiBase ?? runtime;
+    return [
+      def.id,
+      {
+        shape: runtime.__yanzhiSolid ? def.id : (SHAPE_BY_BASE.get(base) ?? def.id),
+        colorClass: runtime.__yanzhiColor,
+        solid: runtime.__yanzhiSolid,
+      },
+    ];
+  }),
+);
 
 const ICON_MAP = new Map(TREE_ICONS.map((def): [string, TreeIconDef] => [def.id, def]));
 

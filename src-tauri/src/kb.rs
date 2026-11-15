@@ -1081,7 +1081,8 @@ pub fn set_recent(app: tauri::AppHandle, root: String) -> Result<(), String> {
     let json = serde_json::to_string_pretty(&state).map_err(err)?;
     fs::write(p, json).map_err(err)?;
     // 菜单「最近打开」跟 recent.json 同步(失败只丢菜单项,不影响打开链路)
-    let _ = crate::build_app_menu(&app);
+    // 就地刷新子菜单,不重建整个菜单(重建会摘挂 Win32 菜单栏 → 界面抖一下)
+    crate::refresh_recent_menus(&app);
     Ok(())
 }
 
@@ -1119,7 +1120,7 @@ pub fn set_recent_file(app: tauri::AppHandle, path: String) -> Result<(), String
     let p = recent_files_path(&app)?;
     let json = serde_json::to_string_pretty(&state).map_err(err)?;
     fs::write(p, json).map_err(err)?;
-    let _ = crate::build_app_menu(&app);
+    crate::refresh_recent_menus(&app);
     Ok(())
 }
 

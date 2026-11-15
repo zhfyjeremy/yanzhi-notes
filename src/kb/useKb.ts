@@ -126,7 +126,7 @@ export function useKb(settings: AppSettings) {
   const treeRef = useRef<TreeNode[]>([]);
   treeRef.current = tree;
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  /** 图标偏好变更不改变树序,只靠这个 revision 刷新 entryIcons,避免整树 sort/换引用 */
+  /** 图标偏好变更不改变树序,只靠这个 revision 刷新 entryIcons(含标签页图标),避免整树 sort/换引用 */
   const [iconRevision, setIconRevision] = useState(0);
   const searchRef = useRef(new KbSearchIndex());
   const [indexReady, setIndexReady] = useState(false);

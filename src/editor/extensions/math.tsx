@@ -30,7 +30,7 @@ export function decodeLatex(raw: string | null): string {
   }
 }
 
-function katexHtml(latex: string, displayMode: boolean): string {
+export function katexHtml(latex: string, displayMode: boolean): string {
   if (!latex.trim()) return "";
   try {
     return katex.renderToString(latex, {

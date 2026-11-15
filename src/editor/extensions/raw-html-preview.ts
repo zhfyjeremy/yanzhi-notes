@@ -32,13 +32,13 @@ function safeUrl(raw: string): string | null {
   return url;
 }
 
-function safeSrcset(raw: string): string {
+function safeSrcset(raw: string, resolveSrc: (src: string) => string): string {
   return raw
     .split(",")
     .map((part) => {
       const [url, ...descriptors] = part.trim().split(/\s+/);
       const resolved = safeUrl(url ?? "");
-      return resolved ? [resolveRenderSrc(resolved), ...descriptors].join(" ") : "";
+      return resolved ? [resolveSrc(resolved), ...descriptors].join(" ") : "";
     })
     .filter(Boolean)
     .join(", ");
@@ -52,7 +52,7 @@ function safeCss(css: string): string {
     .replace(/javascript\s*:/gi, "data:text/plain,");
 }
 
-function sanitizeElement(element: Element) {
+function sanitizeElement(element: Element, resolveSrc: (src: string) => string) {
   const tag = element.tagName.toLowerCase();
   if (REMOVE_TAGS.has(tag)) {
     element.remove();
@@ -67,11 +67,11 @@ function sanitizeElement(element: Element) {
       continue;
     }
     if (URL_ATTRS.has(name)) {
-      if (name === "srcset") element.setAttribute(attr.name, safeSrcset(value));
+      if (name === "srcset") element.setAttribute(attr.name, safeSrcset(value, resolveSrc));
       else {
         const safe = safeUrl(value);
         if (safe === null) element.removeAttribute(attr.name);
-        else if (tag === "img" && name === "src") element.setAttribute(attr.name, resolveRenderSrc(safe));
+        else if (tag === "img" && name === "src") element.setAttribute(attr.name, resolveSrc(safe));
         else element.setAttribute(attr.name, safe);
       }
       continue;
@@ -92,18 +92,22 @@ function sanitizeElement(element: Element) {
     element.setAttribute("loading", "eager");
   }
 
-  for (const child of Array.from(element.children)) sanitizeElement(child);
+  for (const child of Array.from(element.children)) sanitizeElement(child, resolveSrc);
 }
 
 /** 生成隔离 iframe 使用的 HTML。原文不改写,只影响预览。 */
-export function sanitizeRawHtmlPreview(source: string, themeCss = ""): string {
+export function sanitizeRawHtmlPreview(
+  source: string,
+  themeCss = "",
+  resolveSrc: (src: string) => string = resolveRenderSrc,
+): string {
   const parsed = new DOMParser().parseFromString(source, "text/html");
   const styles = Array.from(parsed.querySelectorAll("style"));
   for (const style of styles) {
     style.textContent = safeCss(style.textContent ?? "");
     style.remove();
   }
-  for (const child of Array.from(parsed.body.children)) sanitizeElement(child);
+  for (const child of Array.from(parsed.body.children)) sanitizeElement(child, resolveSrc);
 
   return `<!doctype html>
 <html>

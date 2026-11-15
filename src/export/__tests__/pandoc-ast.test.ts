@@ -121,33 +121,111 @@ describe("PM doc → Pandoc AST", () => {
       unknownHtml,
     ].join("\n\n");
     const { ast } = await pmDocToPandocAst(markdownToDoc(markdown, schema), options);
-    const dynamicModule = "node:child_process";
-    const { execFileSync } = (await import(/* @vite-ignore */ dynamicModule)) as {
+    const dynamicChildProcess = "node:child_process";
+    const dynamicFs = "node:fs";
+    const dynamicOs = "node:os";
+    const dynamicPath = "node:path";
+    const { execFileSync } = (await import(
+      /* @vite-ignore */ dynamicChildProcess
+    )) as {
       execFileSync: (
         command: string,
         args: string[],
-        options: { input: string; maxBuffer: number },
-      ) => Uint8Array;
+        options: { input: string; maxBuffer: number; encoding?: string },
+      ) => Uint8Array | string;
     };
-    let output: Uint8Array;
+    const { mkdtempSync, readFileSync, rmSync } = (await import(
+      /* @vite-ignore */ dynamicFs
+    )) as {
+      mkdtempSync: (prefix: string) => string;
+      readFileSync: (path: string) => Uint8Array;
+      rmSync: (
+        path: string,
+        options: { recursive: boolean; force: boolean },
+      ) => void;
+    };
+    const { tmpdir } = (await import(/* @vite-ignore */ dynamicOs)) as {
+      tmpdir: () => string;
+    };
+    const { join } = (await import(/* @vite-ignore */ dynamicPath)) as {
+      join: (...parts: string[]) => string;
+    };
+    let version: string;
     try {
-      output = execFileSync(
+      version = String(
+        execFileSync("pandoc", ["--version"], { input: "", maxBuffer: 1024 * 1024 }),
+      );
+    } catch (e) {
+      // 没装 Pandoc 时跳过,PRD 要求 Pandoc 由用户自行安装
+      if ((e as { code?: string }).code === "ENOENT") return;
+      throw e;
+    }
+    // Pandoc 3.10 起 --highlight-style 改名为 --syntax-highlighting
+    const versionToken = version
+      .split(/\s+/)
+      .find((token) => /^\d/.test(token));
+    const parts = (versionToken ?? "").split(".").map((n) => Number.parseInt(n, 10));
+    const modernHighlightFlag =
+      (parts[0] ?? 0) > 3 || (parts[0] === 3 && (parts[1] ?? 0) >= 10);
+    // Pandoc 3+ 拒绝把二进制 docx 写到终端,必须落到文件再读回
+    const workDir = mkdtempSync(join(tmpdir(), "yanzhi-pandoc-"));
+    const outputPath = join(workDir, "out.docx");
+    try {
+      execFileSync(
         "pandoc",
         [
           "--from", "json",
           "--to", "docx",
+          "--output", outputPath,
           "--reference-doc", "src-tauri/resources/yanzhi-reference.docx",
-          "--highlight-style", "src-tauri/resources/yanzhi-highlight.theme",
+          modernHighlightFlag
+            ? "--syntax-highlighting"
+            : "--highlight-style",
+          "src-tauri/resources/yanzhi-highlight.theme",
         ],
         {
           input: JSON.stringify(ast),
           maxBuffer: 20 * 1024 * 1024,
         },
       );
+      const output = readFileSync(outputPath);
+      expect(output.subarray(0, 2).toString()).toBe("PK");
+      const docxMarkdown = String(
+        execFileSync("pandoc", ["--from", "docx", "--to", "markdown", outputPath], {
+          input: "",
+          maxBuffer: 20 * 1024 * 1024,
+        }),
+      );
+      // 回读 DOCX 再转 Markdown,确认的不是“文件能生成”,而是正文语义真的进了产物。
+      const contentChecks = [
+        "# 标题一",
+        "第一段,中英混排 with English text",
+        "> 引用第一段。",
+        "- 项目一",
+        "- [ ] 待办一",
+        "有起始值的有序列表",
+        "左对齐",
+        "SPECIAL_LABEL",
+        'const mode = "flow";',
+        "![Mermaid 图](media/",
+        '[双链](/knowledge-base/双链.md "砚知双链")',
+        "信息 · 信息标题",
+        "信息提示内容,支持 **加粗**",
+        "基础形态",
+        "折叠内容第一段,后面跟列表。",
+        '[安装手册.pdf](./assets/0123456789abcdef.pdf "砚知附件")',
+        "$E = mc^{2}$",
+        "$$\\int_{0}^{1}x^{2}\\, dx = \\frac{1}{3}$$",
+        "内部内容",
+      ];
+      for (const expected of contentChecks) {
+        expect(docxMarkdown).toContain(expected);
+      }
     } catch (e) {
       if ((e as { code?: string }).code === "ENOENT") return;
       throw e;
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
     }
-    expect(output.subarray(0, 2).toString()).toBe("PK");
   });
 });

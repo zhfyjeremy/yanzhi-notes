@@ -53,6 +53,15 @@ export function RawHtmlView({
   }, [content]);
 
   useEffect(() => {
+    if (view !== "source") return;
+    const textarea = textareaRef.current;
+    if (!textarea || document.activeElement === textarea) return;
+    textarea.focus();
+    const end = textarea.value.length;
+    textarea.setSelectionRange(end, end);
+  }, [view]);
+
+  useEffect(() => {
     setMetrics({ width: 0, height: 0 });
   }, [previewDoc]);
 
@@ -192,6 +201,7 @@ export function RawHtmlView({
             setDraft(event.target.value);
             updateAttributes({ content: event.target.value });
           }}
+          onBlur={() => setView("preview")}
           onKeyDown={(event) => {
             event.stopPropagation();
             if (event.key === "Escape") {

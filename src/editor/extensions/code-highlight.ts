@@ -162,6 +162,68 @@ function slotClass(color: string): string | null {
   return SLOT_CLASS[slot] ?? null;
 }
 
+/**
+ * 导出 HTML 复用编辑器同一套 Shiki 引擎、语言分包与语义 token。
+ * 高亮失败时保留纯文本,导出不能因此中断。
+ */
+export async function highlightCodeElements(root: ParentNode): Promise<void> {
+  const blocks = Array.from(root.querySelectorAll<HTMLElement>("pre > code"));
+  const languages = new Set<string>();
+  for (const code of blocks) {
+    const raw = [...code.classList]
+      .find((name) => name.startsWith("language-"))
+      ?.slice("language-".length);
+    const lang = resolveLang(raw);
+    if (lang) languages.add(lang);
+  }
+  if (!blocks.length || !languages.size) return;
+
+  const highlighter = await getHighlighter();
+  if (!highlighter) return;
+  await Promise.all([...languages].map((lang) => loadLang(highlighter, lang)));
+
+  for (const code of blocks) {
+    const raw = [...code.classList]
+      .find((name) => name.startsWith("language-"))
+      ?.slice("language-".length);
+    const lang = resolveLang(raw);
+    if (!lang || !loadedLangs.has(lang)) continue;
+
+    const source = code.textContent ?? "";
+    let lines: ReturnType<HighlighterCore["codeToTokensBase"]>;
+    try {
+      lines = highlighter.codeToTokensBase(source, { lang, theme: "yz-code" });
+    } catch {
+      continue;
+    }
+
+    const tokens = lines.flat();
+    const doc = code.ownerDocument;
+    const fragment = doc.createDocumentFragment();
+    let cursor = 0;
+    const appendPlain = (to: number) => {
+      if (to > cursor) {
+        fragment.appendChild(doc.createTextNode(source.slice(cursor, to)));
+      }
+    };
+    for (const token of tokens) {
+      appendPlain(token.offset);
+      const cls = slotClass(token.color ?? "");
+      if (cls) {
+        const span = doc.createElement("span");
+        span.className = `yz-tok-${cls}`;
+        span.textContent = token.content;
+        fragment.appendChild(span);
+      } else {
+        fragment.appendChild(doc.createTextNode(token.content));
+      }
+      cursor = token.offset + token.content.length;
+    }
+    appendPlain(source.length);
+    code.replaceChildren(fragment);
+  }
+}
+
 function buildDecorations(
   doc: PMNode,
   highlighter: HighlighterCore | null,

@@ -943,6 +943,11 @@ function App() {
 
   // 显示菜单勾选态回写(状态源在前端:面板/工具栏/分区持久化在 settings,专注模式会话级);
   // singleFile 同步灰掉知识库专属项;singleOutline 镜像单文件左侧大纲勾选
+  //
+  // 依赖里用 hasDoc(= single.active || !!currentPath)而不是 currentPath:
+  // 菜单只关心「有没有打开文档」,在两篇已打开的文档之间切换时这个值不变,
+  // 就不必回写 —— 回写会让原生重建菜单,Windows 上界面会抖一下。
+  const hasDoc = single.active || !!kb.currentPath;
   useEffect(() => {
     if (!isTauriEnv() || !kb.booted) return;
     void import("@tauri-apps/api/core").then(({ invoke }) =>
@@ -957,12 +962,12 @@ function App() {
         singleFile: single.active,
         singleOutline: singleOutlineOpen,
         source: sourceMode,
-        sourceEnabled: single.active || !!kb.currentPath,
+        sourceEnabled: hasDoc,
       }).catch(console.error),
     );
   }, [
     kb.booted,
-    kb.currentPath,
+    hasDoc,
     settings.showRightPanel,
     settings.showToolbar,
     settings.showOutline,

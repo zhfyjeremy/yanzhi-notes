@@ -1,10 +1,10 @@
-# 项目状态(更新:2026-11-14)
+# 项目状态(更新:2026-11-15)
 
 > 开工前速览:看「下一步」直接干活;细节翻 `docs/PRD-本地离线知识库编辑器.md` 对应章节。文档索引见 `docs/README.md`。
 
 ## 现状一句话
 
-**MVP / V2 / V3 功能已齐(含 BYOK AI-0/1/2 + AI-3 卡片)**。2026-11-14:格式工具栏在 Windows 上不再冒出横竖滚动条;源码模式开关在状态栏左下、单文件路径行和菜单「显示 → 源码模式」(面包屑右侧入口已去掉),⌘/Ctrl+/ 仍可用;更改图标弹窗在 Windows 上延后挂载网格、先关窗再写 meta,减轻打开/点选卡顿。DOCX 语义导出代码完成(PM doc → Pandoc AST,可选外部 Pandoc + 外链图片受控嵌入;行内代码导出内容已修复不丢字,真机验收待做),PDF 导出暂缓。2026-11-13:知识库新增浏览器式文档标签页(Phase 1+2:打开/激活/关闭/关闭其它/关闭左侧/关闭右侧、拖拽排序、被遮挡 tab 激活后自动滚到可见、中键关闭、右键菜单、⌘/Ctrl+W 关闭、Ctrl+Tab 与 Shift+[ ] 前后切换、⌘/Ctrl+Alt+数字直切;tab 使用目录树自定义图标;右键与原生文件菜单的三种导出格式收进「导出」二级菜单;`.yanzhi/workspace.json` 持久化;单个编辑器实例复用,切换前强制保存,失败阻断,重命名/移动/删除自动同步 tab;正文双链默认当前 tab,⌘/Ctrl 或中键打开/切换 tab);设置 → 外观 → 正文排版新增正文列宽,默认自适应,可固定 600–1200px(标题/正文/源码/工具栏/帮助同列,窄窗口仍自动收缩);外观默认正文行高从 1.75 收紧为 1.6(导出/复制 HTML 的默认排版同步);排版视图普通文本/代码块与 Markdown 源码视图的 Tab 缩进宽度可在设置 → 编辑器调整为 1–8 字符,Shift+Tab 可缩回光标前缩进或行首缩进(列表升降级、表格切换单元格语义保留);Markdown 普通文本中的 `=`、`===>`、`======>` 不再被误识别为高亮或反斜杠转义,`==高亮==` 方言保持可用;开库/首启装载期改为工作区 loading,不再先闪现未命名空文档;2026-11-12:新增全文档 Markdown 源码模式(工具栏 + ⌘/Ctrl+/,基于懒加载 CodeMirror 6 + Lezer Markdown/GFM 的 HBuilder/Typora 式彩色主题(H1–H6 分级配色、链接下划线、代码块轻底色与按语言懒加载的真实 parser 多色 token 着色(C/C++/CSS/HTML/Java/JS/JSON/Python/Rust/Go/Shell/Bash/SQL/TS/XML/YAML,未识别语言通用回退));与排版视图同内容列/纵向滚动容器、无边框,编辑器高度自适应且不单独纵向滚动,排版/源码双向按滚动比例恢复当前阅读位置(首次源码 chunk 懒加载时等待可滚动布局出现后再恢复),源码编辑自动保存,长行在正文列内软折行且不出横向滚动条,右侧大纲在源码态按 CodeMirror 行定位、点击可跳转并联动高亮,代码块使用浏览器原生 selection 保证在彩色代码块背景上可见可选);裸 URL/外部编辑器转义 scheme(`https\\://`)打开即解析为链接;目录树内置图标与右键更改图标上线；2026-11-11:整段 http(s) 图片地址粘贴即转外链图片；未知扩展名 URL 由用户粘贴触发单次图片解码识别。2026-11-03:关闭窗口保持后台;单实例托盘;AI 结构 + 卡片(代码解释改写 / Mermaid 生成修正 / 公式)。签名/公证与 IME 真机回归仍待。
+**MVP / V2 / V3 功能已齐(含 BYOK AI-0/1/2 + AI-3 卡片)**。2026-11-15:Raw HTML 卡片点击进入源码后自动聚焦源码末尾,源码区失焦/点击其它行会自动恢复预览。HTML 导出已按编辑器卡片形态渲染代码高亮、Mermaid、KaTeX 公式、Callout、Details、附件卡与 Raw HTML 安全预览,并在导出文件内嵌公式字体。Markdown 源码模式的代码块 token 与底色已复用排版视图 Shiki 的 --code-* / --code-bg 色槽。2026-11-14:格式工具栏在 Windows 上不再冒出横竖滚动条;源码模式开关在状态栏左下、单文件路径行和菜单「显示 → 源码模式」(面包屑右侧入口已去掉),⌘/Ctrl+/ 仍可用;更改图标弹窗在 Windows 上延后挂载网格、先关窗再写 meta,减轻打开/点选卡顿;2026-11-15 进一步改为 7 列大图标 + 固定行高虚拟滚动,关闭时正常卸载 Radix 遮罩,目录树本地覆盖与 meta/标签页刷新错峰,并定位到 Win32 菜单重建导致的整窗抖动(见下)。DOCX 语义导出代码完成(PM doc → Pandoc AST,可选外部 Pandoc + 外链图片受控嵌入;行内代码导出内容已修复不丢字,真机验收待做),PDF 导出暂缓。DOCX 测试已覆盖生成后回读正文,标题/列表/表格/代码/Mermaid/双链/提示块/折叠块/附件/公式内容均逐项断言。2026-11-13:知识库新增浏览器式文档标签页(Phase 1+2:打开/激活/关闭/关闭其它/关闭左侧/关闭右侧、拖拽排序、被遮挡 tab 激活后自动滚到可见、中键关闭、右键菜单、⌘/Ctrl+W 关闭、Ctrl+Tab 与 Shift+[ ] 前后切换、⌘/Ctrl+Alt+数字直切;tab 使用目录树自定义图标;右键与原生文件菜单的三种导出格式收进「导出」二级菜单;`.yanzhi/workspace.json` 持久化;单个编辑器实例复用,切换前强制保存,失败阻断,重命名/移动/删除自动同步 tab;正文双链默认当前 tab,⌘/Ctrl 或中键打开/切换 tab);设置 → 外观 → 正文排版新增正文列宽,默认自适应,可固定 600–1200px(标题/正文/源码/工具栏/帮助同列,窄窗口仍自动收缩);外观默认正文行高从 1.75 收紧为 1.6(导出/复制 HTML 的默认排版同步);排版视图普通文本/代码块与 Markdown 源码视图的 Tab 缩进宽度可在设置 → 编辑器调整为 1–8 字符,Shift+Tab 可缩回光标前缩进或行首缩进(列表升降级、表格切换单元格语义保留);Markdown 普通文本中的 `=`、`===>`、`======>` 不再被误识别为高亮或反斜杠转义,`==高亮==` 方言保持可用;开库/首启装载期改为工作区 loading,不再先闪现未命名空文档;2026-11-12:新增全文档 Markdown 源码模式(工具栏 + ⌘/Ctrl+/,基于懒加载 CodeMirror 6 + Lezer Markdown/GFM 的 HBuilder/Typora 式彩色主题(H1–H6 分级配色、链接下划线、代码块轻底色与按语言懒加载的真实 parser 多色 token 着色(C/C++/CSS/HTML/Java/JS/JSON/Python/Rust/Go/Shell/Bash/SQL/TS/XML/YAML,未识别语言通用回退));与排版视图同内容列/纵向滚动容器、无边框,编辑器高度自适应且不单独纵向滚动,排版/源码双向按滚动比例恢复当前阅读位置(首次源码 chunk 懒加载时等待可滚动布局出现后再恢复),源码编辑自动保存,长行在正文列内软折行且不出横向滚动条,右侧大纲在源码态按 CodeMirror 行定位、点击可跳转并联动高亮,代码块使用浏览器原生 selection 保证在彩色代码块背景上可见可选);裸 URL/外部编辑器转义 scheme(`https\\://`)打开即解析为链接;目录树内置图标与右键更改图标上线；2026-11-11:整段 http(s) 图片地址粘贴即转外链图片；未知扩展名 URL 由用户粘贴触发单次图片解码识别。2026-11-03:关闭窗口保持后台;单实例托盘;AI 结构 + 卡片(代码解释改写 / Mermaid 生成修正 / 公式)。签名/公证与 IME 真机回归仍待。
 
 ## 里程碑(PRD §11.4 工期表)
 
@@ -321,6 +321,39 @@
 
 验证:`pnpm test` **267/267**(新增面包屑、Markdown 选区复制、待办统计、设置容错);`pnpm build` 通过;浏览器交互回归 11/11(面包屑两级定位、最近文档持久化、待办跳转、Markdown 剪贴板、语言过滤与设置持久化、大纲筛选及顶部跳转)。未改变 Markdown 方言或序列化规则。
 
+## Windows 切换文档/源码时界面抖动(2026-11-15)✅ 已修
+
+**现象**:切换文档、切源码模式、切专注模式等任何「对文档的操作」,整个界面抖一下,底部状态栏被顶上去再落回来。
+
+**根因(Win32 菜单栏客户区高度跳变)**:原生菜单每次状态变化都整体重建(`build_app_menu` → `AppHandle::set_menu`)。Tauri v2 在 Windows 上分两步做:
+1. `remove_menu()` → `SetMenu(hwnd, NULL)` + `DrawMenuBar(hwnd)` —— 菜单栏被摘掉,**客户区比平时高约 20px**;
+2. `window.set_menu(new_menu)` → `SetMenu(hwnd, hmenu)` + `DrawMenuBar(hwnd)` —— 菜单栏挂回,客户区缩回。
+
+两步落在事件循环的**两轮**里,WebView2 子窗连收两次 resize。CDP 实测:`innerHeight` 761 → 781 → 761,状态栏 `sbTop` 725 → 745 → 725,`outerHeight` 不变。菜单栏那 20px 被视口吞进来又吐出去,底部栏(贴底 flex 布局)跟着上下弹。
+
+**修法**:菜单结构只建一次,后续只就地改状态位。
+- Rust 新增 `MenuHandles`(`src-tauri/src/lib.rs`):建菜单时把各 `CheckMenuItem` / `MenuItem` / `IconMenuItem` / `Submenu` 句柄存进 Tauri state;
+- `set_view_state` 不再重建菜单,改调 `apply_view_flags_to_menu` → `set_checked` / `set_enabled` / `set_text`。muda 在 Windows 上走 `CheckMenuItem` / `EnableMenuItem` / `SetItemText` + `DrawMenuBar`,**不碰 `SetMenu`,不摘挂菜单栏** → 客户区尺寸不变;
+- 「打开最近文件夹 / 打开最近文件」子菜单:`refresh_recent_folders` / `refresh_recent_files` + `replace_submenu_items`(先 `remove_at(0)` 清空再 `append`),只动子菜单子项,顶层 HMENU 不动;
+- `kb.rs` 的 `set_recent` / `set_recent_file` 改调 `refresh_recent_menus`(不再 `build_app_menu`)。
+
+**前端配套**:`src/App.tsx` 回写 `set_view_state` 的 effect 依赖里 `kb.currentPath` 换成 `hasDoc`(= `single.active || !!kb.currentPath`)。菜单只关心「有没有打开文档」,在两篇**已打开**的文档之间切换时 `hasDoc` 不变 → 不必回写 → 连 IPC 都不发。`sourceEnabled` 同口径用 `hasDoc`。
+
+**验证**:CDP(远端调试端口 9222)实测切文档 / `set_view_state` / 面板开关 / 源码模式 / 单文件模式 / 专注模式 / `set_recent`,视口尺寸全部 0 次跳变(改前每次都有 1 次 +20px 跳变);Win32 P/Invoke 直读原生菜单确认勾选态与置灰正确;`pnpm test` **336/336**(54 文件)过、`pnpm build` 过。
+
+## 右键「更改图标」Windows 卡顿与遮罩残留(2026-11-15)✅ 已修
+
+**现象与定位**:图标弹窗原先 14 列紧凑展示并全量挂载 124 个 Lucide SVG,滚动时 WebView2 需要维护过多 SVG;Dialog overlay 默认带 backdrop blur,滚动内容时 WebView2 反复合成模糊背景,是剩余掉帧的主要来源。选中后关窗、meta 写入、entryIcons revision、目录树/标签页刷新也可能叠在同一帧。forceMount 隐藏保留整个弹窗的方案有关闭态遮罩残留风险,已弃用。
+
+**修法**:
+- src/kb/IconPickerDialog.tsx:7 列、40px 按钮、20px 图标、更大列距,弹窗宽度 520px;
+- 固定行高虚拟滚动:分组头 30px、图标行 48px,只渲染视口附近 ±1 行;虚拟行用 absolute + translateY 定位,不再滚动时改上下 spacer 高度;
+- src/kb/tree-icons.tsx + IconPickerDialog:基础图标形状渲染成隐藏 SVG sprite,弹窗单元格用 use 引用;sprite 放在 Dialog 外层,首次打开后缓存复用,但 overlay/content 关闭时照常卸载;
+- src/components/ui/dialog.tsx:DialogContent 新增 overlayClassName,图标选择器对自身 overlay 关闭 backdrop blur,避免 WebView2 滚动时反复模糊合成;
+- src/kb/DocTree.tsx:选中后先本地覆盖目录树图标,120ms 后再写 meta/触发 iconRevision,标签页等 App 级刷新与关窗动画错峰。
+
+**验证**:Windows WebView2 CDP:打开时仅渲染 32 个按钮/32 个 use,列表总高 1402px;保留 backdrop blur 时程序化滚动出现 110~125ms 长帧,关闭该弹窗 backdrop blur 后同路径采样 0 个 >32ms 长帧;选中后 overlay/content 均为 0,无遮罩残留。pnpm test 336/336(54 文件)、pnpm build 通过。
+
 ## 提交记录(近期)
 
 - M3 全量(fs 命令层/树/双链/搜索/assets/监听/回收站/排序/导入导出/设置)随 kb 系列提交;设置窗口化+关于页+菜单全量中文化 = a905c86
@@ -413,6 +446,7 @@
 - **Windows 切文档编辑器闪一下/抖动**:曾用 `requestAnimationFrame` 再 setContent,旧文多画一帧,随后滚动从旧 scrollTop 跳到恢复位。修法:换文前 `visibility:hidden` 藏正文表面 → microtask 里 setContent + 同步写 scrollTop → 1~2 帧补滚动后揭开,聚焦用 `dom.focus({ preventScroll: true })`
 - **WKWebView 外部拖拽的两连坑(真机实录)**:① Finder 拖入的 File 常无 MIME type(粘贴板不带 UTI),`type.startsWith("image/")` 会静默滤掉——空 MIME 回退扩展名识别(`isImageFile`);② drop 事件的 **target 不可靠**(文件到了 window 兜底,但不在 `.yz-editor-doc` 上,PM 判「不属于编辑器」直接跳过)——图片落点用滚动区**坐标**判定插入(App 窗口级兜底),PM 自己接住的 drop `stopPropagation` 防双插。诊断手段:`import.meta.env.DEV` 时在 window drop 打日志(types/files/坐标/target),右键 → 检查看 Console
 
+- **Windows 上 `AppHandle::set_menu` 会让客户区高度跳一下(2026-11-15 实录)**:Tauri v2 在 Win32 上分两步 —— `remove_menu()` 走 `SetMenu(hwnd, NULL)` + `DrawMenuBar`(菜单栏被摘掉,**客户区高约 20px**),`window.set_menu()` 再 `SetMenu(hwnd, hmenu)` 挂回去。两步落在事件循环的**两轮**里,WebView2 连收两次 resize(`innerHeight` 761→781→761),贴底的 flex 状态栏跟着上下弹 —— 表现为「切文档/切源码时整个界面抖一下」。**所以菜单结构只建一次**,后续状态变化只就地改:muda 的 `set_checked`/`set_enabled`/`set_text` 走 `CheckMenuItem`/`EnableMenuItem`/`SetItemText` + `DrawMenuBar`,**不碰 `SetMenu`**;子菜单换内容用 `Submenu::remove_at(0)` + `append`(只动 popup handle)。句柄存 Tauri state(`MenuHandles`)复用。另:前端回写菜单状态的 effect 依赖要收敛成「有没有打开文档」这种布尔量,别用 `currentPath` —— 否则每次切文档都发一次 IPC
 - **mermaid SVG 会往 DOM 里塞 `<p>`**(htmlLabels 的节点标签):E2E 断言/点击编辑器段落别用 `.tiptap p`,会命中 SVG 内部 p(实录:点到预览区 → setNodeSelection → 打字把整张卡替换掉);一律用 `.tiptap > p`。且**整个编辑器是单一 contenteditable,`Meta+a` 是浏览器级全选全文档**(不是 codeBlock 内全选),NodeView content 的编辑测试用坐标定位光标(右下=末尾追加,左上+打字=破坏行首)
 - **mermaid 12 全局单例并发 render 互踩**,渲染必须串行队列(promise chain);`initialize` 可重复调用,主题切换(浅 neutral/深 dark)重设即可;懒加载 `import("mermaid")` 生效时 cytoscape/elk/mermaid.core 是独立 chunk,别不小心静态 import 进主 bundle
 - **「当前文档 md」的正确口径是 `dirtyRef.current ?? savedMdRef.current`,别读 markdown state**(历史快照批实录的既有 bug):自动保存落盘后 dirtyRef 清空,而 markdown state 停在 openDoc 时的版本——导出 md/HTML、复制、快照对比全在拿旧文。不能在 flushSave 里 setMarkdown 补同步:markdown prop 变化会触发 YanzhiEditor 整体重载(丢光标/丢撤销栈)。useKb 里 `savedMdRef` 在全部 8 处内容落点(loadDoc/restore/flushSave/空草稿/重命名/移动)同步;新加「取当前内容」的链路一律走 `getMarkdownNow`

@@ -132,6 +132,12 @@ interface DocTreeProps {
 
 type DropZone = "before" | "after" | "into";
 
+/** 图标先用本地覆盖立即可见;随后 meta/entryIcons revision 再同步标签页等 App 级消费者。 */
+interface IconOverrideState {
+  base: Map<string, string>;
+  values: Map<string, string | null>;
+}
+
 /** 当前展开可见的文档顺序(选择模式的范围选择与全选只作用于可见项) */
 function visibleDocPaths(nodes: TreeNode[], collapsed: Set<string>): string[] {
   const out: string[] = [];
@@ -756,6 +762,7 @@ export function DocTree({
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [revealedPath, setRevealedPath] = useState<string | null>(null);
   const [iconPickerPath, setIconPickerPath] = useState<string | null>(null);
+  const [iconOverrides, setIconOverrides] = useState<IconOverrideState | null>(null);
   // Windows 路径是 `\`,不能只按 `/` 切——否则标题会变成整段 `C:\Users\…`
   const rootName = useMemo(() => {
     const parts = root.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean);
@@ -774,6 +781,15 @@ export function DocTree({
   const visibleDocs = useMemo(() => visibleDocPaths(tree, collapsed), [tree, collapsed]);
   const allVisibleSelected = visibleDocs.length > 0 && visibleDocs.every((p) => selectedPaths.has(p));
   const iconPickerNode = iconPickerPath ? findTreeNode(tree, iconPickerPath) : null;
+  const displayIconMap = useMemo(() => {
+    if (!iconOverrides || iconOverrides.base !== iconMap) return iconMap;
+    const merged = new Map(iconMap);
+    iconOverrides.values.forEach((icon, path) => {
+      if (icon === null) merged.delete(path);
+      else merged.set(path, icon);
+    });
+    return merged;
+  }, [iconMap, iconOverrides]);
 
   /** 等右键菜单先卸掉,再开弹窗;否则 Windows 上菜单退场与 100+ SVG 同帧抢渲染 */
   const openIconPicker = (node: TreeNode) => {
@@ -1069,7 +1085,7 @@ export function DocTree({
                   depth={0}
                   currentPath={currentPath}
                   collapsed={collapsed}
-                  iconMap={iconMap}
+                  iconMap={displayIconMap}
                   onOpenIconPicker={openIconPicker}
                   pinnedSet={pinnedSet}
                   pinned={pinnedSet.has(node.path)}
@@ -1172,13 +1188,19 @@ export function DocTree({
           if (!open) setIconPickerPath(null);
         }}
         targetName={iconPickerNode?.name ?? ""}
-        targetIcon={iconPickerNode ? (iconMap.get(iconPickerNode.path) ?? null) : null}
+        targetIcon={iconPickerNode ? (displayIconMap.get(iconPickerNode.path) ?? null) : null}
         onSelect={(icon) => {
           const node = iconPickerNode;
           setIconPickerPath(null);
           if (!node) return;
-          // 先关弹窗再写 meta/刷树,避免关窗动画与整栏重渲抢同一帧
-          window.setTimeout(() => onSetEntryIcon(node.path, node.isDir, icon), 0);
+          setIconOverrides((prev) => {
+            const base = prev?.base === iconMap ? prev.base : iconMap;
+            const values = new Map(prev?.base === iconMap ? prev.values : []);
+            values.set(node.path, icon);
+            return { base, values };
+          });
+          // 先等关窗动画结束再写 meta/触发 entryIcons revision,避免关窗、目录树和标签页同帧重渲。
+          window.setTimeout(() => onSetEntryIcon(node.path, node.isDir, icon), 120);
         }}
       />
     </aside>

@@ -89,6 +89,8 @@ export function inlineStyles(html: string): string {
     el.style.borderTop = `1px solid ${COPY_COLORS.border}`;
   });
   each("a", (el) => {
+    // 导出 HTML 的附件卡自带卡片配色;普通链接仍使用复制安全的蓝色。
+    if (el.classList.contains("yz-attachment-btn")) return;
     el.style.color = COPY_COLORS.blue;
     el.style.textDecoration = "none";
   });
