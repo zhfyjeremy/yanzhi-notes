@@ -94,6 +94,15 @@ export interface DocxExportResult {
   remoteFailed: number;
 }
 
+export interface PdfExportRequest {
+  outputPath: string;
+  html: string;
+}
+
+export interface PdfExportResult {
+  path: string;
+}
+
 /** 知识库后端能力面:tauri(真文件系统)与 browser(localStorage mock)同构 */
 export interface KbBackend {
   readonly kind: "tauri" | "browser";
@@ -181,6 +190,10 @@ export interface KbBackend {
   pickDocxOutputPath(defaultName: string): Promise<string | null>;
   /** DOCX 导出:PM doc 先在前端转 Pandoc AST,Rust 只调用本地 Pandoc */
   exportDocx(request: DocxExportRequest): Promise<DocxExportResult>;
+  /** 选择 PDF 保存位置;取消返回 null */
+  pickPdfOutputPath(defaultName: string): Promise<string | null>;
+  /** PDF 导出:隐藏 WebView 加载自包含 HTML 后调用系统 WebView 引擎直出 */
+  exportPdf(request: PdfExportRequest): Promise<PdfExportResult>;
   /** 检测 Pandoc 3+;browser mock 恒为未安装 */
   detectPandoc(pandocPath: string | null): Promise<PandocStatus>;
   /** 选择 Pandoc / Word reference doc;取消返回 null */

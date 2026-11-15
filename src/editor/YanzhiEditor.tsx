@@ -127,6 +127,7 @@ interface YanzhiEditorProps {
   onExportMd?: () => void;
   onExportHtml?: () => void;
   onExportDocx?: () => void;
+  onExportPdf?: () => void;
   /** AI BYOK(§7.8):总开关开且测试通过后才挂浮动条/右键;/ai 经 session */
   aiReady?: boolean;
   aiSession?: AiSession | null;
@@ -221,6 +222,7 @@ export function YanzhiEditor({
   onExportMd,
   onExportHtml,
   onExportDocx,
+  onExportPdf,
   aiReady = false,
   aiSession = null,
   onNeedAiSettings,
@@ -816,6 +818,7 @@ export function YanzhiEditor({
                 onExportMd={onExportMd}
                 onExportHtml={onExportHtml}
                 onExportDocx={onExportDocx}
+                onExportPdf={onExportPdf}
               >
                 <div className={sourceMode ? "hidden" : "contents"}>
                   <TableContextMenu editor={editor}>

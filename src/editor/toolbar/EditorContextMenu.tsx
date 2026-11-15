@@ -74,6 +74,7 @@ interface EditorContextMenuProps {
   onExportMd?: () => void;
   onExportHtml?: () => void;
   onExportDocx?: () => void;
+  onExportPdf?: () => void;
   children: ReactNode;
 }
 
@@ -110,6 +111,7 @@ export function EditorContextMenu({
   onExportMd,
   onExportHtml,
   onExportDocx,
+  onExportPdf,
   children,
 }: EditorContextMenuProps) {
   /**
@@ -443,8 +445,8 @@ export function EditorContextMenu({
 
         <ContextMenuSeparator />
 
-        {/* 文档:三种格式收进二级菜单,顶级菜单保持短 */}
-        {(onExportMd || onExportHtml || onExportDocx) && (
+        {/* 文档:四种格式收进二级菜单,顶级菜单保持短 */}
+        {(onExportMd || onExportHtml || onExportDocx || onExportPdf) && (
           <ContextMenuSub>
             <ContextMenuSubTrigger>
               <Share2 />
@@ -467,6 +469,12 @@ export function EditorContextMenu({
                 <ContextMenuItem onSelect={onExportDocx}>
                   <FileText />
                   导出 Word (.docx)…
+                </ContextMenuItem>
+              )}
+              {onExportPdf && (
+                <ContextMenuItem onSelect={onExportPdf}>
+                  <FileText />
+                  导出 PDF…
                 </ContextMenuItem>
               )}
             </ContextMenuSubContent>

@@ -70,6 +70,7 @@ interface SingleFileWorkspaceProps {
   onCodeLanguageUsed: (language: string) => void;
   /** 导出当前文档(DOCX) */
   onExportDocx?: () => void;
+  onExportPdf?: () => void;
   aiReady: boolean;
   aiSession: import("../ai/useAiSession").AiSession;
   onNeedAiSettings: () => void;
@@ -287,6 +288,7 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
               codeLanguageRecents={props.codeLanguageRecents}
               onCodeLanguageUsed={props.onCodeLanguageUsed}
               onExportDocx={props.onExportDocx}
+              onExportPdf={props.onExportPdf}
               aiReady={props.aiReady}
               aiSession={props.aiSession}
               onNeedAiSettings={props.onNeedAiSettings}

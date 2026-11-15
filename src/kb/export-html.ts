@@ -38,6 +38,27 @@ const PAGE_STYLE = `
   --callout-bg: #edf5fc;
 }
 * { box-sizing: border-box; }
+@page { size: A4; margin: 16mm; }
+@media print {
+  body {
+    max-width: none;
+    padding: 0;
+    background: #fff;
+  }
+  pre {
+    white-space: pre-wrap;
+    overflow: visible;
+    break-inside: avoid;
+  }
+  table {
+    width: 100%;
+    table-layout: fixed;
+  }
+  th, td { overflow-wrap: anywhere; }
+  img, .yz-callout, .yz-details, .yz-math-block, .yz-mmd-stage, .yz-raw-html-preview {
+    break-inside: avoid;
+  }
+}
 body {
   margin: 0 auto;
   padding: 48px 24px 96px;

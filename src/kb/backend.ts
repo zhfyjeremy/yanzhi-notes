@@ -13,6 +13,8 @@ import type {
   DocContent,
   DocxExportRequest,
   DocxExportResult,
+  PdfExportRequest,
+  PdfExportResult,
   HistoryEntry,
   KbBackend,
   PandocStatus,
@@ -270,6 +272,16 @@ const tauriBackend: KbBackend = {
   },
   async exportDocx(request: DocxExportRequest) {
     return invoke<DocxExportResult>("export_docx", { request });
+  },
+  async pickPdfOutputPath(defaultName) {
+    return (
+      (await withNativeDialog(() =>
+        invoke<string | null>("pick_pdf_output_path", { defaultName }),
+      )) ?? null
+    );
+  },
+  async exportPdf(request: PdfExportRequest) {
+    return invoke<PdfExportResult>("export_pdf", { request });
   },
   async detectPandoc(pandocPath) {
     return invoke<PandocStatus>("detect_pandoc", { pandocPath });
@@ -1070,6 +1082,12 @@ const browserBackend: KbBackend = {
   },
   async exportDocx() {
     throw new Error("DOCX 导出需要桌面版和 Pandoc");
+  },
+  async pickPdfOutputPath(defaultName) {
+    return defaultName;
+  },
+  async exportPdf() {
+    throw new Error("PDF 导出需要桌面版 WebView");
   },
   async detectPandoc(): Promise<PandocStatus> {
     return { installed: false, path: null, version: null, error: "浏览器开发模式不支持 Pandoc" };

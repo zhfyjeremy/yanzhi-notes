@@ -404,9 +404,22 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         Some(NativeIcon::Share),
         None::<&str>,
     )?;
-    let export_refs: Vec<&dyn tauri::menu::IsMenuItem<_>> = [&export_md as _, &export_html as _, &export_docx as _]
-        .into_iter()
-        .collect();
+    let export_pdf = IconMenuItem::with_id_and_native_icon(
+        app,
+        "yz_export_pdf",
+        "导出 PDF…",
+        true,
+        Some(NativeIcon::Share),
+        None::<&str>,
+    )?;
+    let export_refs: Vec<&dyn tauri::menu::IsMenuItem<_>> = [
+        &export_md as _,
+        &export_html as _,
+        &export_docx as _,
+        &export_pdf as _,
+    ]
+    .into_iter()
+    .collect();
     let export_menu = SubmenuBuilder::new(app, "导出")
         .items(&export_refs)
         .submenu_native_icon(NativeIcon::Share)
@@ -547,14 +560,8 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         flags.source,
         None::<&str>,
     )?;
-    let view_focus = CheckMenuItem::with_id(
-        app,
-        "yz_focus",
-        "专注模式",
-        true,
-        flags.focus,
-        None::<&str>,
-    )?;
+    let view_focus =
+        CheckMenuItem::with_id(app, "yz_focus", "专注模式", true, flags.focus, None::<&str>)?;
     let view = SubmenuBuilder::new(app, "显示")
         .item(&view_panel)
         .separator()
@@ -991,6 +998,8 @@ pub fn run() {
                 serde_json::json!({ "action": "export-html" })
             } else if id == "yz_export_docx" {
                 serde_json::json!({ "action": "export-docx" })
+            } else if id == "yz_export_pdf" {
+                serde_json::json!({ "action": "export-pdf" })
             } else if id == "yz_about" || id == "yz_about_help" {
                 serde_json::json!({ "action": "about" })
             } else if id == "yz_help_keys" {
@@ -1127,7 +1136,9 @@ pub fn run() {
             export::detect_pandoc,
             export::pick_export_path,
             export::pick_docx_output_path,
+            export::pick_pdf_output_path,
             export::export_docx,
+            export::export_pdf,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

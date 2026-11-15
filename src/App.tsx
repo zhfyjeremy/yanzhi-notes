@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { ChevronLeft, ChevronRight, CircleCheck, Folder, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleCheck, Folder, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/hint";
 import { YanzhiEditor } from "./editor/YanzhiEditor";
@@ -72,6 +72,13 @@ const docBasename = (rel: string): string =>
 
 type EditorScope = "kb" | "single";
 type ToastKind = "info" | "success" | "error";
+
+interface PdfExportSource {
+  md: string;
+  title: string;
+  docRel: string;
+  readAssetBase64: (rel: string) => Promise<{ data: string; mime: string } | null>;
+}
 
 interface PendingDocxExport {
   doc: PMNode;
@@ -154,6 +161,68 @@ function DocxExportingOverlay() {
           <span className="block text-sm font-medium">正在导出 DOCX…</span>
           <span className="text-muted-foreground block text-xs">
             正在转换文档与嵌入资源，完成后会显示导出报告
+          </span>
+        </span>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function PdfExportSuccessToast({
+  path,
+  onClose,
+  onReveal,
+}: {
+  path: string;
+  onClose: () => void;
+  onReveal: (path: string) => void;
+}) {
+  return createPortal(
+    <div
+      role="status"
+      aria-live="polite"
+      className="bg-popover text-popover-foreground pointer-events-auto fixed bottom-10 left-1/2 z-[100] flex max-w-[min(92vw,44rem)] -translate-x-1/2 items-center gap-3 rounded-lg px-4 py-3 text-sm shadow-lg ring-1 ring-foreground/10"
+    >
+      <CircleCheck className="text-[var(--callout-success)] size-4 shrink-0" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <span className="font-medium">PDF 导出完成</span>
+        <div className="text-muted-foreground truncate text-xs" title={path}>
+          {path}
+        </div>
+      </div>
+      <Button variant="outline" size="xs" className="shrink-0" onClick={() => onReveal(path)}>
+        <Folder className="size-3.5" aria-hidden />
+        在文件管理器中显示
+      </Button>
+      <Button
+        variant="ghost"
+        size="xs"
+        className="text-muted-foreground hover:text-foreground shrink-0"
+        aria-label="关闭导出提示"
+        title="关闭"
+        onClick={onClose}
+      >
+        <X className="size-3.5" aria-hidden />
+      </Button>
+    </div>,
+    document.body,
+  );
+}
+function PdfExportingOverlay() {
+  return createPortal(
+    <div
+      className="bg-background/70 fixed inset-0 z-[95] flex items-center justify-center backdrop-blur-[1px]"
+      role="dialog"
+      aria-modal="true"
+      aria-label="正在导出 PDF"
+    >
+      <div className="bg-raised text-foreground flex max-w-xs items-center gap-3 rounded-xl px-4 py-3 shadow-lg ring-1 ring-foreground/10">
+        <Loader2 className="text-primary size-4 animate-spin" aria-hidden />
+        <span className="min-w-0">
+          <span className="block text-sm font-medium">正在导出 PDF…</span>
+          <span className="text-muted-foreground block text-xs">
+            正在排版文档，请稍候
           </span>
         </span>
       </div>
@@ -533,6 +602,37 @@ function App() {
     );
   }, [kb, showToast, title]);
 
+  const [pdfExportBusy, setPdfExportBusy] = useState(false);
+  const [pdfExportSuccessPath, setPdfExportSuccessPath] = useState<string | null>(null);
+
+  const runPdfExport = useCallback(
+    async (source: PdfExportSource) => {
+      if (pdfExportBusy) return;
+      setPdfExportSuccessPath(null);
+      const outputPath = await kbBackend.pickPdfOutputPath(`${source.title}.pdf`);
+      if (!outputPath) return;
+      setPdfExportBusy(true);
+      try {
+        const html = await buildExportHtml(source);
+        const result = await kbBackend.exportPdf({ outputPath, html });
+        setPdfExportSuccessPath(result.path);
+      } catch (e) {
+        showToast(`PDF 导出失败:${e instanceof Error ? e.message : String(e)}`, "error");
+      } finally {
+        setPdfExportBusy(false);
+      }
+    },
+    [pdfExportBusy, showToast],
+  );
+  const onExportPdf = useCallback(() => {
+    if (!kb.currentPath) return;
+    void runPdfExport({
+      md: kb.getMarkdownNow(),
+      title: title || "未命名文档",
+      docRel: kb.currentPath,
+      readAssetBase64: kb.readAssetBase64,
+    });
+  }, [kb, runPdfExport, title]);
   const exportSingleMd = useCallback(() => {
     void kbBackend.exportText(single.fileName || "未命名文档.md", "md", single.getMarkdownNow()).then((p) => {
       if (p) showToast(`已导出:${p}`);
@@ -552,6 +652,14 @@ function App() {
     );
   }, [showToast, single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64]);
 
+  const exportSinglePdf = useCallback(() => {
+    void runPdfExport({
+      md: single.getMarkdownNow(),
+      title: single.fileStem || "未命名文档",
+      docRel: single.fileName,
+      readAssetBase64: single.readAssetBase64,
+    });
+  }, [runPdfExport, single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64]);
   /* ---- DOCX 语义导出(5.6):PM doc → Pandoc AST,不让 Pandoc 重解析 Markdown ---- */
   const [docxExportBusy, setDocxExportBusy] = useState(false);
   const [docxLoadingVisible, setDocxLoadingVisible] = useState(false);
@@ -873,15 +981,17 @@ function App() {
           return;
         }
         onImportDocs();
-      } else if (action === "export-md" || action === "export-html" || action === "export-docx") {
+      } else if (action === "export-md" || action === "export-html" || action === "export-docx" || action === "export-pdf") {
         // 无文档打开时导出静默无意义,给明确提示
         if (single.active) {
           if (action === "export-md") exportSingleMd();
           else if (action === "export-html") exportSingleHtml();
+          else if (action === "export-pdf") exportSinglePdf();
           else onExportDocx();
         } else if (!kb.currentPath) showToast("未打开文档");
         else if (action === "export-md") onExportMd();
         else if (action === "export-html") onExportHtml();
+        else if (action === "export-pdf") onExportPdf();
         else onExportDocx();
       } else if (action === "settings") {
         openSettings();
@@ -1739,6 +1849,11 @@ function App() {
     [showToast, wikiDocs],
   );
 
+  const revealExportedFile = useCallback((path: string) => {
+    void import("@tauri-apps/plugin-opener")
+      .then(({ revealItemInDir }) => revealItemInDir(path))
+      .catch(() => showToast("无法打开文件所在位置"));
+  }, [showToast]);
   /** 本地优先:从目录树直接定位到系统文件管理器中的真实文件/文件夹 */
   const revealTreeEntry = useCallback(
     (rel: string) => {
@@ -2021,6 +2136,7 @@ function App() {
         codeLanguageRecents={settings.recentCodeLanguages}
         onCodeLanguageUsed={recordCodeLanguage}
         onExportDocx={onExportDocx}
+        onExportPdf={onExportPdf}
         aiReady={settings.aiEnabled && settings.aiVerified}
         aiSession={aiSession}
         onNeedAiSettings={promptAiSetup}
@@ -2062,6 +2178,14 @@ function App() {
         />
       )}
       {docxLoadingVisible && <DocxExportingOverlay />}
+      {pdfExportBusy && <PdfExportingOverlay />}
+      {pdfExportSuccessPath && (
+        <PdfExportSuccessToast
+          path={pdfExportSuccessPath}
+          onClose={() => setPdfExportSuccessPath(null)}
+          onReveal={revealExportedFile}
+        />
+      )}
       {docxReport && (
         <DocxReportDialog report={docxReport} onClose={() => setDocxReport(null)} />
       )}
@@ -2327,6 +2451,7 @@ function App() {
               onExportMd={onExportMd}
               onExportHtml={onExportHtml}
               onExportDocx={onExportDocx}
+              onExportPdf={onExportPdf}
               onPickAttachment={onPickAttachment}
               onOpenAttachment={onOpenAttachment}
               locateSignal={locateSignal}
@@ -2454,6 +2579,14 @@ function App() {
           document.body,
         )}
       {docxLoadingVisible && <DocxExportingOverlay />}
+      {pdfExportBusy && <PdfExportingOverlay />}
+      {pdfExportSuccessPath && (
+        <PdfExportSuccessToast
+          path={pdfExportSuccessPath}
+          onClose={() => setPdfExportSuccessPath(null)}
+          onReveal={revealExportedFile}
+        />
+      )}
       {pendingDocxExport && (
         <DocxRemoteConfirmDialog
           pending={pendingDocxExport}

@@ -1,4 +1,4 @@
-//! DOCX 语义导出(PRD 5.6):前端传 Pandoc JSON AST,Rust 只负责调用外部 Pandoc。
+//! 语义导出(PRD 5.6):DOCX 前端传 Pandoc JSON AST 后调用外部 Pandoc;PDF 复用隐藏 WebView。
 //! 不接受 filter/template/任意命令行参数;外链图片由本模块受控下载成临时本地资源。
 
 use serde::{Deserialize, Serialize};
@@ -9,8 +9,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::AppHandle;
 use tauri::Manager;
+use tauri::{
+    AppHandle, LogicalPosition, LogicalSize, WebviewUrl,
+    webview::{PageLoadEvent, WebviewBuilder},
+};
 use tauri_plugin_dialog::DialogExt;
 use url::Url;
 
@@ -436,6 +439,241 @@ fn replace_remote_images(
             }
         }
         _ => {}
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfExportRequest {
+    pub output_path: String,
+    pub html: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfExportResult {
+    pub path: String,
+}
+
+#[tauri::command]
+pub async fn pick_pdf_output_path(
+    app: AppHandle,
+    default_name: String,
+) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_file_name(default_name)
+            .add_filter("PDF 文档", &["pdf"])
+            .blocking_save_file()
+            .map(|path| path.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+fn close_export_webview(app: &AppHandle, label: &str) {
+    if let Some(webview) = app.get_webview(label) {
+        let _ = webview.close();
+    }
+}
+
+#[cfg(windows)]
+fn print_webview_to_pdf(
+    webview: tauri::webview::PlatformWebview,
+    output: PathBuf,
+    result_tx: mpsc::Sender<Result<(), String>>,
+) {
+    use webview2_com::{
+        Microsoft::Web::WebView2::Win32::{
+            COREWEBVIEW2_PRINT_ORIENTATION_PORTRAIT, ICoreWebView2_7, ICoreWebView2Environment6,
+        },
+        PrintToPdfCompletedHandler,
+    };
+    use windows_core::{HSTRING, Interface, PCWSTR};
+
+    unsafe {
+        let result = (|| -> windows_core::Result<()> {
+            let core = webview.controller().CoreWebView2()?;
+            let core = core.cast::<ICoreWebView2_7>()?;
+            let environment = webview.environment().cast::<ICoreWebView2Environment6>()?;
+            let settings = environment.CreatePrintSettings()?;
+            settings.SetOrientation(COREWEBVIEW2_PRINT_ORIENTATION_PORTRAIT)?;
+            settings.SetScaleFactor(1.0)?;
+            // A4,单位英寸;页面内边距交给导出 HTML 的 @page,避免双重页边距。
+            settings.SetPageWidth(8.27)?;
+            settings.SetPageHeight(11.69)?;
+            settings.SetMarginTop(0.0)?;
+            settings.SetMarginBottom(0.0)?;
+            settings.SetMarginLeft(0.0)?;
+            settings.SetMarginRight(0.0)?;
+            settings.SetShouldPrintBackgrounds(true)?;
+            settings.SetShouldPrintSelectionOnly(false)?;
+            settings.SetShouldPrintHeaderAndFooter(false)?;
+
+            let callback_tx = result_tx.clone();
+            let handler = PrintToPdfCompletedHandler::create(Box::new(move |hr, succeeded| {
+                let result = if let Err(err) = hr {
+                    Err(format!("WebView2 生成 PDF 失败:{err}"))
+                } else if succeeded {
+                    Ok(())
+                } else {
+                    Err("WebView2 生成 PDF 失败".into())
+                };
+                let _ = callback_tx.send(result);
+                Ok(())
+            }));
+            let path = HSTRING::from(output.as_os_str());
+            core.PrintToPdf(PCWSTR::from_raw(path.as_ptr()), &settings, &handler)?;
+            Ok(())
+        })();
+
+        if let Err(err) = result {
+            let _ = result_tx.send(Err(format!("WebView2 打印失败:{err}")));
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn print_webview_to_pdf(
+    webview: tauri::webview::PlatformWebview,
+    output: PathBuf,
+    result_tx: mpsc::Sender<Result<(), String>>,
+) {
+    use block2::RcBlock;
+    use objc2_foundation::{NSData, NSError, NSString};
+    use objc2_web_kit::WKWebView;
+
+    unsafe {
+        let view: &WKWebView = &*webview.inner().cast();
+        let callback = RcBlock::new(move |data: *mut NSData, error: *mut NSError| {
+            let result = if data.is_null() {
+                let message = if error.is_null() {
+                    "WKWebView 未返回 PDF 数据".to_string()
+                } else {
+                    format!(
+                        "WKWebView 生成 PDF 失败:{}",
+                        (*error).localizedDescription()
+                    )
+                };
+                Err(message)
+            } else {
+                let path = NSString::from_str(&output.to_string_lossy());
+                if (*data).writeToFile_atomically(&path, true) {
+                    Ok(())
+                } else {
+                    Err("写入 PDF 文件失败".into())
+                }
+            };
+            let _ = result_tx.send(result);
+        });
+        view.createPDFWithConfiguration_completionHandler(None, &callback);
+    }
+}
+
+#[tauri::command]
+pub async fn export_pdf(
+    app: AppHandle,
+    request: PdfExportRequest,
+) -> Result<PdfExportResult, String> {
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let _ = (app, request);
+        return Err("当前平台不支持 WebView PDF 导出".into());
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    {
+        let output = PathBuf::from(request.output_path.trim());
+        if output.as_os_str().is_empty() {
+            return Err("未选择 PDF 保存位置".into());
+        }
+
+        let cache_dir = app
+            .path()
+            .app_cache_dir()
+            .map_err(|e| format!("无法定位应用缓存目录:{e}"))?
+            .join("pdf-export");
+        tokio::fs::create_dir_all(&cache_dir)
+            .await
+            .map_err(|e| format!("创建 PDF 导出缓存目录失败:{e}"))?;
+        let unique = format!(
+            "{}-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis(),
+            std::process::id()
+        );
+        let html_path = cache_dir.join(format!("{unique}.html"));
+        let label = format!("yz-pdf-export-{unique}");
+        tokio::fs::write(&html_path, request.html)
+            .await
+            .map_err(|e| format!("写入 PDF 导出临时 HTML 失败:{e}"))?;
+
+        let output_display = output.clone();
+        let result: Result<(), String> = async {
+            let source = Url::from_file_path(&html_path)
+                .map_err(|()| "无法定位 PDF 导出临时 HTML".to_string())?;
+            let (load_tx, load_rx) = mpsc::channel::<Result<(), String>>();
+
+            let main_window = app
+                .get_window("main")
+                .ok_or_else(|| "主窗口不可用,无法创建导出视图".to_string())?;
+            let builder = WebviewBuilder::new(&label, WebviewUrl::CustomProtocol(source))
+                .on_page_load(move |_webview, payload| {
+                    if payload.event() == PageLoadEvent::Finished {
+                        let _ = load_tx.send(Ok(()));
+                    }
+                });
+            // 不创建任何 OS 窗口:导出 WebView 是主窗口的子视图,
+            // 放到父窗口边界外并立即 hide,避免内容闪现/抢占焦点。
+            let export_webview = main_window
+                .add_child(
+                    builder,
+                    LogicalPosition::new(-10_000.0, -10_000.0),
+                    LogicalSize::new(900.0, 1200.0),
+                )
+                .map_err(|e| format!("创建隐藏导出 WebView 失败:{e}"))?;
+            let _ = export_webview.hide();
+
+            // PageLoadFinished 已等待 HTML 与内嵌资源;再等两帧给字体解码/布局留余量。
+            tokio::time::timeout(
+                Duration::from_secs(30),
+                tauri::async_runtime::spawn_blocking(move || {
+                    load_rx
+                        .recv()
+                        .unwrap_or_else(|_| Err("隐藏导出视图加载中断".into()))
+                }),
+            )
+            .await
+            .map_err(|_| "隐藏导出视图加载超时".to_string())?
+            .map_err(|e| format!("PDF 导出任务失败:{e}"))??;
+            tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+
+            let (print_tx, print_rx) = mpsc::channel::<Result<(), String>>();
+            export_webview
+                .with_webview(move |webview| {
+                    print_webview_to_pdf(webview, output.clone(), print_tx)
+                })
+                .map_err(|e| format!("调用原生 PDF 引擎失败:{e}"))?;
+            tauri::async_runtime::spawn_blocking(move || {
+                print_rx
+                    .recv()
+                    .unwrap_or_else(|_| Err("原生 PDF 引擎无响应".into()))
+            })
+            .await
+            .map_err(|e| format!("PDF 生成任务失败:{e}"))??;
+            Ok(())
+        }
+        .await;
+
+        close_export_webview(&app, &label);
+        let _ = tokio::fs::remove_file(&html_path).await;
+        result?;
+        Ok(PdfExportResult {
+            path: output_display.to_string_lossy().into_owned(),
+        })
     }
 }
 
