@@ -2124,31 +2124,44 @@ pub async fn export_text(
     filter_ext: String,
     content: String,
 ) -> Result<Option<String>, String> {
+    #[cfg(not(target_os = "macos"))]
     use tauri_plugin_dialog::DialogExt;
     let exts: Vec<String> = filter_ext
         .split(',')
         .map(|s| s.trim().to_string())
         .collect();
+    #[cfg(not(target_os = "macos"))]
     let label: &'static str = if exts.first().map(|s| s.as_str()) == Some("html") {
         "HTML"
     } else {
         "Markdown"
     };
     let name = default_name;
-    let picked = tauri::async_runtime::spawn_blocking(move || {
+    #[cfg(target_os = "macos")]
+    let path = {
         let ext_refs: Vec<&str> = exts.iter().map(|s| s.as_str()).collect();
-        app.dialog()
-            .file()
-            .set_file_name(name)
-            .add_filter(label, &ext_refs)
-            .blocking_save_file()
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-    let Some(picked) = picked else {
-        return Ok(None);
+        let Some(path) = crate::export::pick_macos_save_path(&app, name, &ext_refs)? else {
+            return Ok(None);
+        };
+        path
     };
-    let path = picked.to_string();
+    #[cfg(not(target_os = "macos"))]
+    let path = {
+        let picked = tauri::async_runtime::spawn_blocking(move || {
+            let ext_refs: Vec<&str> = exts.iter().map(|s| s.as_str()).collect();
+            app.dialog()
+                .file()
+                .set_file_name(name)
+                .add_filter(label, &ext_refs)
+                .blocking_save_file()
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        let Some(picked) = picked else {
+            return Ok(None);
+        };
+        picked.to_string()
+    };
     fs::write(&path, content).map_err(err)?;
     Ok(Some(path))
 }

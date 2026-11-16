@@ -10,6 +10,7 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::Manager;
+use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::{
     AppHandle, LogicalPosition, LogicalSize, WebviewUrl,
     webview::{PageLoadEvent, WebviewBuilder},
@@ -442,6 +443,62 @@ fn replace_remote_images(
     }
 }
 
+/// rfd 的异步保存面板在 Tauri async command + macOS 主事件循环组合下可能挂起；
+/// 导出路径这种强模态操作直接用 NSSavePanel 的应用模态窗口，行为更可控。
+#[cfg(target_os = "macos")]
+pub(crate) fn pick_macos_save_path(
+    app: &AppHandle,
+    default_name: String,
+    extensions: &[&str],
+) -> Result<Option<String>, String> {
+    use objc2_app_kit::{NSApplication, NSModalResponseOK, NSSavePanel};
+    use objc2_foundation::MainThreadMarker;
+    use objc2_foundation::{NSMutableArray, NSString};
+
+    let extensions: Vec<String> = extensions.iter().map(|ext| ext.to_string()).collect();
+    let (tx, rx) = mpsc::channel::<Result<Option<String>, String>>();
+    app.run_on_main_thread(move || {
+        let result = (|| {
+            let Some(mtm) = MainThreadMarker::new() else {
+                return Err("无法访问 macOS 主线程".to_string());
+            };
+            {
+                let app = NSApplication::sharedApplication(mtm);
+                #[allow(deprecated)]
+                app.activateIgnoringOtherApps(true);
+                let panel = NSSavePanel::savePanel(mtm);
+                panel.center();
+                panel.setNameFieldStringValue(&NSString::from_str(&default_name));
+                if !extensions.is_empty() {
+                    let types = NSMutableArray::<NSString>::array();
+                    for ext in extensions {
+                        let value = NSString::from_str(&ext);
+                        types.addObject(&value);
+                    }
+                    #[allow(deprecated)]
+                    panel.setAllowedFileTypes(Some(&types));
+                }
+                panel.orderFrontRegardless();
+                if panel.runModal() == NSModalResponseOK {
+                    panel
+                        .URL()
+                        .and_then(|url| url.path())
+                        .map(|path| path.to_string())
+                        .map(Some)
+                        .ok_or_else(|| "未获取保存路径".to_string())
+                } else {
+                    Ok(None)
+                }
+            }
+        })();
+        let _ = tx.send(result);
+    })
+    .map_err(|e| format!("打开保存对话框失败:{e}"))?;
+
+    rx.recv()
+        .unwrap_or_else(|_| Err("保存对话框已中断".to_string()))
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PdfExportRequest {
@@ -460,16 +517,23 @@ pub async fn pick_pdf_output_path(
     app: AppHandle,
     default_name: String,
 ) -> Result<Option<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        app.dialog()
-            .file()
-            .set_file_name(default_name)
-            .add_filter("PDF 文档", &["pdf"])
-            .blocking_save_file()
-            .map(|path| path.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())
+    #[cfg(target_os = "macos")]
+    {
+        pick_macos_save_path(&app, default_name, &["pdf"])
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            app.dialog()
+                .file()
+                .set_file_name(default_name)
+                .add_filter("PDF 文档", &["pdf"])
+                .blocking_save_file()
+                .map(|path| path.to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())
+    }
 }
 
 fn close_export_webview(app: &AppHandle, label: &str) {
@@ -534,6 +598,163 @@ fn print_webview_to_pdf(
     }
 }
 
+/// WKWebView createPDF 生成的是“网页连续画布”PDF(macOS 会按 200in 分块),
+/// 不是 A4 打印页。这里保持矢量内容,重绘为 A4 页并补 16mm 页边距,
+/// 与 Windows PrintToPdf / 导出 HTML 的 @page 设置一致。
+#[cfg(target_os = "macos")]
+fn paginate_macos_pdf(data: &objc2_foundation::NSData) -> Result<Vec<u8>, String> {
+    use std::ptr::NonNull;
+
+    use objc2_core_foundation::{CGPoint, CGRect, CGSize};
+    use objc2_core_graphics::{
+        CGContext, CGDataConsumer, CGDataProvider, CGPDFBox, CGPDFContextBeginPage,
+        CGPDFContextClose, CGPDFContextCreate, CGPDFContextEndPage, CGPDFDocument,
+    };
+
+    const A4_WIDTH: f64 = 595.2755905511812;
+    const A4_HEIGHT: f64 = 841.8897637795277;
+    // 16mm,与 src/kb/export-html.ts 的 @page margin 保持一致。
+    const PAGE_MARGIN: f64 = 45.35433070866142;
+
+    let length = usize::try_from(data.length()).map_err(|_| "PDF 数据过大".to_string())?;
+    let mut source_bytes = vec![0_u8; length];
+    if length > 0 {
+        unsafe {
+            data.getBytes_length(
+                NonNull::from(source_bytes.as_mut_slice()).cast(),
+                data.length(),
+            );
+        }
+    }
+
+    unsafe {
+        let source_data = objc2_core_foundation::CFData::new(
+            None,
+            source_bytes.as_ptr(),
+            isize::try_from(length).map_err(|_| "PDF 数据过大".to_string())?,
+        )
+        .ok_or_else(|| "创建 PDF 源数据失败".to_string())?;
+        let provider = CGDataProvider::with_cf_data(Some(&source_data))
+            .ok_or_else(|| "初始化 PDF 渲染器失败".to_string())?;
+        let source = CGPDFDocument::with_provider(Some(&provider))
+            .ok_or_else(|| "读取 WKWebView PDF 失败".to_string())?;
+
+        let output_data = objc2_core_foundation::CFMutableData::new(None, 0)
+            .ok_or_else(|| "创建 PDF 输出缓冲失败".to_string())?;
+        let consumer = CGDataConsumer::with_cf_data(Some(&output_data))
+            .ok_or_else(|| "创建 PDF 输出器失败".to_string())?;
+        let a4 = CGRect {
+            origin: CGPoint { x: 0.0, y: 0.0 },
+            size: CGSize {
+                width: A4_WIDTH,
+                height: A4_HEIGHT,
+            },
+        };
+        let context = CGPDFContextCreate(Some(&consumer), &a4, None)
+            .ok_or_else(|| "创建 A4 PDF 上下文失败".to_string())?;
+        let page_count = CGPDFDocument::number_of_pages(Some(&source));
+        if page_count == 0 {
+            return Err("WKWebView 未生成 PDF 页面".into());
+        }
+
+        // WKWebView 会把长网页按约 200in 拆成多个连续 PDF page。
+        // A4 分页边界不一定落在这些 chunk 边界上,不能在每个 chunk 内独立从顶部重切;
+        // 必须先把 chunk 还原成一条连续画布,再按全局 A4 边界取切片。
+        let source_pages: Vec<_> = (1..=page_count)
+            .map(|page_number| {
+                let page = CGPDFDocument::page(Some(&source), page_number)
+                    .ok_or_else(|| "读取 WKWebView PDF 页面失败".to_string())?;
+                let rect =
+                    objc2_core_graphics::CGPDFPage::box_rect(Some(&page), CGPDFBox::MediaBox);
+                if rect.size.width <= 0.0 || rect.size.height <= 0.0 {
+                    return Err("WKWebView PDF 页面尺寸无效".into());
+                }
+                Ok((page, rect))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let source_width = source_pages[0].1.size.width;
+        if source_pages
+            .iter()
+            .any(|(_, rect)| (rect.size.width - source_width).abs() > 0.01)
+        {
+            return Err("WKWebView PDF 页面宽度不一致".into());
+        }
+
+        let scale = (A4_WIDTH - PAGE_MARGIN * 2.0) / source_width;
+        let source_slice_height = (A4_HEIGHT - PAGE_MARGIN * 2.0) / scale;
+        let total_source_height: f64 = source_pages.iter().map(|(_, rect)| rect.size.height).sum();
+        let mut chunk_starts = Vec::with_capacity(source_pages.len());
+        let mut chunk_start = 0.0_f64;
+        for (_, rect) in &source_pages {
+            chunk_starts.push(chunk_start);
+            chunk_start += rect.size.height;
+        }
+
+        let mut target_start = 0.0_f64;
+        while target_start < total_source_height {
+            let target_end = (target_start + source_slice_height).min(total_source_height);
+            CGPDFContextBeginPage(Some(&context), None);
+            CGContext::set_rgb_fill_color(Some(&context), 1.0, 1.0, 1.0, 1.0);
+            CGContext::fill_rect(Some(&context), a4);
+
+            for (page_index, (page, source_rect)) in source_pages.iter().enumerate() {
+                let chunk_start = chunk_starts[page_index];
+                let chunk_end = chunk_start + source_rect.size.height;
+                let overlap_start = target_start.max(chunk_start);
+                let overlap_end = target_end.min(chunk_end);
+                if overlap_start >= overlap_end {
+                    continue;
+                }
+
+                // local_top/local_bottom 是相对当前 chunk 顶部的网页坐标;
+                // PDF 坐标自下而上,所以要转换成源页 box 的 y offset。
+                let local_top = overlap_start - chunk_start;
+                let local_bottom = overlap_end - chunk_start;
+                let offset = source_rect.size.height - local_bottom;
+                let target_offset = overlap_start - target_start;
+                CGContext::save_g_state(Some(&context));
+                CGContext::translate_ctm(Some(&context), PAGE_MARGIN, PAGE_MARGIN);
+                CGContext::scale_ctm(Some(&context), scale, scale);
+                CGContext::translate_ctm(
+                    Some(&context),
+                    0.0,
+                    source_slice_height - target_offset - source_rect.size.height + local_top,
+                );
+                CGContext::clip_to_rect(
+                    Some(&context),
+                    CGRect {
+                        origin: CGPoint {
+                            x: source_rect.origin.x,
+                            y: source_rect.origin.y + offset,
+                        },
+                        size: CGSize {
+                            width: source_rect.size.width,
+                            height: local_bottom - local_top,
+                        },
+                    },
+                );
+                CGContext::draw_pdf_page(Some(&context), Some(page));
+                CGContext::restore_g_state(Some(&context));
+            }
+            CGPDFContextEndPage(Some(&context));
+            target_start = target_end;
+        }
+        CGPDFContextClose(Some(&context));
+        drop(context);
+
+        let length =
+            usize::try_from(output_data.length()).map_err(|_| "PDF 输出过大".to_string())?;
+        if length == 0 {
+            return Err("A4 PDF 输出为空".into());
+        }
+        let bytes = output_data.byte_ptr();
+        if bytes.is_null() {
+            return Err("读取 A4 PDF 输出失败".into());
+        }
+        Ok(std::slice::from_raw_parts(bytes, length).to_vec())
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn print_webview_to_pdf(
     webview: tauri::webview::PlatformWebview,
@@ -541,7 +762,7 @@ fn print_webview_to_pdf(
     result_tx: mpsc::Sender<Result<(), String>>,
 ) {
     use block2::RcBlock;
-    use objc2_foundation::{NSData, NSError, NSString};
+    use objc2_foundation::{NSData, NSError};
     use objc2_web_kit::WKWebView;
 
     unsafe {
@@ -558,11 +779,11 @@ fn print_webview_to_pdf(
                 };
                 Err(message)
             } else {
-                let path = NSString::from_str(&output.to_string_lossy());
-                if (*data).writeToFile_atomically(&path, true) {
-                    Ok(())
-                } else {
-                    Err("写入 PDF 文件失败".into())
+                match paginate_macos_pdf(&*data) {
+                    Ok(pdf) => {
+                        std::fs::write(&output, pdf).map_err(|e| format!("写入 PDF 文件失败:{e}"))
+                    }
+                    Err(e) => Err(e),
                 }
             };
             let _ = result_tx.send(result);
@@ -626,15 +847,25 @@ pub async fn export_pdf(
                         let _ = load_tx.send(Ok(()));
                     }
                 });
+            // 仅改 macOS:WKWebView 需要 disable inactive scheduling。
+            #[cfg(target_os = "macos")]
+            let builder = builder.background_throttling(BackgroundThrottlingPolicy::Disabled);
+
+            #[cfg(target_os = "macos")]
+            let (export_width, export_height) = (794.0, 1123.0);
+            #[cfg(not(target_os = "macos"))]
+            let (export_width, export_height) = (900.0, 1200.0);
             // 不创建任何 OS 窗口:导出 WebView 是主窗口的子视图,
             // 放到父窗口边界外并立即 hide,避免内容闪现/抢占焦点。
             let export_webview = main_window
                 .add_child(
                     builder,
                     LogicalPosition::new(-10_000.0, -10_000.0),
-                    LogicalSize::new(900.0, 1200.0),
+                    LogicalSize::new(export_width, export_height),
                 )
                 .map_err(|e| format!("创建隐藏导出 WebView 失败:{e}"))?;
+            // WKWebView 被隐藏后可能停止布局/渲染;屏外已足够避免闪现。
+            #[cfg(windows)]
             let _ = export_webview.hide();
 
             // PageLoadFinished 已等待 HTML 与内嵌资源;再等两帧给字体解码/布局留余量。
@@ -649,6 +880,57 @@ pub async fn export_pdf(
             .await
             .map_err(|_| "隐藏导出视图加载超时".to_string())?
             .map_err(|e| format!("PDF 导出任务失败:{e}"))??;
+            // createPDF 捕获的是屏幕媒体布局,不会自动启用 @media print。
+            // 该覆盖只属于 macOS 的连续画布转 A4 管线;Windows PrintToPdf 继续走原生 @media print。
+            #[cfg(target_os = "macos")]
+            {
+                export_webview
+                    .eval(
+                        r#"(() => {
+                          const style = document.createElement('style');
+                          style.id = 'yanzhi-pdf-print-layout';
+                          style.textContent = 'html,body{background:#fff !important}body{max-width:none !important;width:794px !important;padding:0 !important}pre{white-space:pre-wrap !important;overflow:visible !important}table{width:100% !important;table-layout:fixed !important}[data-yz-pdf-page-break]{display:block !important;height:0;margin:0 !important;padding:0 !important;background:transparent !important}';
+                          document.head.append(style);
+
+                          // 与 Rust paginate_macos_pdf 的 794px 源画布 -> A4 内容区换算保持一致。
+                          const PAGE_HEIGHT = 1182.0786516853934;
+                          const selector = [
+                            'h1,h2,h3,h4,h5,h6', 'p', 'li', 'dt', 'dd', 'blockquote',
+                            'pre', 'table', 'img', 'figure', '.yz-callout', '.yz-details',
+                            '.yz-math-block', '.yz-mmd-stage', '.yz-raw-html-preview', '.yz-attachment'
+                          ].join(',');
+                          const hasAtomicAncestor = (el) => {
+                            for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+                              if (parent.matches(selector)) return true;
+                            }
+                            return false;
+                          };
+                          const atoms = [...document.querySelectorAll(selector)].filter((el) => {
+                            const style = getComputedStyle(el);
+                            return style.display !== 'none' && style.visibility !== 'hidden' && !hasAtomicAncestor(el);
+                          });
+
+                          // createPDF 使用屏幕连续画布,不会执行 @media print 的分页算法。
+                          // 在每个 A4 边界前,把将要被切开且高度不超过一页的原子块推到下一页。
+                          for (const el of atoms) {
+                            const rect = el.getBoundingClientRect();
+                            const top = rect.top + window.scrollY;
+                            const bottom = rect.bottom + window.scrollY;
+                            const boundary = Math.ceil((top + 0.01) / PAGE_HEIGHT) * PAGE_HEIGHT;
+                            if (bottom <= boundary + 0.01 || top >= boundary || bottom - top > PAGE_HEIGHT) continue;
+
+                            const spacer = document.createElement('div');
+                            spacer.dataset.yzPdfPageBreak = '';
+                            spacer.style.height = `${Math.max(0, boundary - top)}px`;
+                            el.parentNode?.insertBefore(spacer, el);
+                            let nextTop = el.getBoundingClientRect().top + window.scrollY;
+                            spacer.style.height = `${Math.max(0, Number.parseFloat(spacer.style.height) + boundary - nextTop)}px`;
+                          }
+                        })()"#,
+                    )
+                    .map_err(|e| format!("切换 PDF 打印布局失败:{e}"))?;
+            }
+
             tokio::time::sleep(std::time::Duration::from_millis(80)).await;
 
             let (print_tx, print_rx) = mpsc::channel::<Result<(), String>>();
@@ -657,13 +939,34 @@ pub async fn export_pdf(
                     print_webview_to_pdf(webview, output.clone(), print_tx)
                 })
                 .map_err(|e| format!("调用原生 PDF 引擎失败:{e}"))?;
-            tauri::async_runtime::spawn_blocking(move || {
-                print_rx
-                    .recv()
-                    .unwrap_or_else(|_| Err("原生 PDF 引擎无响应".into()))
-            })
-            .await
-            .map_err(|e| format!("PDF 生成任务失败:{e}"))??;
+            let print_result: Result<(), String> = {
+                // 仅 macOS 的 createPDF + A4 重绘可能耗时较长;Windows 保持原有无限等待回调语义。
+                #[cfg(target_os = "macos")]
+                {
+                    tokio::time::timeout(
+                        Duration::from_secs(60),
+                        tauri::async_runtime::spawn_blocking(move || {
+                            print_rx
+                                .recv()
+                                .unwrap_or_else(|_| Err("原生 PDF 引擎无响应".into()))
+                        }),
+                    )
+                    .await
+                    .map_err(|_| "PDF 生成超时".to_string())?
+                    .map_err(|e| format!("PDF 生成任务失败:{e}"))?
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    tauri::async_runtime::spawn_blocking(move || {
+                        print_rx
+                            .recv()
+                            .unwrap_or_else(|_| Err("原生 PDF 引擎无响应".into()))
+                    })
+                    .await
+                    .map_err(|e| format!("PDF 生成任务失败:{e}"))?
+                }
+            };
+            print_result?;
             Ok(())
         }
         .await;
