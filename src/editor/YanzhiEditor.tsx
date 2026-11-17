@@ -12,6 +12,7 @@ import {
 } from "./slash-command";
 import { setAttachmentOpener } from "./extensions/attachment";
 import { cleanPastedHtml } from "./paste-clean";
+import { handleMarkdownPaste } from "./markdown-paste";
 import { insertImage } from "./extensions/image-card";
 import {
   setCodeLanguageRecents,
@@ -91,8 +92,10 @@ interface YanzhiEditorProps {
    * 传入即将呈现的文档 path,避免切文档瞬间 currentPath 与正文尚未对齐时读串。
    */
   getRestoreCursor?: (path: string) => { pos: number; scrollTop: number } | null;
-  /** 当前 markdown 所属文档路径;切文档时与 markdown 同步变化,用于恢复点与就绪回调 */
+  /** 当前 markdown 所属文档路径;切文档/同文档改名都会变化,用于恢复点与就绪回调 */
   contentPath?: string | null;
+  /** 正文装载代次:真正读取/呈现另一篇文档时递增;同文档改名保持不变,避免误重载 */
+  contentEpoch?: number;
   /** 正文已 setContent 并恢复选区后回调;应用层据此才开始把选区记到该 path */
   onContentReady?: (path: string) => void;
   /**
@@ -206,6 +209,7 @@ export function YanzhiEditor({
   locateSignal,
   getRestoreCursor,
   contentPath = null,
+  contentEpoch = 0,
   onContentReady,
   flushPendingRef,
   cardBorder = true,
@@ -534,7 +538,10 @@ export function YanzhiEditor({
           return true;
         }
         // 复制“图片地址”通常是纯文本 URL;不拦截会被 Link 扩展变成普通链接
-        return handleImageURLPaste(view, event);
+        if (handleImageURLPaste(view, event)) return true;
+        // 纯文本 Markdown 源码粘贴 → md-it 统一解析进排版视图;
+        // 含 HTML 的剪贴板仍走上面的 cleanPastedHtml 富文本路径。
+        return handleMarkdownPaste(view, event);
       },
       // 拖入图片文件(moved=true 是编辑器内部拖动文本,不拦)
       handleDrop: (_view, event, _slice, moved) => {
@@ -713,15 +720,18 @@ export function YanzhiEditor({
   // 换文期间 visibility:hidden 藏正文,滚动就位后再揭开,并用 preventScroll 聚焦。
   const lastLoadedRef = useRef(markdown);
   const lastLoadedPathRef = useRef<string | null | undefined>(contentPath);
+  const lastLoadedEpochRef = useRef(contentEpoch);
   useEffect(() => {
     if (!editor) return;
-    // 同正文不同文档也要换载(空文档互切时 markdown 字面量相同)
-    if (markdown === lastLoadedRef.current && contentPath === lastLoadedPathRef.current) return;
+    // 空文档互切时 markdown 字面量相同,用装载代次区分真正换文;
+    // 同文档改名只改 path、不改代次,不能把编辑器里的未回调去抖稿重载掉。
+    if (markdown === lastLoadedRef.current && contentEpoch === lastLoadedEpochRef.current) return;
     const path = contentPath;
     window.clearTimeout(timerRef.current);
     window.clearTimeout(sourceTimerRef.current);
     lastLoadedRef.current = markdown;
     lastLoadedPathRef.current = path;
+    lastLoadedEpochRef.current = contentEpoch;
     // 按即将呈现的 path 取恢复点(不要用「调用瞬间的 currentPath」闭包)
     const restore = path ? (restoreCursorRef.current?.(path) ?? null) : null;
     const seq = ++contentLoadSeqRef.current;
@@ -765,7 +775,7 @@ export function YanzhiEditor({
       }
       if (path) onContentReadyRef.current?.(path);
     });
-  }, [editor, markdown, contentPath]);
+  }, [editor, markdown, contentPath, contentEpoch]);
 
   // 首篇挂载:useEditor 已带上 content,不会走上面的换文微任务
   const didInitialReadyRef = useRef(false);

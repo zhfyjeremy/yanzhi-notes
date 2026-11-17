@@ -369,17 +369,38 @@
   color: inherit;
 }
 
-/* Raw HTML 卡:默认安全预览,点击预览或右上角按钮切换源码 */
-.yz-editor-doc .yz-raw-html {
+/* HTML 注释:可见轻量注记,不进 Raw HTML 预览卡 */
+.yz-editor-doc .yz-html-comment {
   margin: 0.75em 0;
+  padding: 0.55em 0.75em;
+  border-left: 2px solid var(--border);
+  border-radius: 0 var(--radius-sm, 4px) var(--radius-sm, 4px) 0;
+  background: var(--code-bg, var(--muted));
+  color: var(--muted-foreground);
+}
+
+.yz-editor-doc .yz-html-comment code {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.6;
+  background: none;
+  padding: 0;
+  border: 0;
+  color: inherit;
+}
+/* Raw HTML 块:Typora 式直接安全渲染,无块内预览/源码切换 */
+.yz-editor-doc .yz-raw-html {
+  margin: 0;
 }
 
 .yz-editor-doc .yz-raw-html-preview {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md, 6px);
-  background: var(--raised);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   overflow: hidden;
-  cursor: pointer;
   position: relative;
 }
 
@@ -403,27 +424,6 @@
   color: var(--muted-foreground);
   font-size: 0.9em;
   padding: 0.75em 0.9em;
-}
-
-.yz-editor-doc .yz-raw-html-source {
-  display: block;
-  width: 100%;
-  min-height: 5em;
-  resize: vertical;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md, 6px);
-  background: var(--code-bg, var(--muted));
-  color: var(--foreground);
-  padding: 0.75em 0.9em;
-  font-family: var(--font-mono);
-  font-size: 0.875em;
-  line-height: 1.65;
-  outline: none;
-}
-
-.yz-editor-doc .yz-raw-html-source:focus {
-  border-color: color-mix(in oklab, var(--primary) 45%, var(--border));
-  box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 15%, transparent);
 }
 
 /* Mermaid 图表卡(codeBlock language=mermaid 的 NodeView,PRD §6.1.4):

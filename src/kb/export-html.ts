@@ -159,8 +159,8 @@ input[type="checkbox"] { margin-right: 0.35em; }
 .yz-mmd-error-detail { display: block; margin-top: 0.3em; color: var(--page-muted); font-family: ${FONT_MONO}; font-size: 0.85em; opacity: 0.8; }
 .yz-raw-html-preview {
   display: block; width: 100%; height: 240px;
-  border: 1px solid var(--page-border); border-radius: 6px;
-  background: #fff; overflow: hidden; margin: 1em 0;
+  border: 0; border-radius: 0;
+  background: transparent; overflow: hidden; margin: 0;
 }
 .yz-raw-html-preview iframe { display: block; width: 100%; border: 0; background: #fff; }
 `;
@@ -433,7 +433,7 @@ async function renderRawHtml(root: ParentNode, opts: ExportHtmlOptions) {
     const shell = doc.createElement("div");
     shell.className = "yz-raw-html-preview";
     const frame = doc.createElement("iframe");
-    frame.title = "HTML 预览";
+    frame.title = "HTML 块";
     frame.setAttribute("sandbox", "allow-same-origin");
     frame.srcdoc = `<!doctype html>${frameDoc.documentElement.outerHTML}`;
     frame.setAttribute(

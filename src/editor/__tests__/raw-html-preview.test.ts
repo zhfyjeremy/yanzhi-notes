@@ -36,6 +36,38 @@ describe("Raw HTML 安全预览", () => {
     expect(result).toContain("asset://mock/a.png");
   });
 
+  it("HTML 注释以轻量注记显示且原文保留", async () => {
+    const md = "前文\n\n<!-- BEGIN:turborepo-agent-rules -->\n\n后文\n";
+    const doc = markdownToDoc(md, getSchema());
+    const comment = doc.child(1);
+    expect(comment?.type.name).toBe("rawHtml");
+    expect(comment?.attrs.comment).toBe(true);
+    expect(docToMarkdown(doc)).toBe(md);
+
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(createElement(YanzhiEditor, { markdown: md }));
+        await Promise.resolve();
+      });
+      const note = container.querySelector<HTMLElement>(".yz-html-comment");
+      expect(note?.textContent).toContain("<!-- BEGIN:turborepo-agent-rules -->");
+      expect(container.querySelector(".yz-raw-html-preview")).toBeNull();
+      expect(container.textContent).toContain("后文");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+  });
+  it("独立线上 img 转原生图片节点", () => {
+    const doc = markdownToDoc('<img src="https://example.com/a.png" alt="示例图" onerror="alert(1)">\n', getSchema());
+    expect(doc.toString()).toContain("image");
+    expect(doc.toString()).not.toContain("rawHtml");
+    expect(docToMarkdown(doc)).toBe("![示例图](https://example.com/a.png)\n");
+  });
   it("预览不改写磁盘上的 Raw HTML 原文", () => {
     const md = '<div class="x" onclick="alert(1)">HTML</div>\n';
     const doc = markdownToDoc(md, getSchema());
@@ -45,39 +77,30 @@ describe("Raw HTML 安全预览", () => {
     expect(docToMarkdown(doc)).toBe(md);
   });
 
-  it("restores preview when the source textarea blurs", () => {
+  it("Raw HTML 直接渲染,不再提供块内源码模式", async () => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
-    const elementFromPoint = document.elementFromPoint;
-    document.elementFromPoint = () => null;
     try {
-      act(() =>
+      await act(async () => {
         root.render(
           createElement(YanzhiEditor, {
             markdown: '<div><img src="https://example.com/a.png"></div>\n\nOther line',
           }),
-        ),
-      );
+        );
+        await Promise.resolve();
+      });
 
       const preview = container.querySelector<HTMLElement>(".yz-raw-html-preview");
       expect(preview).not.toBeNull();
-      act(() => preview!.click());
-
-      const source = container.querySelector<HTMLTextAreaElement>(".yz-raw-html-source");
-      expect(source).not.toBeNull();
-      expect(document.activeElement).toBe(source);
-      expect(source!.selectionStart).toBe(source!.value.length);
-      expect(source!.selectionEnd).toBe(source!.value.length);
-      act(() => source!.blur());
-
       expect(container.querySelector(".yz-raw-html-source")).toBeNull();
-      expect(container.querySelector(".yz-raw-html-preview")).not.toBeNull();
+      expect([...container.querySelectorAll("button")].some((button) => button.textContent?.includes("源码"))).toBe(false);
+      expect(container.textContent).toContain("Other line");
     } finally {
-      document.elementFromPoint = elementFromPoint;
       act(() => root.unmount());
       container.remove();
     }
   });
+
 });

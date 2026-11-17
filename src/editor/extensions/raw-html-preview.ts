@@ -116,7 +116,12 @@ export function sanitizeRawHtmlPreview(
 <style>
   html { color-scheme: light; }
   ${themeCss}
-  body { margin: 0; color: var(--foreground); background: var(--editor); font-family: var(--font-sans); font-size: 15px; line-height: 1.6; overflow: hidden; width: max-content; min-width: 100%; }
+  body { margin: 0; display: flow-root; color: var(--foreground); background: var(--editor); font-family: var(--font-sans); font-size: 15px; line-height: 1.6; overflow: hidden; width: max-content; min-width: 100%; }
+  p { margin: 0; }
+  h1, h2, h3, h4, h5, h6 { line-height: 1.35; margin: 0.15em 0; }
+  h1 { font-size: 1.9em; }
+  h2 { font-size: 1.5em; }
+  h3 { font-size: 1.22em; }
   img, video, svg { max-width: 100%; height: auto; }
   table { border-collapse: collapse; }
   th, td { border: 1px solid var(--border-subtle); padding: 4px 7px; }

@@ -21,6 +21,18 @@ export const RawHtml = Node.create({
           decodeURIComponent(element.getAttribute("data-raw-html") ?? ""),
         renderHTML: () => ({}),
       },
+      /** div 开/闭布局边界:不生成 HTML 块,但序列化保留原文。 */
+      layout: {
+        default: false,
+        parseHTML: (element) => element.hasAttribute("data-raw-html-layout"),
+        renderHTML: (attributes) => (attributes.layout ? { "data-raw-html-layout": "1" } : {}),
+      },
+      /** HTML 注释以轻量注记显示,并保留在文档真源中。 */
+      comment: {
+        default: false,
+        parseHTML: (element) => element.hasAttribute("data-raw-html-comment"),
+        renderHTML: (attributes) => (attributes.comment ? { "data-raw-html-comment": "1" } : {}),
+      },
     };
   },
 
@@ -36,7 +48,11 @@ export const RawHtml = Node.create({
     return [
       "div",
       mergeAttributes(
-        { "data-raw-html": encodeURIComponent(String(node.attrs.content ?? "")) },
+        {
+          "data-raw-html": encodeURIComponent(String(node.attrs.content ?? "")),
+          ...(node.attrs.comment ? { "data-raw-html-comment": "1" } : {}),
+          ...(node.attrs.layout ? { "data-raw-html-layout": "1" } : {}),
+        },
         HTMLAttributes,
       ),
       ["code", {}, String(node.attrs.content ?? "")],

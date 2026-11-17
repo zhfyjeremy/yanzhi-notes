@@ -368,10 +368,45 @@ md.core.ruler.after("yz_details", "yz_attachment", (state) => {
   }
 });
 
+/** HTML 注释作为轻量注记显示,序列化时原文写回。 */
+const HTML_COMMENT_RE = /^<!--[\s\S]*-->$/;
+
+/**
+ * CommonMark 会把 `<div>` 开/闭标签拆成两个 html_block token,中间的 Markdown 另行解析。
+ * 这类布局边界不能各生成一个 iframe;作为隐藏 RawHtml 边界保留,既不撑高正文也不丢原文。
+ */
+const HTML_LAYOUT_BOUNDARY_RE = /^<\/?div\b[^>]*>$/i;
+
+
+/** 独立块级 <img src="http(s)://…"> → 原生图片节点(不再落 Raw HTML 卡)。 */
+function standaloneImageHtml(content: string): string | null {
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = content.trim();
+  const img = wrapper.firstElementChild;
+  if (
+    wrapper.childElementCount !== 1 ||
+    img?.tagName !== "IMG" ||
+    (wrapper.textContent ?? "").trim()
+  ) {
+    return null;
+  }
+  const src = img.getAttribute("src") ?? "";
+  if (!/^https?:\/\//i.test(src)) return null;
+  const alt = img.getAttribute("alt") ?? "";
+  return `<img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}">`;
+}
+
 /* 块级未知 HTML → data-raw-html 占位(原文保留,见 extensions/raw-html.ts) */
 md.renderer.rules.html_block = (tokens, idx) => {
-  const encoded = encodeURIComponent(tokens[idx].content);
-  return `<div data-raw-html="${encoded}"></div>`;
+  const content = tokens[idx].content;
+  const image = standaloneImageHtml(content);
+  if (image != null) return image;
+  const encoded = encodeURIComponent(content);
+  const kind =
+    HTML_COMMENT_RE.test(content.trim()) ? ' data-raw-html-comment="1"'
+      : HTML_LAYOUT_BOUNDARY_RE.test(content.trim()) ? ' data-raw-html-layout="1"'
+        : "";
+  return `<div data-raw-html="${encoded}"${kind}></div>`;
 };
 
 export function mdToHtml(markdown: string): string {

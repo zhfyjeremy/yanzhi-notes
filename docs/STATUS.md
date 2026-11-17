@@ -1,10 +1,10 @@
-# 项目状态(更新:2026-11-16)
+# 项目状态(更新:2026-11-17)
 
 > 开工前速览:看「下一步」直接干活;细节翻 `docs/PRD-本地离线知识库编辑器.md` 对应章节。文档索引见 `docs/README.md`。
 
 ## 现状一句话
 
-**MVP / V2 / V3 功能已齐(含 BYOK AI-0/1/2 + AI-3 卡片)**。2026-11-15:Raw HTML 卡片点击进入源码后自动聚焦源码末尾,源码区失焦/点击其它行会自动恢复预览。HTML 导出已按编辑器卡片形态渲染代码高亮、Mermaid、KaTeX 公式、Callout、Details、附件卡与 Raw HTML 安全预览,并在导出文件内嵌公式字体。Markdown 源码模式的代码块 token 与底色已复用排版视图 Shiki 的 --code-* / --code-bg 色槽。2026-11-14:格式工具栏在 Windows 上不再冒出横竖滚动条;源码模式开关在状态栏左下、单文件路径行和菜单「显示 → 源码模式」(面包屑右侧入口已去掉),⌘/Ctrl+/ 仍可用;更改图标弹窗在 Windows 上延后挂载网格、先关窗再写 meta,减轻打开/点选卡顿;2026-11-15 进一步改为 7 列大图标 + 固定行高虚拟滚动,关闭时正常卸载 Radix 遮罩,目录树本地覆盖与 meta/标签页刷新错峰,并定位到 Win32 菜单重建导致的整窗抖动(见下)。DOCX 语义导出代码完成(PM doc → Pandoc AST,可选外部 Pandoc + 外链图片受控嵌入;行内代码导出内容已修复不丢字,真机验收待做)。PDF 导出已改为主窗口内离屏子 WebView 直出:复用自包含 HTML,不创建/弹出独立 OS 窗口;Windows WebView2 PrintToPdf 无弹窗生成文件并真机冒烟通过。2026-11-16 macOS 修复隐藏 WKWebView 加载挂起(不再 hide,仅屏外 + 禁 inactive scheduling),并将 createPDF 连续画布矢量重绘为 A4/16mm 边距;同时绕开 rfd save 在 Tauri async command 中的挂起问题,HTML/PDF 保存面板改用 NSSavePanel 直调。分页不再硬切标题/段落/列表项/代码块/表格/卡片,并修复 WKWebView 200 英寸内部 chunk 与 A4 边界交错导致的错序/重叠;87 页合成长文在 chunk 临界页连续无漏行,真实文档 9 页抽检通过。导出中提示只说明“正在排版文档”,成功提示常驻并支持「在文件管理器中显示/关闭」。DOCX 测试已覆盖生成后回读正文,标题/列表/表格/代码/Mermaid/双链/提示块/折叠块/附件/公式内容均逐项断言。2026-11-13:知识库新增浏览器式文档标签页(Phase 1+2:打开/激活/关闭/关闭其它/关闭左侧/关闭右侧、拖拽排序、被遮挡 tab 激活后自动滚到可见、中键关闭、右键菜单、⌘/Ctrl+W 关闭、Ctrl+Tab 与 Shift+[ ] 前后切换、⌘/Ctrl+Alt+数字直切;tab 使用目录树自定义图标;右键与原生文件菜单的三种导出格式收进「导出」二级菜单;`.yanzhi/workspace.json` 持久化;单个编辑器实例复用,切换前强制保存,失败阻断,重命名/移动/删除自动同步 tab;正文双链默认当前 tab,⌘/Ctrl 或中键打开/切换 tab);设置 → 外观 → 正文排版新增正文列宽,默认自适应,可固定 600–1200px(标题/正文/源码/工具栏/帮助同列,窄窗口仍自动收缩);外观默认正文行高从 1.75 收紧为 1.6(导出/复制 HTML 的默认排版同步);排版视图普通文本/代码块与 Markdown 源码视图的 Tab 缩进宽度可在设置 → 编辑器调整为 1–8 字符,Shift+Tab 可缩回光标前缩进或行首缩进(列表升降级、表格切换单元格语义保留);Markdown 普通文本中的 `=`、`===>`、`======>` 不再被误识别为高亮或反斜杠转义,`==高亮==` 方言保持可用;开库/首启装载期改为工作区 loading,不再先闪现未命名空文档;2026-11-12:新增全文档 Markdown 源码模式(工具栏 + ⌘/Ctrl+/,基于懒加载 CodeMirror 6 + Lezer Markdown/GFM 的 HBuilder/Typora 式彩色主题(H1–H6 分级配色、链接下划线、代码块轻底色与按语言懒加载的真实 parser 多色 token 着色(C/C++/CSS/HTML/Java/JS/JSON/Python/Rust/Go/Shell/Bash/SQL/TS/XML/YAML,未识别语言通用回退));与排版视图同内容列/纵向滚动容器、无边框,编辑器高度自适应且不单独纵向滚动,排版/源码双向按滚动比例恢复当前阅读位置(首次源码 chunk 懒加载时等待可滚动布局出现后再恢复),源码编辑自动保存,长行在正文列内软折行且不出横向滚动条,右侧大纲在源码态按 CodeMirror 行定位、点击可跳转并联动高亮,代码块使用浏览器原生 selection 保证在彩色代码块背景上可见可选);裸 URL/外部编辑器转义 scheme(`https\\://`)打开即解析为链接;目录树内置图标与右键更改图标上线；2026-11-11:整段 http(s) 图片地址粘贴即转外链图片；未知扩展名 URL 由用户粘贴触发单次图片解码识别。2026-11-03:关闭窗口保持后台;单实例托盘;AI 结构 + 卡片(代码解释改写 / Mermaid 生成修正 / 公式)。签名/公证与 IME 真机回归仍待。
+**MVP / V2 / V3 功能已齐(含 BYOK AI-0/1/2 + AI-3 卡片)**。2026-11-17:Raw HTML 块改为直接安全渲染,无块内预览/源码切换(历史能力已移除)。HTML 导出已按编辑器卡片形态渲染代码高亮、Mermaid、KaTeX 公式、Callout、Details、附件卡与 Raw HTML 安全预览,并在导出文件内嵌公式字体。Markdown 源码模式的代码块 token 与底色已复用排版视图 Shiki 的 --code-* / --code-bg 色槽。2026-11-14:格式工具栏在 Windows 上不再冒出横竖滚动条;源码模式开关在状态栏左下、单文件路径行和菜单「显示 → 源码模式」(面包屑右侧入口已去掉),⌘/Ctrl+/ 仍可用;更改图标弹窗在 Windows 上延后挂载网格、先关窗再写 meta,减轻打开/点选卡顿;2026-11-15 进一步改为 7 列大图标 + 固定行高虚拟滚动,关闭时正常卸载 Radix 遮罩,目录树本地覆盖与 meta/标签页刷新错峰,并定位到 Win32 菜单重建导致的整窗抖动(见下)。DOCX 语义导出代码完成(PM doc → Pandoc AST,可选外部 Pandoc + 外链图片受控嵌入;行内代码导出内容已修复不丢字,真机验收待做)。PDF 导出已改为主窗口内离屏子 WebView 直出:复用自包含 HTML,不创建/弹出独立 OS 窗口;Windows WebView2 PrintToPdf 无弹窗生成文件并真机冒烟通过。2026-11-16 macOS 修复隐藏 WKWebView 加载挂起(不再 hide,仅屏外 + 禁 inactive scheduling),并将 createPDF 连续画布矢量重绘为 A4/16mm 边距;同时绕开 rfd save 在 Tauri async command 中的挂起问题,HTML/PDF 保存面板改用 NSSavePanel 直调。分页不再硬切标题/段落/列表项/代码块/表格/卡片,并修复 WKWebView 200 英寸内部 chunk 与 A4 边界交错导致的错序/重叠;87 页合成长文在 chunk 临界页连续无漏行,真实文档 9 页抽检通过。导出中提示只说明“正在排版文档”,成功提示常驻并支持「在文件管理器中显示/关闭」。DOCX 测试已覆盖生成后回读正文,标题/列表/表格/代码/Mermaid/双链/提示块/折叠块/附件/公式内容均逐项断言。2026-11-13:知识库新增浏览器式文档标签页(Phase 1+2:打开/激活/关闭/关闭其它/关闭左侧/关闭右侧、拖拽排序、被遮挡 tab 激活后自动滚到可见、中键关闭、右键菜单、⌘/Ctrl+W 关闭、Ctrl+Tab 与 Shift+[ ] 前后切换、⌘/Ctrl+Alt+数字直切;tab 使用目录树自定义图标;右键与原生文件菜单的三种导出格式收进「导出」二级菜单;`.yanzhi/workspace.json` 持久化;单个编辑器实例复用,切换前强制保存,失败阻断,重命名/移动/删除自动同步 tab;正文双链默认当前 tab,⌘/Ctrl 或中键打开/切换 tab);设置 → 外观 → 正文排版新增正文列宽,默认自适应,可固定 600–1200px(标题/正文/源码/工具栏/帮助同列,窄窗口仍自动收缩);外观默认正文行高从 1.75 收紧为 1.6(导出/复制 HTML 的默认排版同步);排版视图普通文本/代码块与 Markdown 源码视图的 Tab 缩进宽度可在设置 → 编辑器调整为 1–8 字符,Shift+Tab 可缩回光标前缩进或行首缩进(列表升降级、表格切换单元格语义保留);Markdown 普通文本中的 `=`、`===>`、`======>` 不再被误识别为高亮或反斜杠转义,`==高亮==` 方言保持可用;开库/首启装载期改为工作区 loading,不再先闪现未命名空文档;2026-11-12:新增全文档 Markdown 源码模式(工具栏 + ⌘/Ctrl+/,基于懒加载 CodeMirror 6 + Lezer Markdown/GFM 的 HBuilder/Typora 式彩色主题(H1–H6 分级配色、链接下划线、代码块轻底色与按语言懒加载的真实 parser 多色 token 着色(C/C++/CSS/HTML/Java/JS/JSON/Python/Rust/Go/Shell/Bash/SQL/TS/XML/YAML,未识别语言通用回退));与排版视图同内容列/纵向滚动容器、无边框,编辑器高度自适应且不单独纵向滚动,排版/源码双向按滚动比例恢复当前阅读位置(首次源码 chunk 懒加载时等待可滚动布局出现后再恢复),源码编辑自动保存,长行在正文列内软折行且不出横向滚动条,右侧大纲在源码态按 CodeMirror 行定位、点击可跳转并联动高亮,代码块使用浏览器原生 selection 保证在彩色代码块背景上可见可选);裸 URL/外部编辑器转义 scheme(`https\\://`)打开即解析为链接;目录树内置图标与右键更改图标上线；2026-11-11:整段 http(s) 图片地址粘贴即转外链图片；未知扩展名 URL 由用户粘贴触发单次图片解码识别。2026-11-03:关闭窗口保持后台;单实例托盘;AI 结构 + 卡片(代码解释改写 / Mermaid 生成修正 / 公式)。签名/公证与 IME 真机回归仍待。2026-11-17:修复新建文档后立即输入正文、再改标题按 Enter 时正文被清空的问题(编辑器 300ms 去抖稿与同文档改名重载的竞态);Markdown 源码粘贴(含 VS Code 源码 HTML 与 PM 源码副本 HTML)改为直接解析进排版视图;HTML 注释以轻量注记可见保留、独立线上 img 转原生图片卡片。
 
 ## 里程碑(PRD §11.4 工期表)
 
@@ -22,7 +22,7 @@
 | 代码块卡片 | ✅ | hover 语言切换/复制、行号列;`src/editor/extensions/code-block-card.tsx` |
 | Shiki 语法高亮 | ✅ | `src/editor/extensions/code-highlight.ts`,PM decoration + css-variables 语义槽位 → `--code-*` token |
 | 表格编辑工具条 | ✅ | 光标入表浮现:行/列增删下拉 + 整列对齐 + 删表;`table-utils.ts` + `toolbar/TableToolbar.tsx` + 表格基础样式;**列宽拖拽**(`Table.resizable`,colwidth 会话级,GFM 无列宽语法,重开回均分);**单元格悬停复制**(设置/表工具条复制图标同源 `tableCellCopy`,默认关,`TableCellCopy` 浮层);**单元格右键**(`TableContextMenu`,按点中的行/列插删行列、对齐、删表,右键分「行操作」「列操作」「单元格」三组:行/列用数量框+勾选插入,「单元格」下「复制内容」复制当前格纯文本;悬停复制开关只留工具条/设置,2026-11-06;前一日换 Radix 多级菜单并统一 `context-menu`/`dropdown-menu` 视觉) |
-| 粘贴清洗 | ✅ | `paste-clean.ts`(transformPastedHTML):样式/脚本/私有 XML 丢弃、追踪参数剥离、合并表格降级纯文本、外部任务列表转 taskItem、外部颜色吸附预设色 |
+| 粘贴清洗 | ✅ | `paste-clean.ts`(transformPastedHTML):样式/脚本/私有 XML 丢弃、追踪参数剥离、合并表格降级纯文本、外部任务列表转 taskItem、外部颜色吸附预设色;2026-11-17 起Markdown 源码(纯文本、VS Code 源码 HTML 或 PM 源码副本 HTML)经 `markdown-paste.ts` 统一解析进排版视图(语义富文本仍走 HTML 清洗,代码块内原样) |
 | 图片卡片 UI | ✅ | 选中图片浮层(宽度档位/对齐/放大 lightbox)+ **左右手柄拖拽改宽**(20%–100%);width/align 会话级不进 md |
 | 文字颜色(语雀式色卡) | ✅ | §10 方言 `<font color>`:色卡 8 色 + 默认清除(`extensions/font-color.ts` + 工具栏 Palette 下拉);粘贴吸附(黑白灰摘除/彩色吸附最近预设色);序列化公共 mark 外提 |
 
@@ -209,9 +209,9 @@
 
 验证:`pnpm test` **183/183**、`cargo test` **6/6**、`pnpm build` 通过、`pnpm tauri build --no-bundle` 通过(fileAssociations 配置有效);知识库综合回归 `remaining-v3.js` **19/19**。浏览器单文件回归覆盖轻量入口、左右栏降级、手动保存、未保存关闭确认、最近文件重开、崩溃草稿恢复、拖拽打开、assets 确认与资源随文档转存知识库;追加验证「存入后保存原文件并打开知识库 → 自动定位新文档 → 回首页 → 从知识库进入单文件」闭环。系统「打开方式」与 macOS Opened 事件需打包版真机最终确认。
 
-## Raw HTML 预览(2026-11-09)✅ 代码完成
+## Raw HTML 渲染(2026-11-09;2026-11-17 移除块内切换)✅ 代码完成
 
-效仿 Typora:块级未知 HTML 不再只是源码卡片,默认在隔离 iframe 中安全预览,点击预览内容或右上角「源码」可切换;源码态可直接编辑并原样写回 Markdown。预览禁脚本/表单/嵌入对象/危险协议,移除事件属性;允许 http(s) 远程图片自动加载(图片统一 no-referrer,避免掘金等图床 Referer ACL 拒绝 localhost 来源),本地相对图片经 assets 解析;预览按内容 intrinsic width 等比缩放,宽浮动布局不被正文列折行。原文仍走 rawHtml 原样序列化,往返不变。
+2026-11-17 起效仿 Typora:块级未知 HTML 在隔离 iframe 中无缝直接安全渲染,不再提供块内预览/源码切换,也不添加卡片边框/底色;修改 HTML 原文统一走全文档 Markdown 源码模式并原样写回。HTML 注释在排版视图以轻量注记显示、源码模式可编辑且原文往返保留;独立块级线上 `<img>` 直接转原生图片卡片。渲染禁脚本/表单/嵌入对象/危险协议,移除事件属性;允许 http(s) 远程图片自动加载(图片统一 no-referrer,避免掘金等图床 Referer ACL 拒绝 localhost 来源),本地相对图片经 assets 解析;按内容 intrinsic width 等比缩放,宽浮动布局不被正文列折行。原文仍走 rawHtml 原样序列化,往返不变。
 
 ## DOCX 语义导出(PRD 5.6,2026-11-09)🔨 代码完成,真机待验
 
@@ -354,6 +354,28 @@
 
 **验证**:Windows WebView2 CDP:打开时仅渲染 32 个按钮/32 个 use,列表总高 1402px;保留 backdrop blur 时程序化滚动出现 110~125ms 长帧,关闭该弹窗 backdrop blur 后同路径采样 0 个 >32ms 长帧;选中后 overlay/content 均为 0,无遮罩残留。pnpm test 336/336(54 文件)、pnpm build 通过。
 
+## 标题改名清空正文(2026-11-17)✅ 已修
+
+**现象**:新建文档后先输入正文,再到标题输入框改名并按 Enter,正文消失。
+
+**根因**:编辑器 `onUpdate` 有 300ms 去抖;标题改名只调用 `flushSave()`,可能此时最新稿还没进 `dirtyRef`。随后同文档 `currentPath` 变化,YanzhiEditor 把「path 变化」当成换文档,用旧的空 `markdown` prop 重载编辑器,把用户刚输入的内容覆盖掉。
+
+**修法**:
+- `useKb` 增加正文装载代次 `contentEpoch`,只在真正读取/呈现另一篇文档时递增;同文档改名/移动只改路径、不改代次;
+- `renameEntry` / `moveEntry` 先调用编辑器注册的 `beforeSwitch` 冲刷函数,把未去抖稿推入 `dirtyRef`,再阻塞 `flushSave` 落盘;
+- YanzhiEditor 用 `contentEpoch` 区分「真正换文档」与「同文档路径变化」;空文档互切仍可靠代次触发重载。
+- 标题按 Enter 后失焦提交改名,并在下一帧聚焦正文编辑区;AI 起标题入口固定到标题行/正文列最右侧。
+
+**验证**:`pnpm vitest run src/editor/__tests__/title-rename.test.ts src/kb/__tests__/useKb.test.ts` 通过;`pnpm exec tsc --noEmit` 通过。
+
+## Markdown 源码粘贴(2026-11-17)✅ 已修
+
+**现象**:把 Markdown 源码粘贴到排版视图,`#`、列表、表格、代码围栏等仍按普通文本显示。
+
+**修法**:新增 `src/editor/markdown-paste.ts`:文本命中 Markdown 语法特征时,走统一 `markdown-it → DOMParser → PM doc` 管线解析后插入。纯文本直接处理;VS Code 源码 HTML、砚知失败粘贴后的 PM 源码副本 HTML,只要无语义结构,也按 Markdown 处理(不要求 HTML/plain 在换行与样式 span 上逐字等价);普通纯文本仍走 PM 默认粘贴,语义富 HTML 仍走 `cleanPastedHtml`,代码块内保持源码原样。
+
+**验证**:`pnpm vitest run src/editor/__tests__/markdown-paste.test.ts src/editor/__tests__/italic-underscore.test.ts src/editor/__tests__/paste-clean.test.ts src/editor/__tests__/image-url-paste.test.ts src/editor/__tests__/wiki-link-paste.test.ts` 通过;相关回归合计 43/43 通过;`pnpm exec tsc --noEmit` 通过。
+
 ## 提交记录(近期)
 
 - M3 全量(fs 命令层/树/双链/搜索/assets/监听/回收站/排序/导入导出/设置)随 kb 系列提交;设置窗口化+关于页+菜单全量中文化 = a905c86
@@ -439,6 +461,7 @@
 - **查找条本地输入与插件状态双向同步**:搜索定位等外部路径 `setSearch()` 只写 PM 插件 state,FindReplaceBar 的受控 input 不会自己变(打开是空的);Bar 里用 useEditorState 订阅 `findState.query` 反向 setQuery(自身输入时两者相等不会循环)
 - **HTML5 拖拽排序的合成事件测试**:playwright 原生 dragTo 触发不了自绘 before/into/after 分区;在 evaluate 里手工派发 `dragstart/dragover/drop/dragend`(带 `new DataTransfer()`),`clientY` 取目标 rect 比例控制落区,React 合成事件正常响应
 - **应用窗口内 HTML5 拖拽不工作的两个叠加根因**:① Tauri 2 `dragDropEnabled` **默认 true**,macOS 上原生 NSView 文件拖放 handler 会吞掉页面内 dragover/drop(浏览器无此层 → 「网页版好使、应用不行」);Rust 侧没人监听 `tauri://drag-drop`,关掉无损失,外部文件拖入反而恢复成 JS drop 事件(编辑器拖图插入依赖它)→ `tauri.conf.json` 窗口配置 `dragDropEnabled: false`。② WebKit 要求 dragstart 里 `dataTransfer.setData` 才真正发起拖拽(Chrome 不要求;注意 conf 改动靠旧 dev watcher 的重编译落地,新起 dev 显示 0.12s Finished 是复用该产物)
+- **同文档改名不能只看 contentPath 判断换文**:编辑器 300ms 去抖稿可能还没回调到 `useKb`,而改名 IPC 可能先完成;若 path 一变就 `setContent(markdown state)`,会把刚输入内容重载回旧稿。路径重写类操作先 `beforeSwitchRef.current?.()` 收稿,编辑器换文判断加 `contentEpoch`(真正 presentDoc 才递增)区分换文与同文档改名。
 - **HMR 给运行中的 App 换自定义 hook 会炸**:给 `useKb` 中途加 useCallback(hook 数量变化)vite 热更新到运行态,报 "change in the order of Hooks" → "Should have a queue. This is likely a bug in React";不是代码 bug,重启 dev/整页刷新即愈,E2E 新开页面不受影响
 - **notify 自写抑制**:保存/新建/删除等自身 fs 变更也会触发 watcher,前端统一 `markSelfWrite()`(1.5s 窗口)豁免;Rust 侧过滤 `.yanzhi/` 前缀(meta 写入不触发重载)
 - **外部文件拖入 WebView,只在 handleDrop 里 preventDefault 不够**:dragover 没被取消的目标不是合法落点,松手时 WebKit 走默认动作「打开文件」= 整窗导航到那张图,把应用盖掉(真机实录;PM 只管内部节点拖动,不替你取消 dragover)。修法两层:编辑器 `handleDOMEvents.dragover` 对 `Files` 类型取消 + `dropEffect=copy`(App 级 window dragover/drop 兜底——拖到工具栏/侧栏等非落点也不导航)。树排序没踩坑是因为 TreeRow 自己在 onDragOver 里 preventDefault 了。**合成 DragEvent 测试必须带 clientX/clientY**:PM 的 drop 处理先 `posAtCoords`,(0,0) 在编辑区外直接早退,handleDrop 根本不会被调用(树拖拽测不出这个问题,树不用 posAtCoords)

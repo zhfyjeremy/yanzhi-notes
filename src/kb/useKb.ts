@@ -110,6 +110,8 @@ export function useKb(settings: AppSettings) {
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [currentPath, setCurrentPath] = useState<string | null>(null);
   const [markdown, setMarkdown] = useState<string>("# 未命名文档\n");
+  /** 正文装载代次:只在真正读取/呈现另一篇文档时递增;同文档改名不改代次。 */
+  const [contentEpoch, setContentEpoch] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [savedAt, setSavedAt] = useState("");
   const [recent, setRecent] = useState<RecentState>({ last: null, recent: [] });
@@ -441,6 +443,7 @@ export function useKb(settings: AppSettings) {
     pathRef.current = rel; // 同步写 ref:立刻可读,不等重渲染
     setCurrentPath(rel);
     setMarkdown(content);
+    setContentEpoch((epoch) => epoch + 1);
     savedMdRef.current = content;
     docCacheRef.current.set(rel, content);
     setSaveState(saveStateNext);
@@ -500,6 +503,7 @@ export function useKb(settings: AppSettings) {
     pathRef.current = null;
     setCurrentPath(null);
     setMarkdown("");
+    setContentEpoch((epoch) => epoch + 1);
     savedMdRef.current = "";
     setSaveState("saved");
   }, []);
@@ -1128,6 +1132,8 @@ export function useKb(settings: AppSettings) {
     async (rel: string, newTitle: string) => {
       const root = rootRef.current;
       if (!root) return null;
+      // 先收编辑器 300ms 去抖稿:标题 Enter 改名可能在编辑器回调前进 IPC,否则只保存旧 dirty。
+      beforeSwitchRef.current?.();
       if (!(await flushSave())) return null; // 磁盘替换引用前,当前文档最新内容必须先落盘
       try {
         markSelfWrite();
@@ -1209,6 +1215,8 @@ export function useKb(settings: AppSettings) {
     async (srcRel: string, destFolderRel: string, orderedPaths?: string[]) => {
       const root = rootRef.current;
       if (!root) return null;
+      // 与改名同因:移动会改当前 path,先收编辑器去抖稿再阻塞保存。
+      beforeSwitchRef.current?.();
       if (!(await flushSave())) return null;
       try {
         markSelfWrite();
@@ -1687,6 +1695,7 @@ export function useKb(settings: AppSettings) {
     tabs,
     activeTabId,
     markdown,
+    contentEpoch,
     saveState,
     savedAt,
     recent,

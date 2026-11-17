@@ -2377,9 +2377,9 @@ function App() {
                     ))}
                   </nav>
                 </div>
-                <div className="mt-1 flex min-w-0 items-center gap-1">
-                  {/* 按标题内容撑开宽度,AI 贴在文字旁而不是栏尾 */}
-                  <div className="relative min-w-[4ch] max-w-[calc(100%-1.75rem)]">
+                <div className="mt-1 flex w-full min-w-0 items-center gap-1">
+                  {/* 标题按内容撑开,AI 入口固定在正文列最右侧 */}
+                  <div className="relative min-w-[4ch] flex-1">
                     <span
                       aria-hidden
                       className="invisible block max-w-full truncate text-3xl leading-snug font-semibold tracking-[-0.03em] whitespace-pre"
@@ -2395,12 +2395,16 @@ function App() {
                         if (e.key === "Enter") {
                           e.preventDefault();
                           e.currentTarget.blur();
+                          requestAnimationFrame(() => {
+                            if (editorScope !== "kb" || !editor || editor.isDestroyed) return;
+                            editor.view.dom.focus({ preventScroll: true });
+                          });
                         }
                       }}
                       placeholder="未命名文档"
                     />
                   </div>
-                  <div className="shrink-0">
+                  <div className="ml-auto shrink-0">
                     <TitleAiControl
                       state={titleAi.state}
                       ready={titleAi.ready}
@@ -2446,6 +2450,7 @@ function App() {
               onReplaceImage={onReplaceImage}
               getRestoreCursor={getRestoreCursor}
               contentPath={kb.currentPath}
+              contentEpoch={kb.contentEpoch}
               onContentReady={onEditorContentReady}
               flushPendingRef={editorFlushPendingRef}
               onExportMd={onExportMd}

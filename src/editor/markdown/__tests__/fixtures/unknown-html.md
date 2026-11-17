@@ -5,3 +5,7 @@
 </div>
 
 段落二。
+
+<!-- BEGIN:turborepo-agent-rules -->
+
+段落三。
