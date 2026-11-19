@@ -45,10 +45,14 @@ export function inlineStyles(
     el.style.padding = "0.4em 0.75em";
     el.style.background = COPY_COLORS.thBg;
     el.style.fontWeight = "600";
+    // 默认左对齐:目标环境(邮件/微信)同样吃浏览器 UA 的 th 居中默认值,
+    // 显式对齐的单元格已带 inline text-align,不能覆盖。
+    if (!el.style.textAlign) el.style.textAlign = "left";
   });
   each("td", (el) => {
     el.style.border = `1px solid ${COPY_COLORS.border}`;
     el.style.padding = "0.4em 0.75em";
+    if (!el.style.textAlign) el.style.textAlign = "left";
   });
   each("h1", (el) => {
     el.style.fontSize = "1.75em";

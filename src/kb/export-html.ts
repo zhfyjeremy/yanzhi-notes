@@ -159,6 +159,9 @@ h3 { font-size: 1.22em; letter-spacing: -0.018em; }
 p { margin: 0.75em 0; }
 img { max-width: 100%; height: auto; }
 table { margin: 1em 0; }
+/* 默认左对齐:浏览器 UA 样式给 th 的默认值是居中、td 是左对齐,
+   不统一的话导出页表头居中、内容左对齐。显式对齐走 inline style,优先级更高。 */
+th, td { text-align: left; }
 pre {
   margin: 1em 0;
   padding: 0.9em 1.1em;

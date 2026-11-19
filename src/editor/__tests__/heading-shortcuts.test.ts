@@ -46,6 +46,19 @@ describe("标题快捷键", () => {
     editor.destroy();
   });
 
+  // 回归:标题末尾按 Enter 曾连跳两行 —— chain 里多余的 setParagraph 返回 false,
+  // chain.run() 判失败 → 事件冒泡给核心 keymap 的 Enter → 又拆一次,多出一个空段。
+  it("标题末尾按 Enter 只拆一行,不产生多余空段", () => {
+    const editor = new Editor({ extensions: baseExtensions, content: mdToHtml("# 标题\n\n正文") });
+    editor.commands.focus();
+    editor.commands.setTextSelection(3);
+    press(editor, "Enter", {});
+
+    expect(editor.state.doc.childCount).toBe(3);
+    expect(editor.state.doc.child(2).textContent).toBe("正文");
+    editor.destroy();
+  });
+
   it("标题中间按 Enter 后光标所在行不继承标题", () => {
     const editor = new Editor({ extensions: baseExtensions, content: mdToHtml("# 标题") });
     editor.commands.focus();

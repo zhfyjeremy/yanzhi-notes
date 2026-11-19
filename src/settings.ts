@@ -21,6 +21,21 @@ export type ReaderFont = "default" | "serif" | "kai";
 export type EditorWidthMode = "adaptive" | "fixed";
 
 /**
+ * 左栏(目录树)宽度约束。分隔条拖动与设置解析共用同一组边界,
+ * 避免"拖出来的宽度"和"读回来的宽度"两个口径不一致。
+ * 下限要容得下树层级缩进 + 文件名,上限给正文留出可读宽度。
+ */
+export const SIDEBAR_WIDTH_MIN = 180;
+export const SIDEBAR_WIDTH_MAX = 480;
+export const DEFAULT_SIDEBAR_WIDTH = 248;
+
+/** 把任意输入夹到左栏宽度合法区间 */
+export function clampSidebarWidth(v: unknown, dflt = DEFAULT_SIDEBAR_WIDTH): number {
+  const n = typeof v === "number" && Number.isFinite(v) ? Math.round(v) : dflt;
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, n));
+}
+
+/**
  * 内置代码块主题。所有主题都随应用打包,切换不发起网络请求;
  * `yanzhi` 表示跟随应用浅/深色与台面色,其余主题固定自身明暗。
  */
@@ -296,6 +311,8 @@ export interface AppSettings {
   editorWidthMode: EditorWidthMode;
   /** fixed 模式下的正文内容宽度(不含左右留白);adaptive 下作为下次切换初始值 */
   editorWidth: number;
+  /** 左栏(目录树)宽度(px):拖动分隔条调整后持久化,重启恢复 */
+  sidebarWidth: number;
   /** §8 编辑器设置:特殊卡片(代码块/表格/图片)显示边框,默认开 */
   cardBorder: boolean;
   /** 内置离线代码块主题;只影响排版/源码/导出观感,不写入 Markdown */
@@ -365,6 +382,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   readerParagraphSpacing: 0.75,
   editorWidthMode: "adaptive",
   editorWidth: 800,
+  sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
   cardBorder: true,
   codeTheme: "yanzhi",
   tableCellCopy: false,
@@ -458,6 +476,7 @@ export function parseSettings(raw: string): AppSettings {
         ? (v.editorWidthMode as EditorWidthMode)
         : "adaptive",
       editorWidth: clampInt(v?.editorWidth, 800, 600, 1200),
+      sidebarWidth: clampSidebarWidth(v?.sidebarWidth),
       cardBorder: typeof v?.cardBorder === "boolean" ? v.cardBorder : true,
       codeTheme: CODE_THEME_IDS.includes(v?.codeTheme as CodeThemeId)
         ? (v.codeTheme as CodeThemeId)

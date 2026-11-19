@@ -28,7 +28,12 @@ export const HeadingShortcuts = Extension.create({
           return this.editor.chain().setParagraph().splitBlock().run();
         }
 
-        // 标题中间/末尾:拆行后把光标所在的新块落回正文。
+        // 标题末尾:splitBlock 在此处新建的块已按父级默认块(正文)落地,不必再 setParagraph。
+        // 多调一次 setParagraph 会返回 false(目标已是 paragraph,setBlockType 判为「无需变更」),
+        // chain.run() 因此判失败、事件继续冒泡给 Tiptap 核心 keymap 的 Enter → 再拆一次,多出一行空段。
+        if (atEnd) return this.editor.commands.splitBlock();
+
+        // 标题中间:拆行后把光标所在的新块落回正文(此时新块仍是 heading,setParagraph 可用)。
         return this.editor.chain().splitBlock().setParagraph().run();
       },
       ...Object.fromEntries(

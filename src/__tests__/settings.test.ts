@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   ACCENT_PRESETS,
   DEFAULT_SETTINGS,
+  DEFAULT_SIDEBAR_WIDTH,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
   accentPresetOf,
   applyTheme,
   deskPresetOf,
@@ -139,6 +142,15 @@ describe("settings 解析(PRD §8)", () => {
       customAccent: null,
       readerFont: "default",
     });
+  });
+  it("左栏宽度:整数直读并钳制到 [180, 480],缺失/异型回默认 248", () => {
+    expect(parseSettings('{"sidebarWidth":320}').sidebarWidth).toBe(320);
+    expect(parseSettings("{}").sidebarWidth).toBe(DEFAULT_SIDEBAR_WIDTH);
+    expect(parseSettings('{"sidebarWidth":"300"}').sidebarWidth).toBe(DEFAULT_SIDEBAR_WIDTH);
+    expect(parseSettings('{"sidebarWidth":9999}').sidebarWidth).toBe(SIDEBAR_WIDTH_MAX);
+    expect(parseSettings('{"sidebarWidth":10}').sidebarWidth).toBe(SIDEBAR_WIDTH_MIN);
+    expect(parseSettings('{"sidebarWidth":null}').sidebarWidth).toBe(DEFAULT_SIDEBAR_WIDTH);
+    expect(parseSettings('{"sidebarWidth":300.7}').sidebarWidth).toBe(301);
   });
   it("快捷键:合法组合逐项读取,缺失/冲突格式回默认", () => {
     const s = parseSettings(

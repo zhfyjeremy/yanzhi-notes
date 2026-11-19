@@ -14,6 +14,7 @@ import { BacklinksPanel } from "./kb/BacklinksPanel";
 import { HistoryPanel, formatSnapshotTime } from "./kb/HistoryPanel";
 import { HistoryDialog } from "./kb/HistoryDialog";
 import { DocTree } from "./kb/DocTree";
+import { SidebarResizer } from "./kb/SidebarResizer";
 import { DocTabs, DocTabsEmptyState } from "./kb/DocTabs";
 import { TagsPanel } from "./kb/TagsPanel";
 import { filterTreeByTag } from "./kb/meta";
@@ -305,6 +306,22 @@ function App() {
   const editorFlushPendingRef = useRef<(() => void) | null>(null);
   const [title, setTitle] = useState("");
   const [focusMode, setFocusMode] = useState(false);
+  /* ---- 左栏宽度(拖拽分隔条) ----
+   * 宽度本体存 settings(跨窗口/重启保留);这里另存一份本地 state,
+   * 拖动时高频更新不落盘,松手才写一次 settings。
+   * ref 与 state 同步维护:拖动过程中 ref 先于 state 更新(渲染有延迟),
+   * 松手落盘读 ref 才是拖动结束那一刻的真实宽度。 */
+  const [sidebarWidth, setSidebarWidth] = useState(settings.sidebarWidth);
+  const [sidebarResizing, setSidebarResizing] = useState(false);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  const applySidebarWidth = useCallback((next: number) => {
+    sidebarWidthRef.current = next;
+    setSidebarWidth(next);
+  }, []);
+  // 设置就绪后同步一次(启动时 settings 是默认值,读到真值再覆盖)
+  useEffect(() => {
+    if (settingsReady) applySidebarWidth(settings.sidebarWidth);
+  }, [settingsReady, settings.sidebarWidth, applySidebarWidth]);
   const [sourceMode, setSourceMode] = useState(false);
   const sourceModeRef = useRef(false);
   sourceModeRef.current = sourceMode;
@@ -2304,6 +2321,20 @@ function App() {
             onBatchRename={batchRenameDocs}
             onBatchTrash={batchTrashDocs}
             onToast={showToast}
+            width={sidebarWidth}
+            resizing={sidebarResizing}
+          />
+        )}
+        {/* 左栏 ↔ 正文 之间的可拖拽分隔条:悬停加粗高亮,拖动改左栏宽度,右侧正文平滑收缩 */}
+        {!focusMode && (
+          <SidebarResizer
+            width={sidebarWidth}
+            onWidthChange={applySidebarWidth}
+            onDragStateChange={(dragging) => {
+              setSidebarResizing(dragging);
+              // 松手时落盘一次(拖动过程不写 settings,避免高频 IO)
+              if (!dragging) updateSettings({ sidebarWidth: sidebarWidthRef.current });
+            }}
           />
         )}
         <div className="shell-panel border-border-subtle bg-editor flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-[0_14px_40px_-22px_color-mix(in_oklab,var(--foreground)_32%,transparent)]">

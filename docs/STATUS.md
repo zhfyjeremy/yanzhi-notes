@@ -27,7 +27,7 @@
 | 文字颜色(语雀式色卡) | ✅ | §10 方言 `<font color>`:色卡 8 色 + 默认清除(`extensions/font-color.ts` + 工具栏 Palette 下拉);粘贴吸附(黑白灰摘除/彩色吸附最近预设色);序列化公共 mark 外提 |
 
 
-2026-11-19 验证:`pnpm test` **386/386**、`pnpm build` 通过;新增官方语言表/自定义语言、vue/html token、Raw HTML iframe 点击与源码高亮对齐、内置代码主题与导出主题、行内 code 与 Mermaid 图表预览不受代码主题影响回归。
+2026-11-19 验证:`pnpm test` **413/413**、`pnpm build` 通过;新增官方语言表/自定义语言、vue/html token、Raw HTML iframe 点击与源码高亮对齐、内置代码主题与导出主题、行内 code 与 Mermaid 图表预览不受代码主题影响回归;同日追加表格默认对齐统一(表头不再默认居中,新增 `table-align-default.test.ts` 7/7)与左栏宽度可拖拽(新增 `sidebar-resizer.test.ts` 9/9)。
 注:PRD 把「[[双链]]+跳转/前进后退」也列在 M2,但跳转依赖知识库文件系统,**挪到 M3 与目录树一起做**。
 
 ### M3 知识库与系统 🔨 进行中
@@ -290,8 +290,10 @@
 | ⌘/Ctrl+P 聚焦全局搜索 | 新增全局快捷键项 `search`(默认 `Mod+KeyP`,可在快捷键说明窗改键/冲突检测);信号走模块级 handler(`src/kb/search-focus.ts`)跨 App→DocTree→SearchBox,避免逐层透传 ref。原先找文档只能鼠标点搜索框 |
 | ⌘/Ctrl+⌥+↑/↓ 段落上下移动 | `src/editor/extensions/move-block.ts`:以光标所在最外层块(段落/标题/列表)为单位与相邻兄弟块交换位置,只改块顺序不改内容(序列化仍是标准 md,往返 fixtures 不受影响)。**踩坑**:Tiptap v3 命令约定是「命令改 props.tr、框架派发」,命令里自己 dispatch 会触发 "Applying a mismatched transaction";列表移到最后时 Tiptap `TrailingNode` 会补一个空段(标准行为,md 序列化会规范化掉) |
 | 标题层级徽标 H1–H6 | `src/editor/extensions/heading-badge.ts`:光标落在标题里时,标题左侧留白显示 H 级别小签(Decoration.widget,只在视图层,不进 doc 不影响序列化)。绝对定位挂标题左侧,不占行内空间 → 标题文字不抖动 |
-| 标题 Enter 退出标题态(2026-11-19) | `# ` InputRule / 工具栏进入标题后,普通 Enter 的下一行统一回到 paragraph;空标题原地转正文,标题开头/中间/末尾均不继承 heading。回归:`heading-shortcuts.test.ts` 7/7 |
+| 标题 Enter 退出标题态(2026-11-19) | `# ` InputRule / 工具栏进入标题后,普通 Enter 的下一行统一回到 paragraph;空标题原地转正文,标题开头/中间/末尾均不继承 heading。**踩坑**:标题末尾的 Enter 曾「连跳两行」——chain 里多余的 `setParagraph()` 在新块已是 paragraph 时返回 false(`setBlockType` 判为无需变更),`chain.run()` 因此判失败,keydown 事件继续冒泡给 Tiptap 核心 keymap 的 Enter → 又拆一次,多出一个空段。修复:末尾分支只调 `splitBlock()`(其新建块已按父级默认块落为 paragraph),`setParagraph()` 只留给「标题中间」分支。回归:`heading-shortcuts.test.ts` 8/8 |
+| 表格默认对齐统一(2026-11-19) | 新插入的表格曾「表头居中、内容居左」。**根因不在业务代码**:浏览器 UA 样式给 `th` 的默认值是居中、`td` 是左对齐;新表格两个单元格都不带 inline `text-align`,于是各吃各的 UA 默认值,而砚知 CSS 从没给表格单元格定过默认对齐。修复:① `editor.css` 的 `.yz-editor-doc th, .yz-editor-doc td` 显式加 `text-align: left`(显式对齐的列走 inline style,优先级更高,不受影响);② 导出 HTML(`export-html.ts` PAGE_STYLE)与复制 HTML(`clipboard.ts` inlineStyles)两条离站链路同样要显式左对齐 —— 它们的目标环境(浏览器/邮件/微信)一样吃 UA 的 th 居中。**连带踩坑**:Tiptap v3 内置 `align` 属性与砚知自有的 `textAlign` 都会渲染 `style="text-align: …"`,两份并存时「取消对齐」只清 `textAlign`,残留的 `align` 仍渲染出 text-align → 点了没反应;已在 `extensions.ts` 去掉内置 `align`(`withoutBuiltinAlign`),`textAlign` 是列级对齐的唯一真相。回归:`table-align-default.test.ts` 7/7 |
 | 状态栏文档统计 | 点状态栏字数弹统计面板:字数/字符(不含空格)/段落/图片/表格/预计阅读(300 字/分);`countDocStats` 纯函数在 `word-count.ts` |
+| 左栏宽度可拖拽(2026-11-19) | 目录树与正文之间加可拖拽分隔条(`src/kb/SidebarResizer.tsx`):常态 1px 细线,鼠标悬停加粗染主色 + `cursor: col-resize`,拖动实时改左栏宽度(夹在 180–480px),右侧正文区随宽度变化平滑收缩;双击复位默认 248px,键盘 ←/→ 微调(Shift 加速)、Home/End 跳边界;宽度存 `settings.sidebarWidth`,重启恢复。**踩坑**:① 拖动中必须关掉左栏的 `width transition`,否则宽度变化被缓动拖住、出现「跟不上鼠标」的滞后;拖完恢复 transition,双击复位才有平滑动画。② 拖动起点要存快照(`startX` + 起始宽度)再按位移算,不能拿当前宽度累加,否则会漂移。③ `mousemove`/`mouseup` 要挂 window(否则拖出分隔条就断了),且判断「是否在拖」要用 ref 而不是 state —— state 更新要等一次渲染,拖动第一帧会漏。④ 拖动结束落盘读 ref 不能读 state 闭包(闭包里是旧值),宽度会存错。回归:`sidebar-resizer.test.ts` 9/9 |
 | 图片「从文件替换」 | 图片工具条新增按钮:选图 → 落 assets(哈希命名)→ 改写 src,不用手敲路径;与破图占位(见下)配套 |
 | 记忆每篇文档的光标/滚动 | `meta.docs[rel].cursor = {pos, scrollTop}`;会话内存 Map + 切文档/窗口失焦落 meta,打开文档时恢复(内容变了按 doc 大小夹紧 pos)。**搜索结果跳转与双链跳转不恢复**(用户要看的是命中处) |
 | 快捷键说明窗口重做(UI) | 按「工程规格表」方向重做:标题带(等宽 kicker + 主色晕)+ 键帽样式(等宽字 + 底部投影)+ 点线引线双列分组(多列自动均衡)+ 限宽 760 居中(窗口拉大不散)+ 录制态主色描边脉冲;浅深主题同一套 token。原生窗口 460×600 → 800×780 且**允许用户调整大小**(`lib.rs` open_aux_window) |
@@ -460,6 +462,8 @@
 - **mock 库首开文档是树序第一篇**(随笔/第一篇,不是开始使用):树序 = 文件夹递归在前。E2E 脚本要先点树切到目标文档再断言,同文档点击会被 openDoc 的 `rel===cur` 守卫拦下(行为正确,脚本易误判)
 - **macOS Option 组合快捷键的 `e.key` 是特殊字符**(⌥F → `ƒ`):判断组合键用 `e.code === "KeyF"`,别用 e.key;浮层类组件的 Esc 关闭挂 window 级,不能只挂在 input(焦点在按钮/正文时也要能关);**同修饰键家族的快捷键必须互斥检查**(⌘F 查找没排除 shift → ⌘⇧F 专注模式把查找条也一起打开;两个 handler 都挂 window,preventDefault 不拦其它 listener)
 - **WKWebView 的 navigator.clipboard.write 对 text/html 不稳**(手测实录:复制带表格文档贴出只剩拍平文本):富文本/纯文本复制统一走 tauri-plugin-clipboard-manager(`writeHtml(html, 纯文本回退)`,capabilities 加 allow-write-text/allow-write-html);且 getHTML 输出无样式,贴到微信/邮件必须先 `inlineStyles` 注入内联样式(无边框表格观感即"结构丢了")
+- **浏览器 UA 样式给 `th` 的默认值是居中、`td` 是左对齐**(2026-11-19 实录):「表头居中、内容居左」的观感割裂**根因不在业务代码**,是 UA 默认值 + 项目 CSS 从没给表格单元格定过默认对齐。只要单元格没有 inline `text-align`(新插入的表格就没有),th 与 td 就各吃各的 UA 默认。修法:凡是要产出/渲染表格的地方都要显式给默认对齐 —— 编辑器 CSS、导出 HTML(PAGE_STYLE)、复制 HTML(inlineStyles)三条链路都要覆盖,漏一条就在导出/粘贴时复现。显式对齐的列走 inline style,优先级高于默认规则,不受影响
+- **Tiptap v3 表格单元格自带 `align` 属性**:与项目自有的对齐属性并存 = 两个真相源,两者都渲染 `style="text-align: …"`;「取消对齐」只清其中一个 → 另一个残留,点了没反应。要么去掉内置的、要么统一用一个,别让两份并存
 - **清华 crates.io 镜像对 index 请求 403(2026-10-31 实录)**:`mirrors.tuna.tsinghua.edu.cn/crates.io-index/config.json` 被拒(HTML 拒绝页),拉新 crate 必挂;已切 USTC(`src-tauri/.cargo/config.toml`,sparse+https://mirrors.ustc.edu.cn/crates.io-index/,curl 200 实测)。已缓存的 crate 不走 index 不受影响,所以平时无感、加新依赖才炸
 - 修改任何解析/序列化行为:**必须跑全量 fixtures**(`pnpm test`,当前 157/157)
 - **flexsearch 0.7.31 的 d.ts 是错的**(描述 async/worker 形态:`FlexSearch.create`、Promise search、number id),实际 ESM 默认导出 = Index 构造函数、同步 search 返回数组、string id 可用;vitest 走 CJS main 是 `{ Index }` 对象——`search.ts` 头部有运行时探测双兼容。**自定义切词必须挂 `encode`(返回 token 数组)**:挂 `tokenize` 函数静默不生效,CJK 会被默认拉丁编码器整段剥掉(搜索返回空)。多 token 默认 AND,`suggest:true` 兜底 OR

@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/hint";
+import { DEFAULT_SIDEBAR_WIDTH } from "../settings";
 import { BatchDocActions } from "./BatchDocActions";
 import { IconPickerDialog } from "./IconPickerDialog";
 import { treeIconComponent } from "./tree-icons";
@@ -128,6 +129,11 @@ interface DocTreeProps {
   onBatchRename: (items: BatchRenameItem[]) => Promise<BatchResult>;
   onBatchTrash: (rels: string[]) => Promise<BatchResult>;
   onToast: (message: string) => void;
+  /* ---- 左栏宽度(可拖拽分隔条) ---- */
+  /** 左栏宽度(px);undefined = 用默认 248 */
+  width?: number;
+  /** 拖动中为 true:父级据此关掉 width transition,保证跟手 */
+  resizing?: boolean;
 }
 
 type DropZone = "before" | "after" | "into";
@@ -756,6 +762,8 @@ export function DocTree({
   onBatchRename,
   onBatchTrash,
   onToast,
+  width,
+  resizing,
 }: DocTreeProps) {
   const dragPath = useRef<string | null>(null);
   const [dropHint, setDropHint] = useState<{ path: string; zone: DropZone } | null>(null);
@@ -937,7 +945,16 @@ export function DocTree({
   };
 
   return (
-    <aside className="shell-panel bg-sidebar border-border-subtle flex w-[248px] min-w-[248px] flex-col overflow-hidden rounded-2xl border shadow-[0_10px_28px_-20px_color-mix(in_oklab,var(--foreground)_18%,transparent)]">
+    <aside
+      style={{
+        width: `${width ?? DEFAULT_SIDEBAR_WIDTH}px`,
+        minWidth: `${width ?? DEFAULT_SIDEBAR_WIDTH}px`,
+        // 拖动中关掉 transition:否则宽度变化被缓动拖住,出现"跟不上鼠标"的滞后感。
+        // 松手后恢复,双击复位/布局变化时右侧正文区平滑收缩。
+        transition: resizing ? "none" : "width 180ms ease, min-width 180ms ease",
+      }}
+      className="shell-panel bg-sidebar border-border-subtle flex flex-col overflow-hidden rounded-2xl border shadow-[0_10px_28px_-20px_color-mix(in_oklab,var(--foreground)_18%,transparent)]"
+    >
       <div className="shrink-0 px-2.5 pt-2.5">
         {selectionMode ? (
           <BatchDocActions

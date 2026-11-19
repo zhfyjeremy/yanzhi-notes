@@ -37,7 +37,14 @@ const ItalicAsteriskOnly = Italic.extend({
   },
 });
 
-/** GFM 表格对齐属性(:--- / :---: / ---:) */
+/**
+ * GFM 表格对齐属性(:--- / :---: / ---:)。
+ *
+ * 砚知只保留这一个对齐属性,并把它作为列级对齐的唯一真相:
+ * Tiptap v3 内置的 `align` 属性与本属性都会渲染 `style="text-align: …"`,
+ * 两份并存时 `align` 会留下过期值 —— 「取消对齐」只清 textAlign,
+ * 残留的 align 仍渲染出 text-align,导致还原不生效。这里直接去掉内置 align。
+ */
 const textAlignAttr = {
   textAlign: {
     default: null as string | null,
@@ -49,15 +56,24 @@ const textAlignAttr = {
   },
 };
 
+/** 去掉 Tiptap 内置 align 属性,只留 textAlign(见 textAlignAttr 注释) */
+function withoutBuiltinAlign(
+  parent: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!parent) return {};
+  const { align: _align, ...rest } = parent;
+  return rest;
+}
+
 const TableCellAligned = TableCell.extend({
   addAttributes() {
-    return { ...this.parent?.(), ...textAlignAttr };
+    return { ...withoutBuiltinAlign(this.parent?.()), ...textAlignAttr };
   },
 });
 
 const TableHeaderAligned = TableHeader.extend({
   addAttributes() {
-    return { ...this.parent?.(), ...textAlignAttr };
+    return { ...withoutBuiltinAlign(this.parent?.()), ...textAlignAttr };
   },
 });
 
