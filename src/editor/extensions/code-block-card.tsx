@@ -396,7 +396,7 @@ function CodeBlockCardView({
 
   return (
     <NodeViewWrapper
-      className="yz-code-card group relative"
+      className={`group relative ${isMermaid ? "yz-mmd-card" : "yz-code-card"}`}
       data-selected={selected || undefined}
     >
       {/* hover 浮层:mermaid 视图切换 + AI + 语言 + 复制 */}
@@ -497,7 +497,7 @@ function CodeBlockCardView({
         </>
       ) : (
         <>
-          <div className="flex items-start">
+          <div className="yz-code-editor flex items-start">
             {/* 行号列:与内容同字号/行高,只读不可选 */}
             <div
               aria-hidden="true"

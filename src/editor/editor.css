@@ -529,6 +529,23 @@
   padding: 0.75em 0.9em;
 }
 
+/* Mermaid 外壳不吃代码主题:图表预览跟随应用浅深色;
+   源码态内部再包一层 yz-code-editor,只有源码编辑区使用代码主题 */
+.yz-editor-doc .yz-mmd-card {
+  color: var(--foreground);
+}
+
+.yz-editor-doc .yz-code-editor {
+  background: var(--code-bg, var(--muted));
+  color: var(--code-fg, var(--foreground));
+  border: 1px solid var(--code-border, var(--border));
+  border-radius: var(--radius-md, 6px);
+  padding: 0.9em 1.1em;
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  line-height: 1.7;
+}
+
 /* Mermaid 图表卡(codeBlock language=mermaid 的 NodeView,PRD §6.1.4):
    预览/源码双视图,渲染运行时在 extensions/mermaid.ts */
 .yz-editor-doc .yz-mmd-hidden {
@@ -808,6 +825,7 @@
 /* §8 编辑器设置「特殊卡片显示边框」关闭态:边框全透明而非摘除
    (透明保占位,开关切换不引起卡片尺寸/布局跳动);类挂编辑器外层容器 */
 .yz-flat-cards .yz-editor-doc .yz-code-card,
+.yz-flat-cards .yz-editor-doc .yz-code-editor,
 .yz-flat-cards .yz-editor-doc pre,
 .yz-flat-cards .yz-editor-doc table,
 .yz-flat-cards .yz-editor-doc th,

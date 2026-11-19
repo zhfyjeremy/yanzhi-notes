@@ -168,4 +168,34 @@ describe("代码块语言与高亮", () => {
     const surface = container.querySelector<HTMLElement>("[data-code-theme=\"one-dark-pro\"]");
     expect(surface).not.toBeNull();
   });
+
+  it("Mermaid 预览外壳不套代码卡片主题,源码编辑区才套", async () => {
+    const root = createRoot(container);
+    roots.push(root);
+    await act(async () => {
+      root.render(
+        createElement(YanzhiEditor, {
+          markdown: "```mermaid\ngraph TD\n  A --> B\n```",
+          codeTheme: "one-dark-pro",
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const previewCard = container.querySelector<HTMLElement>(".yz-mmd-card");
+    expect(previewCard).not.toBeNull();
+    expect(previewCard?.classList.contains("yz-code-card")).toBe(false);
+    expect(container.querySelector(".yz-code-editor")).toBeNull();
+
+    const sourceButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent?.trim() === "源码");
+    expect(sourceButton).toBeDefined();
+    await act(async () => {
+      sourceButton!.click();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector(".yz-code-editor")).not.toBeNull();
+    expect(container.querySelector(".yz-mmd-live")).not.toBeNull();
+  });
 });
