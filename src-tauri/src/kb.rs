@@ -1086,6 +1086,22 @@ pub fn set_recent(app: tauri::AppHandle, root: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn remove_recent(app: tauri::AppHandle, root: String) -> Result<(), String> {
+    let mut state = read_recent(&app);
+    state.recent.retain(|item| item != &root);
+    if state.last.as_deref() == Some(root.as_str()) {
+        // 被移除的“上次知识库”不再自动恢复到下一条旧记录;下次启动回欢迎页手选
+        state.last = None;
+        state.last_doc = None;
+    }
+    let p = recent_path(&app)?;
+    let json = serde_json::to_string_pretty(&state).map_err(err)?;
+    fs::write(p, json).map_err(err)?;
+    crate::refresh_recent_menus(&app);
+    Ok(())
+}
+
 /// 单文件模式最近记录:独立于知识库 recent,不参与启动自动恢复
 #[derive(Serialize, Deserialize, Default)]
 pub struct RecentFilesState {
@@ -1117,6 +1133,17 @@ pub fn set_recent_file(app: tauri::AppHandle, path: String) -> Result<(), String
     state.recent.retain(|p| p != &path);
     state.recent.insert(0, path);
     state.recent.truncate(10);
+    let p = recent_files_path(&app)?;
+    let json = serde_json::to_string_pretty(&state).map_err(err)?;
+    fs::write(p, json).map_err(err)?;
+    crate::refresh_recent_menus(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn remove_recent_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let mut state = read_recent_files(&app);
+    state.recent.retain(|item| item != &path);
     let p = recent_files_path(&app)?;
     let json = serde_json::to_string_pretty(&state).map_err(err)?;
     fs::write(p, json).map_err(err)?;

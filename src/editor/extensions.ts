@@ -21,6 +21,7 @@ import { Attachment } from "./extensions/attachment";
 import { MathInline, MathBlock } from "./extensions/math";
 import { FontColor } from "./extensions/font-color";
 import { HeadingShortcuts } from "./extensions/heading-shortcuts";
+import { TableImeCaret } from "./extensions/table-ime-caret";
 import { EmptyDocPlaceholder } from "./extensions/empty-doc-placeholder";
 
 /**
@@ -71,6 +72,7 @@ export const baseExtensions = [
   StarterKit.configure({ codeBlock: false, link: false, italic: false }),
   ItalicAsteriskOnly,
   HeadingShortcuts,
+  TableImeCaret,
   Link.extend({
     addAttributes() {
       return {

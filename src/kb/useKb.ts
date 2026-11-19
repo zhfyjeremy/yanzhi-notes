@@ -949,6 +949,18 @@ export function useKb(settings: AppSettings) {
     [enterKb],
   );
 
+  const removeRecent = useCallback(async (root: string) => {
+    setBootError(null);
+    try {
+      await kbBackend.removeRecent(root);
+      setRecent(await kbBackend.getRecent());
+    } catch (e) {
+      console.error("[kb] 移除最近知识库失败:", e);
+      return `无法移除「${root}」:${String(e)}`;
+    }
+    return null;
+  }, []);
+
   const createKbAt = useCallback(
     async (root: string, force = false) => {
       setBootError(null);
@@ -1699,6 +1711,7 @@ export function useKb(settings: AppSettings) {
     saveState,
     savedAt,
     recent,
+    removeRecent,
     canBack,
     canFront,
     collapsed,

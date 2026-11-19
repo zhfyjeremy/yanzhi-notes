@@ -140,6 +140,9 @@ const tauriBackend: KbBackend = {
   async setRecent(root) {
     await invoke("set_recent", { root });
   },
+  async removeRecent(root) {
+    await invoke("remove_recent", { root });
+  },
   async pickSingleFile() {
     return (await withNativeDialog(() => invoke<string | null>("pick_single_file"))) ?? null;
   },
@@ -167,6 +170,9 @@ const tauriBackend: KbBackend = {
   },
   async setRecentFile(path) {
     await invoke("set_recent_file", { path });
+  },
+  async removeRecentFile(path) {
+    await invoke("remove_recent_file", { path });
   },
   async setLastDoc(rel) {
     await invoke("set_last_doc", { rel });
@@ -831,6 +837,16 @@ const browserBackend: KbBackend = {
       JSON.stringify({ last: root, recent: [root] } satisfies RecentState),
     );
   },
+  async removeRecent(root) {
+    const state = mockRecent();
+    state.recent = state.recent.filter((item) => item !== root).slice(0, 10);
+    if (state.last === root) {
+      // 被移除的“上次知识库”不再自动恢复到下一条旧记录;下次启动回欢迎页手选
+      state.last = null;
+      state.lastDoc = null;
+    }
+    localStorage.setItem(RECENT_KEY, JSON.stringify(state));
+  },
   async pickSingleFile() {
     let files: File[];
     try {
@@ -877,6 +893,11 @@ const browserBackend: KbBackend = {
   async setRecentFile(path) {
     const state = mockRecentFiles();
     state.recent = [path, ...state.recent.filter((p) => p !== path)].slice(0, 10);
+    localStorage.setItem(SINGLE_RECENT_KEY, JSON.stringify(state));
+  },
+  async removeRecentFile(path) {
+    const state = mockRecentFiles();
+    state.recent = state.recent.filter((item) => item !== path).slice(0, 10);
     localStorage.setItem(SINGLE_RECENT_KEY, JSON.stringify(state));
   },
   async setLastDoc(rel) {

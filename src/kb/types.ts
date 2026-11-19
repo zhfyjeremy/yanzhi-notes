@@ -134,6 +134,8 @@ export interface KbBackend {
   writeWorkspace(root: string, content: string): Promise<void>;
   getRecent(): Promise<RecentState>;
   setRecent(root: string): Promise<void>;
+  /** 欢迎页单条移除最近知识库记录(不删除库本身) */
+  removeRecent(root: string): Promise<void>;
   /* ---- 单文件模式(docs/single-file-mode.md) ---- */
   pickSingleFile(): Promise<string | null>;
   readSingleFile(path: string): Promise<string>;
@@ -143,6 +145,8 @@ export interface KbBackend {
   closeSingleFile(path: string): Promise<void>;
   getRecentFiles(): Promise<RecentFilesState>;
   setRecentFile(path: string): Promise<void>;
+  /** 欢迎页单条移除最近 Markdown 记录(不删除文件本身) */
+  removeRecentFile(path: string): Promise<void>;
   listenSingleFileEvent(cb: (path: string) => void): Promise<() => void>;
   /* ---- 单文件 P1 ---- */
   saveSingleAsset(path: string, ext: string, bytes: Uint8Array): Promise<string>;

@@ -21,7 +21,7 @@
 | TOC 大纲面板 | ✅ | 滚动高亮联动、点击跳转、可折叠 |
 | 代码块卡片 | ✅ | hover 语言切换/复制、行号列;`src/editor/extensions/code-block-card.tsx` |
 | Shiki 语法高亮 | ✅ | `src/editor/extensions/code-highlight.ts` + `shiki-langs.ts`:PM decoration + css-variables 语义槽位 → `--code-*` token;2026-11-18 起语言候选/懒加载统一走 Shiki 官方注册表(vue/svelte/astro 等可用),别名归一,选择器允许自定义语言;HTML/Vue 等 markup 用 TextMate scope 拆标签名/属性名。代码主题通过正文表面的 data-code-theme 切换 design tokens(内置离线,不联网;行内 code 走独立 --inline-code-bg,避免被深色代码主题染黑);Raw HTML 源码态复用同一 HTML tokenizer,并按行补换行保证高亮层与 textarea 对齐 |
-| 表格编辑工具条 | ✅ | 光标入表浮现:行/列增删下拉 + 整列对齐 + 删表;`table-utils.ts` + `toolbar/TableToolbar.tsx` + 表格基础样式;**列宽拖拽**(`Table.resizable`,colwidth 会话级,GFM 无列宽语法,重开回均分);**单元格悬停复制**(设置/表工具条复制图标同源 `tableCellCopy`,默认关,`TableCellCopy` 浮层);**单元格右键**(`TableContextMenu`,按点中的行/列插删行列、对齐、删表,右键分「行操作」「列操作」「单元格」三组:行/列用数量框+勾选插入,「单元格」下「复制内容」复制当前格纯文本;悬停复制开关只留工具条/设置,2026-11-06;前一日换 Radix 多级菜单并统一 `context-menu`/`dropdown-menu` 视觉) |
+| 表格编辑工具条 | ✅ | 光标入表浮现:行/列增删下拉 + 整列对齐 + 删表;`table-utils.ts` + `toolbar/TableToolbar.tsx` + 表格基础样式;**列宽拖拽**(`Table.resizable`,colwidth 会话级,GFM 无列宽语法,重开回均分);**单元格悬停复制**(设置/表工具条复制图标同源 `tableCellCopy`,默认关,`TableCellCopy` 浮层);**单元格右键**(`TableContextMenu`,按点中的行/列插删行列、对齐、删表,右键分「行操作」「列操作」「单元格」三组:行/列用数量框+勾选插入,「单元格」下「复制内容」复制当前格纯文本;2026-11-19 修复设置对齐后恢复光标被放到单元格开头、继续中文输入插到旧文本前的问题,改为按右键落点取位并夹回当前格;另加 `table-ime-caret.ts`,WKWebView composition 结束后若居中单元格选区提前,按提交文本把光标修回文本末尾;悬停复制开关只留工具条/设置,2026-11-06;前一日换 Radix 多级菜单并统一 `context-menu`/`dropdown-menu` 视觉) |
 | 粘贴清洗 | ✅ | `paste-clean.ts`(transformPastedHTML):样式/脚本/私有 XML 丢弃、追踪参数剥离、合并表格降级纯文本、外部任务列表转 taskItem、外部颜色吸附预设色;2026-11-17 起Markdown 源码(纯文本、VS Code 源码 HTML 或 PM 源码副本 HTML)经 `markdown-paste.ts` 统一解析进排版视图(语义富文本仍走 HTML 清洗,代码块内原样) |
 | 图片卡片 UI | ✅ | 选中图片浮层(宽度档位/对齐/放大 lightbox)+ **左右手柄拖拽改宽**(20%–100%);width/align 会话级不进 md |
 | 文字颜色(语雀式色卡) | ✅ | §10 方言 `<font color>`:色卡 8 色 + 默认清除(`extensions/font-color.ts` + 工具栏 Palette 下拉);粘贴吸附(黑白灰摘除/彩色吸附最近预设色);序列化公共 mark 外提 |
@@ -172,13 +172,14 @@
 - 欢迎页改为单栏宣纸引导卡:「新建知识库 / 打开知识库 / 打开 Markdown 文件」三个真实动作同等权重;单文件编辑不再藏在次级虚线卡中。
 - 存储事实从可点击感卡片降级为分隔线下的纯文本说明(本地文件夹 / 标准 .md / 复制即备份),避免和动作卡混淆;移除右侧「我的知识库」目录结构示意,释放首屏空间。
 - 最近打开从纵向路径列表改为横向卡片(最多各 5 个),显示名称与父目录,并分为「知识库 / Markdown 文件」两组。
+- 2026-11-19:最近打开的每张知识库 / Markdown 卡片右上角新增删除按钮,仅移除本机记录、不删除原文件夹或文件;移除 `last` 对应知识库时清空启动 fallback 与其 `lastDoc`,下次启动回欢迎页手选,原生菜单最近列表同步刷新。
 - 首屏加入 CSS 三段轻动效:品牌图标落定、三个入口卡错峰浮起、最近打开卡片级联入场;`prefers-reduced-motion` 下全部禁用,不引入动画库。
 - 最近打开改为独立圆角轻面板:分组标签、数量、紧凑卡片、右侧方向箭头与 hover 反馈;卡片高度统一 64px,多记录时首页内滚动。
 - 欢迎页使用固定视口高度作为滚动容器;最近打开、确认卡等内容变多时可纵向滚动,内容少时仍保持垂直居中,不产生横向溢出。
 - 主工作台改为墨色 workspace 外壳 + 三张圆角浮起面板:左栏 `sidebar`、中央 `editor` 纸张、右栏 `sidebar`,统一轻边框与低强度阴影;状态栏独立为底部圆角轻面板。
 - 欢迎页动效保持轻量、CSS-only;`prefers-reduced-motion` 下禁用,不引入 framer-motion。
 
-验证:`pnpm build` 通过、Vitest **183/183**、综合交互回归 `remaining-v3.js` **19/19**;1200×800 与 1440×900 下三栏等高、左右栏无横向溢出、状态栏可见,专注模式只剩中央纸张且无溢出。2026-11-01 追加 1000×620 + 20 条最近记录(界面各展示 5 条)验证:欢迎页可滚到底/回顶部且无横向溢出;重构后回归确认 3 个主入口、单文件打开/关闭、最近 Markdown 记录与无横向溢出,存储示意不再出现。动效专项验证普通模式 3 个入口 + 10 张最近卡片错峰入场,reduced-motion 下动画名均为 none;最近知识库/Markdown 卡片可正常进入对应工作区。
+验证:`pnpm build` 通过、Vitest **183/183**、综合交互回归 `remaining-v3.js` **19/19**;2026-11-19 删除最近记录专项 `src/kb/__tests__/recent.test.tsx` **3/3**、`pnpm build` 与 `cargo check` 通过;1200×800 与 1440×900 下三栏等高、左右栏无横向溢出、状态栏可见,专注模式只剩中央纸张且无溢出。2026-11-01 追加 1000×620 + 20 条最近记录(界面各展示 5 条)验证:欢迎页可滚到底/回顶部且无横向溢出;重构后回归确认 3 个主入口、单文件打开/关闭、最近 Markdown 记录与无横向溢出,存储示意不再出现。动效专项验证普通模式 3 个入口 + 10 张最近卡片错峰入场,reduced-motion 下动画名均为 none;最近知识库/Markdown 卡片可正常进入对应工作区。
 
 ## 内置使用文档与首启示例(2026-11-01)✅
 
@@ -289,6 +290,7 @@
 | ⌘/Ctrl+P 聚焦全局搜索 | 新增全局快捷键项 `search`(默认 `Mod+KeyP`,可在快捷键说明窗改键/冲突检测);信号走模块级 handler(`src/kb/search-focus.ts`)跨 App→DocTree→SearchBox,避免逐层透传 ref。原先找文档只能鼠标点搜索框 |
 | ⌘/Ctrl+⌥+↑/↓ 段落上下移动 | `src/editor/extensions/move-block.ts`:以光标所在最外层块(段落/标题/列表)为单位与相邻兄弟块交换位置,只改块顺序不改内容(序列化仍是标准 md,往返 fixtures 不受影响)。**踩坑**:Tiptap v3 命令约定是「命令改 props.tr、框架派发」,命令里自己 dispatch 会触发 "Applying a mismatched transaction";列表移到最后时 Tiptap `TrailingNode` 会补一个空段(标准行为,md 序列化会规范化掉) |
 | 标题层级徽标 H1–H6 | `src/editor/extensions/heading-badge.ts`:光标落在标题里时,标题左侧留白显示 H 级别小签(Decoration.widget,只在视图层,不进 doc 不影响序列化)。绝对定位挂标题左侧,不占行内空间 → 标题文字不抖动 |
+| 标题 Enter 退出标题态(2026-11-19) | `# ` InputRule / 工具栏进入标题后,普通 Enter 的下一行统一回到 paragraph;空标题原地转正文,标题开头/中间/末尾均不继承 heading。回归:`heading-shortcuts.test.ts` 7/7 |
 | 状态栏文档统计 | 点状态栏字数弹统计面板:字数/字符(不含空格)/段落/图片/表格/预计阅读(300 字/分);`countDocStats` 纯函数在 `word-count.ts` |
 | 图片「从文件替换」 | 图片工具条新增按钮:选图 → 落 assets(哈希命名)→ 改写 src,不用手敲路径;与破图占位(见下)配套 |
 | 记忆每篇文档的光标/滚动 | `meta.docs[rel].cursor = {pos, scrollTop}`;会话内存 Map + 切文档/窗口失焦落 meta,打开文档时恢复(内容变了按 doc 大小夹紧 pos)。**搜索结果跳转与双链跳转不恢复**(用户要看的是命中处) |

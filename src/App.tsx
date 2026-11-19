@@ -2221,8 +2221,10 @@ function App() {
         onForceCreate={(root) => kb.createKbAt(root, true)}
         onPickOpen={kb.pickAndOpen}
         onOpenRecent={kb.openKbAt}
+        onRemoveRecent={kb.removeRecent}
         onPickSingleFile={() => single.openPicker().then((r) => r?.error ?? null)}
         onOpenRecentFile={single.openFile}
+        onRemoveRecentFile={single.removeRecentFile}
       />
     );
   }

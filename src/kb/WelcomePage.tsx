@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronRight, FileText, FolderOpen, FolderPlus } from "lucide-react";
+import { ChevronRight, FileText, FolderOpen, FolderPlus, X } from "lucide-react";
 import appIcon from "../../src-tauri/icons/icon.png";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -22,8 +22,10 @@ interface WelcomePageProps {
   onForceCreate: (root: string) => Promise<string | null>;
   onPickOpen: () => Promise<"cancelled" | string | null>;
   onOpenRecent: (root: string) => Promise<string | null>;
+  onRemoveRecent: (root: string) => Promise<string | null>;
   onPickSingleFile: () => Promise<string | null>;
   onOpenRecentFile?: (path: string) => Promise<string | null>;
+  onRemoveRecentFile?: (path: string) => Promise<string | null>;
 }
 
 function rootLabel(root: string) {
@@ -45,8 +47,10 @@ export function WelcomePage({
   onForceCreate,
   onPickOpen,
   onOpenRecent,
+  onRemoveRecent,
   onPickSingleFile,
   onOpenRecentFile,
+  onRemoveRecentFile,
 }: WelcomePageProps) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<{ root: string; yanzhi: boolean } | null>(null);
@@ -85,6 +89,18 @@ export function WelcomePage({
     setError(null);
     setPending(null);
     const err = await onPickSingleFile();
+    if (err) setError(err);
+  };
+
+  const removeRecent = async (root: string) => {
+    setError(null);
+    const err = await onRemoveRecent(root);
+    if (err) setError(err);
+  };
+  const removeRecentFile = async (path: string) => {
+    if (!onRemoveRecentFile) return;
+    setError(null);
+    const err = await onRemoveRecentFile(path);
     if (err) setError(err);
   };
 
@@ -244,22 +260,35 @@ export function WelcomePage({
                   </div>
                   <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                     {recentItems.map((item) => (
-                      <button
+                      <div
                         key={item.root}
-                        type="button"
-                        title={item.root}
-                        className="welcome-recent-card border-border-subtle bg-raised/45 hover:border-primary/25 hover:bg-raised focus-visible:ring-ring group flex h-16 cursor-pointer items-center gap-2.5 rounded-xl border p-2.5 text-left transition-all"
-                        onClick={() => void openRecent(item.root)}
+                        className="welcome-recent-card border-border-subtle bg-raised/45 hover:border-primary/25 hover:bg-raised relative h-16 rounded-xl border transition-all"
                       >
-                        <span className="bg-selection text-primary flex size-8 shrink-0 items-center justify-center rounded-lg">
-                          <FolderOpen className="size-4" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-xs font-medium">{item.name}</span>
-                          <span className="text-muted-foreground block truncate text-[10px]">{item.parent}</span>
-                        </span>
-                        <ChevronRight className="text-muted-foreground/50 group-hover:text-primary size-4 shrink-0 transition-colors" />
-                      </button>
+                        <button
+                          type="button"
+                          title={item.root}
+                          className="focus-visible:ring-ring group flex h-full w-full cursor-pointer items-center gap-2.5 rounded-xl p-2.5 pr-10 text-left outline-none"
+                          onClick={() => void openRecent(item.root)}
+                        >
+                          <span className="bg-selection text-primary flex size-8 shrink-0 items-center justify-center rounded-lg">
+                            <FolderOpen className="size-4" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-xs font-medium">{item.name}</span>
+                            <span className="text-muted-foreground block truncate text-[10px]">{item.parent}</span>
+                          </span>
+                          <ChevronRight className="text-muted-foreground/50 group-hover:text-primary size-4 shrink-0 transition-colors" />
+                        </button>
+                        <button
+                          type="button"
+                          title="从最近打开中移除"
+                          aria-label={`删除最近记录：${item.name}`}
+                          className="text-muted-foreground/60 hover:text-destructive focus-visible:ring-ring absolute top-1/2 right-2 flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md outline-none transition-colors hover:bg-destructive/10"
+                          onClick={() => void removeRecent(item.root)}
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </section>
@@ -273,25 +302,40 @@ export function WelcomePage({
                   </div>
                   <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                     {recentFileItems.map((item) => (
-                      <button
+                      <div
                         key={item.path}
-                        type="button"
-                        title={item.path}
-                        className="welcome-recent-card border-border-subtle bg-raised/45 hover:border-primary/25 hover:bg-raised focus-visible:ring-ring group flex h-16 cursor-pointer items-center gap-2.5 rounded-xl border p-2.5 text-left transition-all"
-                        onClick={() => {
-                          if (!onOpenRecentFile) return;
-                          void onOpenRecentFile(item.path).then((err) => err && setError(err));
-                        }}
+                        className="welcome-recent-card border-border-subtle bg-raised/45 hover:border-primary/25 hover:bg-raised relative h-16 rounded-xl border transition-all"
                       >
-                        <span className="bg-hover text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-lg">
-                          <FileText className="size-4" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-xs font-medium">{item.name}</span>
-                          <span className="text-muted-foreground block truncate text-[10px]">{item.parent}</span>
-                        </span>
-                        <ChevronRight className="text-muted-foreground/50 group-hover:text-primary size-4 shrink-0 transition-colors" />
-                      </button>
+                        <button
+                          type="button"
+                          title={item.path}
+                          className="focus-visible:ring-ring group flex h-full w-full cursor-pointer items-center gap-2.5 rounded-xl p-2.5 pr-10 text-left outline-none"
+                          onClick={() => {
+                            if (!onOpenRecentFile) return;
+                            void onOpenRecentFile(item.path).then((err) => err && setError(err));
+                          }}
+                        >
+                          <span className="bg-hover text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-lg">
+                            <FileText className="size-4" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-xs font-medium">{item.name}</span>
+                            <span className="text-muted-foreground block truncate text-[10px]">{item.parent}</span>
+                          </span>
+                          <ChevronRight className="text-muted-foreground/50 group-hover:text-primary size-4 shrink-0 transition-colors" />
+                        </button>
+                        {onRemoveRecentFile && (
+                          <button
+                            type="button"
+                            title="从最近打开中移除"
+                            aria-label={`删除最近记录：${item.name}`}
+                            className="text-muted-foreground/60 hover:text-destructive focus-visible:ring-ring absolute top-1/2 right-2 flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md outline-none transition-colors hover:bg-destructive/10"
+                            onClick={() => void removeRecentFile(item.path)}
+                          >
+                            <X className="size-3.5" />
+                          </button>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </section>

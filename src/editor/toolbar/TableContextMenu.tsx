@@ -17,6 +17,7 @@ import {
 import { copyPlainText } from "../clipboard";
 import {
   applyTableStructure,
+  cellCaretPosition,
   deleteTableAt,
   insertTableAxis,
   setColumnAlignAt,
@@ -97,9 +98,13 @@ export function TableContextMenu({ editor, children }: TableContextMenuProps) {
     }
 
     try {
-      const caret = TextSelection.near(
-        editor.state.doc.resolve(Math.min(docPos, editor.state.doc.content.size)),
-      );
+      // 右键菜单会抢走焦点;这里预先记录“应回到哪儿”。按鼠标落点取位,
+      // 夹在当前单元格内,避免设置居中后焦点回到单元格开头导致后续输入前插。
+      const hit = editor.view.posAtCoords({ left: event.clientX, top: event.clientY });
+      const caretPos = cellCaretPosition(editor.view, cell, hit?.pos ?? null);
+      // 单元格末边界向内取位,避免正向 TextSelection.near 跳到下一格开头。
+      const forward = hit?.pos != null && hit.pos === caretPos;
+      const caret = TextSelection.near(editor.state.doc.resolve(caretPos), forward ? 1 : -1);
       editor.view.dispatch(editor.state.tr.setSelection(caret));
     } catch {
       // 选区挪不过去时仍按落点锚点改表格

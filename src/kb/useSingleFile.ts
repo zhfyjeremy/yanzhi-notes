@@ -55,6 +55,17 @@ export function useSingleFile() {
     }
   }, []);
 
+  const removeRecentFile = useCallback(async (path: string) => {
+    try {
+      await kbBackend.removeRecentFile(path);
+      setRecentFiles(await kbBackend.getRecentFiles());
+      return null;
+    } catch (e) {
+      console.error("[single] 移除最近 Markdown 失败:", e);
+      return `无法移除「${baseName(path)}」:${String(e)}`;
+    }
+  }, []);
+
   const openFile = useCallback(
     async (path: string): Promise<string | null> => {
       try {
@@ -352,6 +363,7 @@ export function useSingleFile() {
     missing,
     draft,
     recentFiles,
+    removeRecentFile,
     openError,
     openFile,
     openPicker,

@@ -7,6 +7,7 @@ import { mdToHtml } from "../markdown/md-instance";
 import { docToMarkdown } from "../markdown/serialize";
 import {
   applyTableStructure,
+  cellCaretPosition,
   deleteTableAt,
   getTableContext,
   insertTableAxis,
@@ -262,6 +263,28 @@ describe("tableContextAtPos", () => {
     editor.destroy();
   });
 
+  it("右键设置对齐后的恢复光标不回到单元格开头", () => {
+    const editor = makeEditor();
+    const cells = cellPositions(editor);
+    // cells[2] 是表体第一行第一格,内容为 a;预期恢复到 a 后。
+    const cellDom = editor.view.nodeDOM(cells[2]) as HTMLTableCellElement;
+    const caretPos = cellCaretPosition(editor.view, cellDom);
+    expect(caretPos).toBeGreaterThan(cells[2] + 1);
+    editor.view.dispatch(
+      editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(caretPos), -1)),
+    );
+    const before = editor.state.selection.from;
+    const ctx = tableContextAtPos(editor.state, cells[2] + 1)!;
+
+    setColumnAlignAt(editor, ctx.tablePos, [ctx.colIndex], "center");
+    editor.commands.focus();
+
+    expect(editor.state.selection.from).toBe(before);
+    expect(before).toBe(caretPos - 1);
+    expect(editor.state.doc.textBetween(before - 1, before)).toBe("a");
+    editor.destroy();
+  });
+
   it("第三行、第二列的落点互不串行", () => {
     const editor = makeEditor();
     const cells = cellPositions(editor);
@@ -284,6 +307,25 @@ describe("tableContextAtPos", () => {
     expect(docToMarkdown(editor.state.doc)).toContain("| :--- | ---: |");
     expect(deleteTableAt(editor, ctx.tablePos)).toBe(true);
     expect(docToMarkdown(editor.state.doc)).not.toContain("|");
+    editor.destroy();
+  });
+});
+
+describe("table IME caret", () => {
+  it("居中单元格 composition 结束后选区提前时恢复到提交文本后", async () => {
+    const editor = makeEditor("| 甲 |\n| :---: |\n|  |\n");
+    const cells = cellPositions(editor);
+    const from = cells[1] + 2;
+    editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(from))));
+    editor.view.dispatchEvent(new CompositionEvent("compositionstart", { data: "" }));
+    editor.commands.insertContentAt(from, "中文");
+    // 模拟 WKWebView 在居中文本上结束输入法时把选区放回文本前。
+    editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(from))));
+    editor.view.dispatchEvent(new CompositionEvent("compositionend", { data: "中文" }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(editor.state.selection.from).toBe(from + 2);
+    expect(editor.state.doc.textBetween(from, from + 2)).toBe("中文");
     editor.destroy();
   });
 });

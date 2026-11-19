@@ -22,6 +22,56 @@ function press(editor: Editor, key: string, init: KeyboardEventInit): void {
 }
 
 describe("标题快捷键", () => {
+
+  it("空标题按 Enter 原地回到正文", () => {
+    const editor = new Editor({ extensions: baseExtensions, content: mdToHtml("#\n\n正文") });
+    editor.commands.focus();
+    editor.commands.setTextSelection(1);
+    press(editor, "Enter", {});
+
+    expect(editor.state.doc.child(0).type.name).toBe("paragraph");
+    expect(editor.state.doc.childCount).toBe(2);
+    editor.destroy();
+  });
+
+  it("标题末尾按 Enter 下一行回到正文", () => {
+    const editor = new Editor({ extensions: baseExtensions, content: mdToHtml("# 标题\n\n正文") });
+    editor.commands.focus();
+    editor.commands.setTextSelection(3);
+    press(editor, "Enter", {});
+
+    expect(editor.state.doc.child(0).type.name).toBe("heading");
+    expect(editor.state.doc.child(1).type.name).toBe("paragraph");
+    expect(editor.state.doc.child(1).textContent).toBe("");
+    editor.destroy();
+  });
+
+  it("标题中间按 Enter 后光标所在行不继承标题", () => {
+    const editor = new Editor({ extensions: baseExtensions, content: mdToHtml("# 标题") });
+    editor.commands.focus();
+    editor.commands.setTextSelection(2);
+    press(editor, "Enter", {});
+
+    expect(editor.state.doc.child(0).type.name).toBe("heading");
+    expect(editor.state.doc.child(0).textContent).toBe("标");
+    expect(editor.state.doc.child(1).type.name).toBe("paragraph");
+    expect(editor.state.doc.child(1).textContent).toBe("题");
+    editor.destroy();
+  });
+
+  it("标题开头按 Enter 插入正文空行且原文本保持正文", () => {
+    const editor = new Editor({ extensions: baseExtensions, content: mdToHtml("# 标题") });
+    editor.commands.focus();
+    editor.commands.setTextSelection(1);
+    press(editor, "Enter", {});
+
+    expect(editor.state.doc.child(0).type.name).toBe("paragraph");
+    expect(editor.state.doc.child(0).textContent).toBe("");
+    expect(editor.state.doc.child(1).type.name).toBe("paragraph");
+    expect(editor.state.doc.child(1).textContent).toBe("标题");
+    editor.destroy();
+  });
+
   it("Ctrl+1–6 把正文切换为对应标题", () => {
     for (let level = 1; level <= 6; level++) {
       const editor = new Editor({

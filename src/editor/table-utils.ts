@@ -1,5 +1,6 @@
 import type { Node as PMNode, ResolvedPos } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
+import type { EditorView } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/react";
 import {
   TableMap,
@@ -61,6 +62,20 @@ export type TableStructureOp =
   | "addColumnBefore"
   | "addColumnAfter"
   | "deleteColumn";
+
+/**
+ * 右键表格后的恢复光标位置:优先用鼠标落点;落点漂到相邻单元格时夹回当前单元格,
+ * 不可测时回到单元格末尾。此前统一取单元格开头,设置对齐后继续输入会插到旧文本前。
+ */
+export function cellCaretPosition(
+  view: EditorView,
+  cell: HTMLTableCellElement,
+  hitPos: number | null = null,
+): number {
+  const start = view.posAtDOM(cell, 0);
+  const end = view.posAtDOM(cell, cell.childNodes.length);
+  return Math.max(start, Math.min(hitPos ?? end, end));
+}
 
 /** 光标/单元格选区所在表格的上下文;不在表格内返回 null */
 export function getTableContext(state: EditorState): TableContext | null {
