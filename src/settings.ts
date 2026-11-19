@@ -21,6 +21,35 @@ export type ReaderFont = "default" | "serif" | "kai";
 export type EditorWidthMode = "adaptive" | "fixed";
 
 /**
+ * 内置代码块主题。所有主题都随应用打包,切换不发起网络请求;
+ * `yanzhi` 表示跟随应用浅/深色与台面色,其余主题固定自身明暗。
+ */
+export const CODE_THEME_IDS = [
+  "yanzhi",
+  "github-light",
+  "github-dark",
+  "one-dark-pro",
+  "monokai",
+  "dracula",
+  "night-owl",
+] as const;
+export type CodeThemeId = (typeof CODE_THEME_IDS)[number];
+
+export const CODE_THEME_OPTIONS: {
+  value: CodeThemeId;
+  label: string;
+  description: string;
+}[] = [
+  { value: "yanzhi", label: "跟随砚知", description: "浅深随应用切换" },
+  { value: "github-light", label: "GitHub Light", description: "浅色 · 克制均衡" },
+  { value: "github-dark", label: "GitHub Dark", description: "深蓝黑 · 高对比" },
+  { value: "one-dark-pro", label: "One Dark Pro", description: "深灰 · 经典均衡" },
+  { value: "monokai", label: "Monokai", description: "深彩 · 高识别度" },
+  { value: "dracula", label: "Dracula", description: "紫底 · 鲜艳" },
+  { value: "night-owl", label: "Night Owl", description: "深海蓝 · 夜间" },
+];
+
+/**
  * 壳层 UI 风格(外观):只改工作区面板怎么摆,不改 Markdown / token 色源。
  * card = 浮卡台面(圆角+阴影+留白);flat = 线框平铺(贴边+发丝分隔)。
  */
@@ -269,6 +298,8 @@ export interface AppSettings {
   editorWidth: number;
   /** §8 编辑器设置:特殊卡片(代码块/表格/图片)显示边框,默认开 */
   cardBorder: boolean;
+  /** 内置离线代码块主题;只影响排版/源码/导出观感,不写入 Markdown */
+  codeTheme: CodeThemeId;
   /** §8 编辑器:表格单元格悬停显示复制按钮,默认关(账号/口令类表才需要) */
   tableCellCopy: boolean;
   /** §8 编辑器:打字机滚动(专注模式子项),默认关;仅专注模式下生效 */
@@ -335,6 +366,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   editorWidthMode: "adaptive",
   editorWidth: 800,
   cardBorder: true,
+  codeTheme: "yanzhi",
   tableCellCopy: false,
   typewriterMode: false,
   tabIndentSize: 4,
@@ -427,6 +459,9 @@ export function parseSettings(raw: string): AppSettings {
         : "adaptive",
       editorWidth: clampInt(v?.editorWidth, 800, 600, 1200),
       cardBorder: typeof v?.cardBorder === "boolean" ? v.cardBorder : true,
+      codeTheme: CODE_THEME_IDS.includes(v?.codeTheme as CodeThemeId)
+        ? (v.codeTheme as CodeThemeId)
+        : "yanzhi",
       tableCellCopy: typeof v?.tableCellCopy === "boolean" ? v.tableCellCopy : false,
       typewriterMode: typeof v?.typewriterMode === "boolean" ? v.typewriterMode : false,
       tabIndentSize: clampInt(v?.tabIndentSize, 4, 1, 8),
@@ -590,7 +625,7 @@ export function applyTheme(
     root.style.removeProperty("--editor");
   }
   root.style.setProperty("--surface-hover", desk.hover);
-  root.style.setProperty("--code-bg", desk.codeBg);
+  root.style.setProperty("--code-desk-bg", desk.codeBg);
   root.style.setProperty("--editor-font-family", READER_FONT_STACKS[s.readerFont]);
   root.style.setProperty("--editor-font-size", `${s.readerFontSize}px`);
   root.style.setProperty("--editor-line-height", String(s.readerLineHeight));

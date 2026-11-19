@@ -150,6 +150,10 @@ describe("settings 解析(PRD §8)", () => {
     expect(s.shortcuts.slashMenu).toBe(DEFAULT_SETTINGS.shortcuts.slashMenu);
     expect(s.shortcuts.aiMenu).toBe(DEFAULT_SETTINGS.shortcuts.aiMenu);
   });
+  it("代码块主题:只接受内置离线主题", () => {
+    expect(parseSettings('{"codeTheme":"one-dark-pro"}').codeTheme).toBe("one-dark-pro");
+    expect(parseSettings('{"codeTheme":"from-cdn"}').codeTheme).toBe("yanzhi");
+  });
   it("最近文档与代码语言:过滤异型/重复并限量", () => {
     const s = parseSettings(
       JSON.stringify({
@@ -178,7 +182,7 @@ describe("applyTheme 主色覆盖(浅/深两套)", () => {
     expect(document.documentElement.style.getPropertyValue("--workspace")).toBe(
       deskPresetOf("cloud").light.workspace,
     );
-    expect(document.documentElement.style.getPropertyValue("--code-bg")).toBe(
+    expect(document.documentElement.style.getPropertyValue("--code-desk-bg")).toBe(
       deskPresetOf("cloud").light.codeBg,
     );
     applyTheme(
@@ -193,7 +197,7 @@ describe("applyTheme 主色覆盖(浅/深两套)", () => {
     expect(document.documentElement.style.getPropertyValue("--sidebar")).toBe(
       deskPresetOf("mist").dark.workspace,
     );
-    expect(document.documentElement.style.getPropertyValue("--code-bg")).toBe(
+    expect(document.documentElement.style.getPropertyValue("--code-desk-bg")).toBe(
       deskPresetOf("mist").dark.codeBg,
     );
     for (const p of ACCENT_PRESETS) {

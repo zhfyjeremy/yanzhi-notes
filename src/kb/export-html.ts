@@ -13,6 +13,7 @@ import { katexHtml, decodeLatex } from "@/editor/extensions/math";
 import { renderMermaid } from "@/editor/extensions/mermaid";
 import { sanitizeRawHtmlPreview } from "@/editor/extensions/raw-html-preview";
 import { assetRelPosix, isExternalSrc } from "./asset-src";
+import type { CodeThemeId } from "../settings";
 
 export interface ExportHtmlOptions {
   md: string;
@@ -20,11 +21,91 @@ export interface ExportHtmlOptions {
   docRel: string;
   /** 库内相对路径 → base64(取不到返回 null,该图保留原相对引用) */
   readAssetBase64: (rel: string) => Promise<{ data: string; mime: string } | null>;
+  /** 内置离线代码主题;默认跟随砚知浅色导出 */
+  codeTheme?: CodeThemeId;
 }
 
 const FONT_MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 const FONT_SANS =
   '-apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
+
+const CODE_VARIABLE_NAMES = [
+  "bg",
+  "border",
+  "fg",
+  "kw",
+  "fn",
+  "str",
+  "emb",
+  "cm",
+  "num",
+  "var",
+  "op",
+  "link",
+  "ins",
+  "del",
+  "chg",
+  "tag",
+  "attr",
+] as const;
+
+type CodeVariableName = (typeof CODE_VARIABLE_NAMES)[number];
+
+/** 导出兜底值 = HTML 导出原有浅色代码色;主题存在时由 index.css 计算值覆盖。 */
+const DEFAULT_CODE_VARIABLES: Record<CodeVariableName, string> = {
+  bg: "#f0ede6",
+  border: "#d9d2c5",
+  fg: "#231f1c",
+  kw: "hsl(348 76% 46%)",
+  fn: "hsl(258 55% 52%)",
+  str: "hsl(130 32% 32%)",
+  emb: "hsl(190 75% 30%)",
+  cm: "hsl(25 8% 42%)",
+  num: "hsl(212 82% 42%)",
+  var: "hsl(212 40% 42%)",
+  op: "hsl(350 22% 46%)",
+  link: "hsl(204 89% 40%)",
+  ins: "hsl(135 42% 34%)",
+  del: "hsl(0 68% 46%)",
+  chg: "hsl(204 78% 42%)",
+  tag: "hsl(24 72% 42%)",
+  attr: "hsl(150 45% 32%)",
+};
+
+/**
+ * 从当前应用的 design tokens 读取主题。编辑器页面已加载 index.css,
+ * 这里用隐藏探针拿 [data-code-theme] 的计算值,导出不复制第二套主题色。
+ */
+function readCodeThemeVariables(theme: CodeThemeId): Record<CodeVariableName, string> {
+  const values = { ...DEFAULT_CODE_VARIABLES };
+  if (theme === "yanzhi" || typeof document === "undefined") return values;
+
+  const probe = document.createElement("div");
+  probe.dataset.codeTheme = theme;
+  probe.style.display = "none";
+  document.body.append(probe);
+  try {
+    const computed = getComputedStyle(probe);
+    for (const name of CODE_VARIABLE_NAMES) {
+      const value = computed.getPropertyValue(`--code-${name}`).trim();
+      if (value) values[name] = value;
+    }
+  } finally {
+    probe.remove();
+  }
+  return values;
+}
+
+function codeThemeOf(theme: CodeThemeId): { css: string; background: string } {
+  const values = readCodeThemeVariables(theme);
+  const declarations = CODE_VARIABLE_NAMES.map(
+    (name) => `--code-${name}: ${values[name]};`,
+  );
+  return {
+    css: `:root {${declarations.join("")}}`,
+    background: values.bg,
+  };
+}
 
 const PAGE_STYLE = `
 :root {
@@ -81,8 +162,8 @@ table { margin: 1em 0; }
 pre {
   margin: 1em 0;
   padding: 0.9em 1.1em;
-  background: #f0ede6;
-  color: var(--page-fg);
+  background: var(--code-bg, #f0ede6);
+  color: var(--code-fg, var(--page-fg));
   border-radius: 6px;
   font-family: ${FONT_MONO};
   font-size: 0.875em;
@@ -91,18 +172,20 @@ pre {
   overflow-x: auto;
 }
 pre code { font: inherit; }
-.yz-tok-kw { color: hsl(348 76% 46%); }
-.yz-tok-fn { color: hsl(258 55% 52%); }
-.yz-tok-str { color: hsl(130 32% 32%); }
-.yz-tok-emb { color: hsl(190 75% 30%); }
-.yz-tok-cm { color: hsl(25 8% 42%); }
-.yz-tok-num { color: hsl(212 82% 42%); }
-.yz-tok-var { color: hsl(212 40% 42%); }
-.yz-tok-op { color: hsl(350 22% 46%); }
-.yz-tok-link { color: hsl(204 89% 40%); }
-.yz-tok-ins { color: hsl(135 42% 34%); }
-.yz-tok-del { color: hsl(0 68% 46%); }
-.yz-tok-chg { color: hsl(204 78% 42%); }
+.yz-tok-kw { color: var(--code-kw); }
+.yz-tok-fn { color: var(--code-fn); }
+.yz-tok-str { color: var(--code-str); }
+.yz-tok-emb { color: var(--code-emb); }
+.yz-tok-cm { color: var(--code-cm); }
+.yz-tok-num { color: var(--code-num); }
+.yz-tok-var { color: var(--code-var); }
+.yz-tok-op { color: var(--code-op); }
+.yz-tok-link { color: var(--code-link); }
+.yz-tok-ins { color: var(--code-ins); }
+.yz-tok-del { color: var(--code-del); }
+.yz-tok-chg { color: var(--code-chg); }
+.yz-tok-tag { color: var(--code-tag); }
+.yz-tok-attr { color: var(--code-attr); }
 input[type="checkbox"] { margin-right: 0.35em; }
 .yz-callout {
   border-left: 3px solid var(--callout-c);
@@ -461,10 +544,11 @@ export async function buildExportHtml(opts: ExportHtmlOptions): Promise<string> 
   await renderRawHtml(doc.body, opts);
   await highlightCodeElements(doc.body);
   await embedLocalImages(doc.body, opts);
-  const body = inlineStyles(doc.body.innerHTML);
-  const styles = `${PAGE_STYLE}${hasMath ? await embeddedKatexCss() : ""}`;
+  const codeTheme = codeThemeOf(opts.codeTheme ?? "yanzhi");
+  const body = inlineStyles(doc.body.innerHTML, { codeBackground: codeTheme.background });
+  const styles = `${PAGE_STYLE}${codeTheme.css}${hasMath ? await embeddedKatexCss() : ""}`;
   return `<!doctype html>
-<html lang="zh">
+<html lang="zh" data-code-theme="${opts.codeTheme ?? "yanzhi"}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

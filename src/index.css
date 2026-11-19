@@ -36,7 +36,9 @@
   --editor: hsl(0 0% 100%);
   --raised: hsl(0 0% 100%);
   --surface-hover: hsl(40 8% 92%);
-  --code-bg: hsl(40 10% 96%);
+  --code-bg: var(--code-desk-bg, hsl(40 10% 96%));
+  --code-border: var(--border);
+  --code-fg: hsl(25 15% 13%);
   --selection: color-mix(in oklab, var(--primary) 11%, var(--editor) 89%);
   /* 文档正文链接色:比 UI 主色更深一档,长文阅读达到 WCAG AA(4.5:1) */
   --link: hsl(204 89% 36%);
@@ -54,6 +56,9 @@
   --code-ins: hsl(135 42% 34%);
   --code-del: hsl(0 68% 46%);
   --code-chg: hsl(204 78% 42%);
+  /* markup 家族(HTML/Vue/JSX):标签名、属性名 */
+  --code-tag: hsl(24 72% 42%);
+  --code-attr: hsl(150 45% 32%);
 
   /* 文档内查找高亮:黄系与 ==高亮==(primary 系)区分;current 为实底醒目项 */
   --find-match: hsl(45 96% 60% / 0.45);
@@ -79,9 +84,10 @@
   --source-h6: hsl(348 68% 40%);
   --source-marker: hsl(25 8% 46%);
   --source-emphasis: hsl(32 88% 32%);
-  --source-inline-code: var(--code-str);
+  --source-inline-code: hsl(130 32% 32%);
+  --inline-code-bg: var(--code-desk-bg, hsl(40 10% 96%));
   --source-code-bg: var(--code-bg);
-  --source-code-edge: var(--border);
+  --source-code-edge: var(--code-border, var(--border));
   --source-code-comment: var(--code-cm);
   --source-code-string: var(--code-str);
   --source-code-number: var(--code-num);
@@ -120,7 +126,9 @@
   --editor: hsl(240 3% 13%);
   --raised: hsl(28 8% 16%);
   --surface-hover: hsl(240 3% 17%);
-  --code-bg: hsl(240 3% 16%);
+  --code-bg: var(--code-desk-bg, hsl(240 3% 16%));
+  --code-border: var(--border);
+  --code-fg: hsl(36 20% 92%);
   --selection: color-mix(in oklab, var(--primary) 18%, var(--editor) 82%);
   --link: hsl(204 85% 62%);
 
@@ -137,6 +145,9 @@
   --code-ins: hsl(135 42% 60%);
   --code-del: hsl(0 72% 66%);
   --code-chg: hsl(204 82% 66%);
+  /* markup 家族(HTML/Vue/JSX):标签名、属性名 */
+  --code-tag: hsl(26 78% 66%);
+  --code-attr: hsl(150 48% 64%);
 
   --find-match: hsl(45 80% 50% / 0.35);
   --find-match-current: hsl(45 90% 55%);
@@ -160,9 +171,10 @@
   --source-h6: hsl(348 75% 73%);
   --source-marker: hsl(30 9% 58%);
   --source-emphasis: hsl(36 88% 68%);
-  --source-inline-code: var(--code-str);
+  --source-inline-code: hsl(130 38% 64%);
+  --inline-code-bg: var(--code-desk-bg, hsl(240 3% 16%));
   --source-code-bg: var(--code-bg);
-  --source-code-edge: var(--border);
+  --source-code-edge: var(--code-border, var(--border));
   --source-code-comment: var(--code-cm);
   --source-code-string: var(--code-str);
   --source-code-number: var(--code-num);
@@ -173,6 +185,128 @@
   --source-code-operator: var(--code-op);
   --source-code-variable: var(--code-var);
   --source-code-atom: var(--code-num);
+}
+
+/* 内置离线代码块主题:只挂在编辑正文/导出根节点,不影响壳层图标配色。
+   `yanzhi` 不写覆盖块,继承 :root / .dark 与台面 --code-desk-bg。 */
+[data-code-theme="github-light"] {
+  --code-bg: #f6f8fa;
+  --code-border: #d0d7de;
+  --code-fg: #1f2328;
+  --code-kw: #cf222e;
+  --code-fn: #8250df;
+  --code-str: #0a3069;
+  --code-emb: #0550ae;
+  --code-cm: #57606a;
+  --code-num: #0550ae;
+  --code-var: #953800;
+  --code-op: #24292f;
+  --code-link: #0969da;
+  --code-ins: #116329;
+  --code-del: #82071e;
+  --code-chg: #0550ae;
+  --code-tag: #116329;
+  --code-attr: #0550ae;
+}
+
+[data-code-theme="github-dark"] {
+  --code-bg: #0d1117;
+  --code-border: #30363d;
+  --code-fg: #e6edf3;
+  --code-kw: #ff7b72;
+  --code-fn: #d2a8ff;
+  --code-str: #a5d6ff;
+  --code-emb: #79c0ff;
+  --code-cm: #8b949e;
+  --code-num: #79c0ff;
+  --code-var: #ffa657;
+  --code-op: #e6edf3;
+  --code-link: #a5d6ff;
+  --code-ins: #aff5b4;
+  --code-del: #ffdcd7;
+  --code-chg: #79c0ff;
+  --code-tag: #7ee787;
+  --code-attr: #79c0ff;
+}
+
+[data-code-theme="one-dark-pro"] {
+  --code-bg: #282c34;
+  --code-border: #3e4451;
+  --code-fg: #abb2bf;
+  --code-kw: #c678dd;
+  --code-fn: #61afef;
+  --code-str: #98c379;
+  --code-emb: #56b6c2;
+  --code-cm: #5c6370;
+  --code-num: #d19a66;
+  --code-var: #e06c75;
+  --code-op: #56b6c2;
+  --code-link: #61afef;
+  --code-ins: #98c379;
+  --code-del: #e06c75;
+  --code-chg: #61afef;
+  --code-tag: #e06c75;
+  --code-attr: #d19a66;
+}
+
+[data-code-theme="monokai"] {
+  --code-bg: #272822;
+  --code-border: #36372f;
+  --code-fg: #f8f8f2;
+  --code-kw: #f92672;
+  --code-fn: #a6e22e;
+  --code-str: #e6db74;
+  --code-emb: #66d9ef;
+  --code-cm: #75715e;
+  --code-num: #ae81ff;
+  --code-var: #fd971f;
+  --code-op: #f8f8f2;
+  --code-link: #66d9ef;
+  --code-ins: #a6e22e;
+  --code-del: #f92672;
+  --code-chg: #66d9ef;
+  --code-tag: #f92672;
+  --code-attr: #fd971f;
+}
+
+[data-code-theme="dracula"] {
+  --code-bg: #282a36;
+  --code-border: #44475a;
+  --code-fg: #f8f8f2;
+  --code-kw: #ff79c6;
+  --code-fn: #50fa7b;
+  --code-str: #f1fa8c;
+  --code-emb: #8be9fd;
+  --code-cm: #6272a4;
+  --code-num: #bd93f9;
+  --code-var: #ffb86c;
+  --code-op: #f8f8f2;
+  --code-link: #8be9fd;
+  --code-ins: #50fa7b;
+  --code-del: #ff5555;
+  --code-chg: #ffb86c;
+  --code-tag: #ff79c6;
+  --code-attr: #50fa7b;
+}
+
+[data-code-theme="night-owl"] {
+  --code-bg: #011627;
+  --code-border: #0b2942;
+  --code-fg: #d6deeb;
+  --code-kw: #c792ea;
+  --code-fn: #82aaff;
+  --code-str: #c3e88d;
+  --code-emb: #89ddff;
+  --code-cm: #637777;
+  --code-num: #f78c6c;
+  --code-var: #addb67;
+  --code-op: #d6deeb;
+  --code-link: #82aaff;
+  --code-ins: #c3e88d;
+  --code-del: #ef5350;
+  --code-chg: #82aaff;
+  --code-tag: #7fdbca;
+  --code-attr: #addb67;
 }
 
 @theme inline {

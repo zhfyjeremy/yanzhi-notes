@@ -1,4 +1,4 @@
-﻿import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 beforeEach(() => {
   (SVGElement.prototype as unknown as { getBBox: () => DOMRect }).getBBox = () => ({ x: 0, y: 0, width: 100, height: 30 }) as DOMRect;
@@ -21,6 +21,32 @@ describe("HTML export", () => {
     expect(code?.querySelector(".yz-tok-emb")?.textContent).toContain("hello");
     expect(code?.querySelector(".yz-tok-cm")?.textContent).toContain("note");
     expect(html).toContain(".yz-tok-kw");
+  });
+
+  it("exports the selected offline code theme as self-contained CSS", async () => {
+    const style = document.createElement("style");
+    style.textContent = `[data-code-theme="one-dark-pro"] {
+      --code-bg: #282c34;
+      --code-fg: #abb2bf;
+      --code-kw: #c678dd;
+      --code-tag: #e06c75;
+      --code-attr: #d19a66;
+    }`;
+    document.head.append(style);
+    const html = await buildExportHtml({
+      md: "```html\n<div class=\"x\">hi</div>\n```",
+      title: "Theme",
+      docRel: "notes/theme.md",
+      readAssetBase64: async () => null,
+      codeTheme: "one-dark-pro",
+    });
+
+    expect(html).toContain('<html lang="zh" data-code-theme="one-dark-pro">');
+    expect(html).toContain("--code-bg: #282c34;");
+    expect(html).toContain(".yz-tok-tag { color: var(--code-tag); }");
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    expect(doc.querySelector("pre")?.getAttribute("style")).toContain("background: rgb(40, 44, 52)");
+    style.remove();
   });
 
   it("exports editor-rendered cards for diagrams, math, callouts, details, attachments and raw HTML", async () => {

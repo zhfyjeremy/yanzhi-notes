@@ -9,74 +9,22 @@ import {
   type LanguageRegistration,
 } from "shiki/core";
 import { createJavaScriptRegexEngine } from "@shikijs/engine-javascript";
+import { resolveCodeLanguage, shikiLanguageLoader } from "./shiki-langs";
 
 /**
  * 代码高亮(PRD §5.3.8/§12):Shiki 离线、JS regex 引擎(同步 tokenize,无 wasm)、
- * 常用语言按需分包。token 色不取 Shiki 主题,而是借 css-variables theme 的
+ * 语言按需分包。token 色不取 Shiki 主题,而是借 css-variables theme 的
  * 语义槽位(token-keyword 等)归类,映射为 yz-tok-* class;颜色由 editor.css
  * 的 --code-* design token(:root/.dark 双值)决定,浅深主题自动一致。
  * 高亮以 PM inline decoration 实现,不参与文档模型与序列化。
  *
- * 语言必须懒加载:曾用 Object.values(LANG_IMPORTS) 一次拉齐 20+ 包,
- * 首开任意文档(插件 view 挂载)都会堵几百 ms;现按当前文档出现的 language 再 loadLanguage。
+ * 语言表(2026-11-18):改为走 `shiki/langs` 官方注册表(shiki-langs.ts),
+ * 覆盖全部 TextMate 语法(vue/svelte/astro/solidity/…),
+ * 不再是手写的 24 条硬编码表——此前 `vue` 等语言完全不配色。
+ *
+ * 语言必须懒加载:注册表里每条都是 `() => import("@shikijs/langs/xxx")`,
+ * 只加载当前文档出现过的语言;首开任意文档不会堵几百 ms。
  */
-
-/** 常用语言(与代码块卡片语言列表对应):字面量 import 便于 Vite 按语言分包 */
-const LANG_IMPORTS: Record<
-  string,
-  () => Promise<{ default: LanguageRegistration | LanguageRegistration[] }>
-> = {
-  typescript: () => import("@shikijs/langs/typescript"),
-  javascript: () => import("@shikijs/langs/javascript"),
-  json: () => import("@shikijs/langs/json"),
-  bash: () => import("@shikijs/langs/bash"),
-  python: () => import("@shikijs/langs/python"),
-  sql: () => import("@shikijs/langs/sql"),
-  css: () => import("@shikijs/langs/css"),
-  html: () => import("@shikijs/langs/html"),
-  xml: () => import("@shikijs/langs/xml"),
-  markdown: () => import("@shikijs/langs/markdown"),
-  yaml: () => import("@shikijs/langs/yaml"),
-  toml: () => import("@shikijs/langs/toml"),
-  rust: () => import("@shikijs/langs/rust"),
-  go: () => import("@shikijs/langs/go"),
-  java: () => import("@shikijs/langs/java"),
-  c: () => import("@shikijs/langs/c"),
-  cpp: () => import("@shikijs/langs/cpp"),
-  csharp: () => import("@shikijs/langs/csharp"),
-  php: () => import("@shikijs/langs/php"),
-  ruby: () => import("@shikijs/langs/ruby"),
-  swift: () => import("@shikijs/langs/swift"),
-  kotlin: () => import("@shikijs/langs/kotlin"),
-  diff: () => import("@shikijs/langs/diff"),
-  dockerfile: () => import("@shikijs/langs/dockerfile"),
-};
-
-/** markdown 围栏里常见的别名 → shiki 语言 id;空串 = 无高亮 */
-const LANG_ALIAS: Record<string, string> = {
-  ts: "typescript",
-  tsx: "typescript",
-  js: "javascript",
-  jsx: "javascript",
-  mjs: "javascript",
-  cjs: "javascript",
-  sh: "bash",
-  shell: "bash",
-  zsh: "bash",
-  py: "python",
-  yml: "yaml",
-  md: "markdown",
-  "c++": "cpp",
-  cs: "csharp",
-  "c#": "csharp",
-  golang: "go",
-  rb: "ruby",
-  kt: "kotlin",
-  docker: "dockerfile",
-  text: "",
-  plaintext: "",
-  txt: "",
-};
 
 /** Shiki 语义槽位 → yz-tok-* class(色值见 editor.css 的 --code-* 映射) */
 const SLOT_CLASS: Record<string, string> = {
@@ -93,6 +41,44 @@ const SLOT_CLASS: Record<string, string> = {
   "token-deleted": "del",
   "token-changed": "chg",
 };
+
+/**
+ * markup 家族(HTML / Vue / JSX / XML 及其衍生)。
+ *
+ * 这类语言的 css-variables 主题把 `entity.name.tag`(标签名)与
+ * `string.quoted`(属性值)都塞进 token-string-expression,和「字符串字面量」同色,
+ * 标签名想跟字符串区分、属性名想跟函数名区分,必须看 TextMate scope。
+ * 非 markup 语言没有这些 scope,规则不适用(保持原有配色不变)。
+ */
+const MARKUP_LANGUAGES = new Set([
+  "html",
+  "xml",
+  "vue",
+  "svelte",
+  "astro",
+  "jsx",
+  "tsx",
+  "handlebars",
+  "haml",
+  "pug",
+  "erb",
+  "marko",
+]);
+
+/**
+ * markup 家族的 scope 二次归类(从最内层 scope 往外找)。
+ * 只在 MARKUP_LANGUAGES 内生效。
+ */
+const MARKUP_SCOPE_CLASS: { match: RegExp; cls: string }[] = [
+  // 标签名 entity.name.tag → 独立的 tag 色
+  { match: /entity\.name\.tag/, cls: "tag" },
+  // 属性名 entity.other.attribute-name → attr 色
+  { match: /entity\.other\.attribute-name/, cls: "attr" },
+  // 属性值字符串 → str(而不是 emb)
+  { match: /string\.quoted\.(double|single)/, cls: "str" },
+  // 插值 / 模板表达式 {{ }} → emb
+  { match: /meta\.template\.expression/, cls: "emb" },
+];
 
 /** 与 createCssVariablesTheme 的 variablePrefix 一致 */
 const COLOR_VAR_RE = /^var\(--yz-code-([a-z-]+)\)$/;
@@ -120,11 +106,14 @@ function getHighlighter(): Promise<HighlighterCore> | null {
   return highlighterPromise;
 }
 
+/**
+ * 语言归一 + 「这份语言有语法吗」判定。
+ * 返回 canonical id(如 `typescript` / `vue`);不识别返回 null(不高亮)。
+ */
 function resolveLang(attr: unknown): string | null {
-  const raw = typeof attr === "string" ? attr.trim().toLowerCase() : "";
-  if (!raw) return null;
-  const id = LANG_ALIAS[raw] ?? raw;
-  return LANG_IMPORTS[id] ? id : null; // 未收录语言不高亮
+  const id = resolveCodeLanguage(attr);
+  if (!id) return null;
+  return shikiLanguageLoader(id) ? id : null;
 }
 
 function collectDocLangs(doc: PMNode): string[] {
@@ -141,10 +130,12 @@ function loadLang(highlighter: HighlighterCore, id: string): Promise<void> {
   if (loadedLangs.has(id)) return Promise.resolve();
   let pending = langLoadPromises.get(id);
   if (pending) return pending;
-  const loader = LANG_IMPORTS[id];
+  const loader = shikiLanguageLoader(id);
   if (!loader) return Promise.resolve();
   pending = loader()
-    .then((mod) => highlighter.loadLanguage(mod.default))
+    .then((mod) =>
+      highlighter.loadLanguage(mod.default as LanguageRegistration),
+    )
     .then(() => {
       loadedLangs.add(id);
     })
@@ -160,6 +151,72 @@ function slotClass(color: string): string | null {
   const slot = COLOR_VAR_RE.exec(color)?.[1];
   if (!slot) return null;
   return SLOT_CLASS[slot] ?? null;
+}
+
+/**
+ * markup 家族的二次归类:按 scope 把「标签名 / 属性名 / 属性值」
+ * 从 string-expression、function 里拆出来。
+ */
+function markupClass(
+  scopes: readonly { scopeName: string }[] | undefined,
+): string | null {
+  if (!scopes?.length) return null;
+  // 从最内层 scope 往外找:TextMate 越内层越具体
+  for (let i = scopes.length - 1; i >= 0; i -= 1) {
+    const name = scopes[i].scopeName;
+    for (const rule of MARKUP_SCOPE_CLASS) {
+      if (rule.match.test(name)) return rule.cls;
+    }
+  }
+  return null;
+}
+
+/** 一个高亮 token */
+export interface HighlightToken {
+  content: string;
+  offset: number;
+  /** yz-tok-* 语义后缀;null = 不着色 */
+  cls: string | null;
+}
+
+type TokenLine = HighlightToken[];
+
+/**
+ * tokenize 一段代码 → 带 class 的 token 行。
+ * 供 PM decoration(排版视图)与导出 HTML 复用。
+ */
+function tokenize(
+  highlighter: HighlighterCore,
+  source: string,
+  lang: string,
+): TokenLine[] | null {
+  const isMarkup = MARKUP_LANGUAGES.has(lang);
+  let lines: ReturnType<HighlighterCore["codeToTokensBase"]>;
+  try {
+    lines = highlighter.codeToTokensBase(source, {
+      lang,
+      theme: "yz-code",
+      // explanation 只在 markup 家族需要(取 scope 二次归类),其余语言省掉这份开销
+      includeExplanation: isMarkup,
+    });
+  } catch {
+    return null; // 语法解析失败:退回无高亮,不影响编辑
+  }
+  return lines.map((line) =>
+    line.map((token) => ({
+      content: token.content,
+      offset: token.offset,
+      cls: isMarkup
+        ? // markup 家族优先按 scope 归类:标签名/属性名在 css-variables 主题里
+          // 与「字符串字面量」同槽位,不按 scope 分就区分不出来
+          (markupClass(
+            token.explanation?.[0]?.scopes as
+              | readonly { scopeName: string }[]
+              | undefined,
+          ) ?? slotClass(token.color ?? ""))
+        : slotClass(token.color ?? ""),
+    })),
+  );
 }
 
 /**
@@ -190,14 +247,9 @@ export async function highlightCodeElements(root: ParentNode): Promise<void> {
     if (!lang || !loadedLangs.has(lang)) continue;
 
     const source = code.textContent ?? "";
-    let lines: ReturnType<HighlighterCore["codeToTokensBase"]>;
-    try {
-      lines = highlighter.codeToTokensBase(source, { lang, theme: "yz-code" });
-    } catch {
-      continue;
-    }
+    const lines = tokenize(highlighter, source, lang);
+    if (!lines) continue;
 
-    const tokens = lines.flat();
     const doc = code.ownerDocument;
     const fragment = doc.createDocumentFragment();
     let cursor = 0;
@@ -206,22 +258,38 @@ export async function highlightCodeElements(root: ParentNode): Promise<void> {
         fragment.appendChild(doc.createTextNode(source.slice(cursor, to)));
       }
     };
-    for (const token of tokens) {
-      appendPlain(token.offset);
-      const cls = slotClass(token.color ?? "");
-      if (cls) {
-        const span = doc.createElement("span");
-        span.className = `yz-tok-${cls}`;
-        span.textContent = token.content;
-        fragment.appendChild(span);
-      } else {
-        fragment.appendChild(doc.createTextNode(token.content));
+    for (const line of lines) {
+      for (const token of line) {
+        appendPlain(token.offset);
+        if (token.cls) {
+          const span = doc.createElement("span");
+          span.className = `yz-tok-${token.cls}`;
+          span.textContent = token.content;
+          fragment.appendChild(span);
+        } else {
+          fragment.appendChild(doc.createTextNode(token.content));
+        }
+        cursor = token.offset + token.content.length;
       }
-      cursor = token.offset + token.content.length;
     }
     appendPlain(source.length);
     code.replaceChildren(fragment);
   }
+}
+
+/**
+ * HTML 源码高亮(供 Raw HTML 块的「源码态」使用)。
+ * 首次调用会懒加载 html grammar;加载完成前返回 null(调用方退回纯文本)。
+ */
+export async function highlightHtmlSource(
+  source: string,
+): Promise<HighlightToken[][] | null> {
+  if (typeof window === "undefined") return null;
+  const highlighter = await getHighlighter();
+  if (!highlighter) return null;
+  await loadLang(highlighter, "html");
+  if (!loadedLangs.has("html")) return null;
+  return tokenize(highlighter, source, "html");
 }
 
 function buildDecorations(
@@ -234,24 +302,16 @@ function buildDecorations(
     if (node.type.name !== "codeBlock") return;
     const lang = resolveLang(node.attrs.language);
     if (!lang || !loadedLangs.has(lang)) return;
-    let tokens: ReturnType<HighlighterCore["codeToTokensBase"]>;
-    try {
-      tokens = highlighter.codeToTokensBase(node.textContent, {
-        lang,
-        theme: "yz-code",
-      });
-    } catch {
-      return; // 语法解析失败:退回无高亮,不影响编辑
-    }
+    const lines = tokenize(highlighter, node.textContent, lang);
+    if (!lines) return;
     const base = pos + 1; // codeBlock 内容起始
-    for (const line of tokens) {
+    for (const line of lines) {
       for (const token of line) {
-        const cls = slotClass(token.color ?? "");
-        if (!cls) continue;
+        if (!token.cls) continue;
         const from = base + token.offset;
         decorations.push(
           Decoration.inline(from, from + token.content.length, {
-            class: `yz-tok-${cls}`,
+            class: `yz-tok-${token.cls}`,
           }),
         );
       }

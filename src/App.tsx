@@ -27,6 +27,7 @@ import { TemplateManager } from "./kb/TemplateManager";
 import { templateToContent, uniqueTemplateName } from "./kb/templates";
 import { compressImageFile, isImageFile } from "./kb/image-compress";
 import { useSettings } from "./settings";
+import type { CodeThemeId } from "./settings";
 import { useAiSession } from "./ai/useAiSession";
 import { useTitleAiSession } from "./ai/useTitleAiSession";
 import { TitleAiControl } from "./ai/TitleAiControl";
@@ -78,6 +79,7 @@ interface PdfExportSource {
   title: string;
   docRel: string;
   readAssetBase64: (rel: string) => Promise<{ data: string; mime: string } | null>;
+  codeTheme: CodeThemeId;
 }
 
 interface PendingDocxExport {
@@ -595,12 +597,13 @@ function App() {
       title: title || "未命名文档",
       docRel: kb.currentPath,
       readAssetBase64: kb.readAssetBase64,
+      codeTheme: settings.codeTheme,
     }).then((html) =>
       kb.exportText(`${title || "未命名文档"}.html`, "html", html).then((p) => {
         if (p) showToast(`已导出:${p}`);
       }),
     );
-  }, [kb, showToast, title]);
+  }, [kb, showToast, title, settings.codeTheme]);
 
   const [pdfExportBusy, setPdfExportBusy] = useState(false);
   const [pdfExportSuccessPath, setPdfExportSuccessPath] = useState<string | null>(null);
@@ -631,8 +634,9 @@ function App() {
       title: title || "未命名文档",
       docRel: kb.currentPath,
       readAssetBase64: kb.readAssetBase64,
+      codeTheme: settings.codeTheme,
     });
-  }, [kb, runPdfExport, title]);
+  }, [kb, runPdfExport, title, settings.codeTheme]);
   const exportSingleMd = useCallback(() => {
     void kbBackend.exportText(single.fileName || "未命名文档.md", "md", single.getMarkdownNow()).then((p) => {
       if (p) showToast(`已导出:${p}`);
@@ -645,12 +649,13 @@ function App() {
       title: single.fileStem || "未命名文档",
       docRel: single.fileName,
       readAssetBase64: single.readAssetBase64,
+      codeTheme: settings.codeTheme,
     }).then((html) =>
       kbBackend.exportText(`${single.fileStem || "未命名文档"}.html`, "html", html).then((p) => {
         if (p) showToast(`已导出:${p}`);
       }),
     );
-  }, [showToast, single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64]);
+  }, [showToast, single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64, settings.codeTheme]);
 
   const exportSinglePdf = useCallback(() => {
     void runPdfExport({
@@ -658,8 +663,9 @@ function App() {
       title: single.fileStem || "未命名文档",
       docRel: single.fileName,
       readAssetBase64: single.readAssetBase64,
+      codeTheme: settings.codeTheme,
     });
-  }, [runPdfExport, single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64]);
+  }, [runPdfExport, single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64, settings.codeTheme]);
   /* ---- DOCX 语义导出(5.6):PM doc → Pandoc AST,不让 Pandoc 重解析 Markdown ---- */
   const [docxExportBusy, setDocxExportBusy] = useState(false);
   const [docxLoadingVisible, setDocxLoadingVisible] = useState(false);
@@ -2125,6 +2131,7 @@ function App() {
         onSourceModeChange={setSourceMode}
         sourceModeApiRef={sourceModeApiRef}
         tabIndentSize={settings.tabIndentSize}
+        codeTheme={settings.codeTheme}
         cardBorder={settings.cardBorder}
         tableCellCopy={settings.tableCellCopy}
         onToggleTableCellCopy={() =>
@@ -2469,6 +2476,7 @@ function App() {
               sourceModeApiRef={sourceModeApiRef}
               onSourceModeChange={setSourceMode}
               tabIndentSize={settings.tabIndentSize}
+              codeTheme={settings.codeTheme}
               typewriter={focusMode && settings.typewriterMode}
               shortcuts={settings.shortcuts}
               codeLanguageRecents={settings.recentCodeLanguages}

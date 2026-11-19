@@ -1,10 +1,10 @@
-# 项目状态(更新:2026-11-17)
+# 项目状态(更新:2026-11-19)
 
 > 开工前速览:看「下一步」直接干活;细节翻 `docs/PRD-本地离线知识库编辑器.md` 对应章节。文档索引见 `docs/README.md`。
 
 ## 现状一句话
 
-**MVP / V2 / V3 功能已齐(含 BYOK AI-0/1/2 + AI-3 卡片)**。2026-11-17:Raw HTML 块改为直接安全渲染,无块内预览/源码切换(历史能力已移除)。HTML 导出已按编辑器卡片形态渲染代码高亮、Mermaid、KaTeX 公式、Callout、Details、附件卡与 Raw HTML 安全预览,并在导出文件内嵌公式字体。Markdown 源码模式的代码块 token 与底色已复用排版视图 Shiki 的 --code-* / --code-bg 色槽。2026-11-14:格式工具栏在 Windows 上不再冒出横竖滚动条;源码模式开关在状态栏左下、单文件路径行和菜单「显示 → 源码模式」(面包屑右侧入口已去掉),⌘/Ctrl+/ 仍可用;更改图标弹窗在 Windows 上延后挂载网格、先关窗再写 meta,减轻打开/点选卡顿;2026-11-15 进一步改为 7 列大图标 + 固定行高虚拟滚动,关闭时正常卸载 Radix 遮罩,目录树本地覆盖与 meta/标签页刷新错峰,并定位到 Win32 菜单重建导致的整窗抖动(见下)。DOCX 语义导出代码完成(PM doc → Pandoc AST,可选外部 Pandoc + 外链图片受控嵌入;行内代码导出内容已修复不丢字,真机验收待做)。PDF 导出已改为主窗口内离屏子 WebView 直出:复用自包含 HTML,不创建/弹出独立 OS 窗口;Windows WebView2 PrintToPdf 无弹窗生成文件并真机冒烟通过。2026-11-16 macOS 修复隐藏 WKWebView 加载挂起(不再 hide,仅屏外 + 禁 inactive scheduling),并将 createPDF 连续画布矢量重绘为 A4/16mm 边距;同时绕开 rfd save 在 Tauri async command 中的挂起问题,HTML/PDF 保存面板改用 NSSavePanel 直调。分页不再硬切标题/段落/列表项/代码块/表格/卡片,并修复 WKWebView 200 英寸内部 chunk 与 A4 边界交错导致的错序/重叠;87 页合成长文在 chunk 临界页连续无漏行,真实文档 9 页抽检通过。导出中提示只说明“正在排版文档”,成功提示常驻并支持「在文件管理器中显示/关闭」。DOCX 测试已覆盖生成后回读正文,标题/列表/表格/代码/Mermaid/双链/提示块/折叠块/附件/公式内容均逐项断言。2026-11-13:知识库新增浏览器式文档标签页(Phase 1+2:打开/激活/关闭/关闭其它/关闭左侧/关闭右侧、拖拽排序、被遮挡 tab 激活后自动滚到可见、中键关闭、右键菜单、⌘/Ctrl+W 关闭、Ctrl+Tab 与 Shift+[ ] 前后切换、⌘/Ctrl+Alt+数字直切;tab 使用目录树自定义图标;右键与原生文件菜单的三种导出格式收进「导出」二级菜单;`.yanzhi/workspace.json` 持久化;单个编辑器实例复用,切换前强制保存,失败阻断,重命名/移动/删除自动同步 tab;正文双链默认当前 tab,⌘/Ctrl 或中键打开/切换 tab);设置 → 外观 → 正文排版新增正文列宽,默认自适应,可固定 600–1200px(标题/正文/源码/工具栏/帮助同列,窄窗口仍自动收缩);外观默认正文行高从 1.75 收紧为 1.6(导出/复制 HTML 的默认排版同步);排版视图普通文本/代码块与 Markdown 源码视图的 Tab 缩进宽度可在设置 → 编辑器调整为 1–8 字符,Shift+Tab 可缩回光标前缩进或行首缩进(列表升降级、表格切换单元格语义保留);Markdown 普通文本中的 `=`、`===>`、`======>` 不再被误识别为高亮或反斜杠转义,`==高亮==` 方言保持可用;开库/首启装载期改为工作区 loading,不再先闪现未命名空文档;2026-11-12:新增全文档 Markdown 源码模式(工具栏 + ⌘/Ctrl+/,基于懒加载 CodeMirror 6 + Lezer Markdown/GFM 的 HBuilder/Typora 式彩色主题(H1–H6 分级配色、链接下划线、代码块轻底色与按语言懒加载的真实 parser 多色 token 着色(C/C++/CSS/HTML/Java/JS/JSON/Python/Rust/Go/Shell/Bash/SQL/TS/XML/YAML,未识别语言通用回退));与排版视图同内容列/纵向滚动容器、无边框,编辑器高度自适应且不单独纵向滚动,排版/源码双向按滚动比例恢复当前阅读位置(首次源码 chunk 懒加载时等待可滚动布局出现后再恢复),源码编辑自动保存,长行在正文列内软折行且不出横向滚动条,右侧大纲在源码态按 CodeMirror 行定位、点击可跳转并联动高亮,代码块使用浏览器原生 selection 保证在彩色代码块背景上可见可选);裸 URL/外部编辑器转义 scheme(`https\\://`)打开即解析为链接;目录树内置图标与右键更改图标上线；2026-11-11:整段 http(s) 图片地址粘贴即转外链图片；未知扩展名 URL 由用户粘贴触发单次图片解码识别。2026-11-03:关闭窗口保持后台;单实例托盘;AI 结构 + 卡片(代码解释改写 / Mermaid 生成修正 / 公式)。签名/公证与 IME 真机回归仍待。2026-11-17:修复新建文档后立即输入正文、再改标题按 Enter 时正文被清空的问题(编辑器 300ms 去抖稿与同文档改名重载的竞态);Markdown 源码粘贴(含 VS Code 源码 HTML 与 PM 源码副本 HTML)改为直接解析进排版视图;HTML 注释以轻量注记可见保留、独立线上 img 转原生图片卡片。
+**MVP / V2 / V3 功能已齐(含 BYOK AI-0/1/2 + AI-3 卡片)**。2026-11-19:设置 → 编辑器新增内置离线代码块主题(跟随砚知/GitHub/One Dark Pro/Monokai/Dracula/Night Owl),fenced 代码块、Markdown 源码 fenced 区、Raw HTML 源码态与 HTML/PDF 导出同步;行内 code/`` 标记不受主题影响(修复深色代码主题下行内代码被染成深底黑字),不写入 Markdown;2026-11-18:代码块高亮改走 Shiki 官方语言注册表(vue/svelte 等全部内置语法仍懒加载),语言选择器支持自定义输入;Raw HTML 源码态复用 HTML Shiki 高亮与标签/属性 token。Raw HTML 块新增 **点击渲染内容 → 该块切源码态**(光标落到点到的字符上),点别处/失焦/Esc 回渲染视图;2026-11-17:Raw HTML 块改为直接安全渲染,无块内预览/源码切换按钮(历史能力已移除)。HTML 导出已按编辑器卡片形态渲染代码高亮、Mermaid、KaTeX 公式、Callout、Details、附件卡与 Raw HTML 安全预览,并在导出文件内嵌公式字体。Markdown 源码模式的代码块 token 与底色已复用排版视图 Shiki 的 --code-* / --code-bg 色槽。2026-11-14:格式工具栏在 Windows 上不再冒出横竖滚动条;源码模式开关在状态栏左下、单文件路径行和菜单「显示 → 源码模式」(面包屑右侧入口已去掉),⌘/Ctrl+/ 仍可用;更改图标弹窗在 Windows 上延后挂载网格、先关窗再写 meta,减轻打开/点选卡顿;2026-11-15 进一步改为 7 列大图标 + 固定行高虚拟滚动,关闭时正常卸载 Radix 遮罩,目录树本地覆盖与 meta/标签页刷新错峰,并定位到 Win32 菜单重建导致的整窗抖动(见下)。DOCX 语义导出代码完成(PM doc → Pandoc AST,可选外部 Pandoc + 外链图片受控嵌入;行内代码导出内容已修复不丢字,真机验收待做)。PDF 导出已改为主窗口内离屏子 WebView 直出:复用自包含 HTML,不创建/弹出独立 OS 窗口;Windows WebView2 PrintToPdf 无弹窗生成文件并真机冒烟通过。2026-11-16 macOS 修复隐藏 WKWebView 加载挂起(不再 hide,仅屏外 + 禁 inactive scheduling),并将 createPDF 连续画布矢量重绘为 A4/16mm 边距;同时绕开 rfd save 在 Tauri async command 中的挂起问题,HTML/PDF 保存面板改用 NSSavePanel 直调。分页不再硬切标题/段落/列表项/代码块/表格/卡片,并修复 WKWebView 200 英寸内部 chunk 与 A4 边界交错导致的错序/重叠;87 页合成长文在 chunk 临界页连续无漏行,真实文档 9 页抽检通过。导出中提示只说明“正在排版文档”,成功提示常驻并支持「在文件管理器中显示/关闭」。DOCX 测试已覆盖生成后回读正文,标题/列表/表格/代码/Mermaid/双链/提示块/折叠块/附件/公式内容均逐项断言。2026-11-13:知识库新增浏览器式文档标签页(Phase 1+2:打开/激活/关闭/关闭其它/关闭左侧/关闭右侧、拖拽排序、被遮挡 tab 激活后自动滚到可见、中键关闭、右键菜单、⌘/Ctrl+W 关闭、Ctrl+Tab 与 Shift+[ ] 前后切换、⌘/Ctrl+Alt+数字直切;tab 使用目录树自定义图标;右键与原生文件菜单的三种导出格式收进「导出」二级菜单;`.yanzhi/workspace.json` 持久化;单个编辑器实例复用,切换前强制保存,失败阻断,重命名/移动/删除自动同步 tab;正文双链默认当前 tab,⌘/Ctrl 或中键打开/切换 tab);设置 → 外观 → 正文排版新增正文列宽,默认自适应,可固定 600–1200px(标题/正文/源码/工具栏/帮助同列,窄窗口仍自动收缩);外观默认正文行高从 1.75 收紧为 1.6(导出/复制 HTML 的默认排版同步);排版视图普通文本/代码块与 Markdown 源码视图的 Tab 缩进宽度可在设置 → 编辑器调整为 1–8 字符,Shift+Tab 可缩回光标前缩进或行首缩进(列表升降级、表格切换单元格语义保留);Markdown 普通文本中的 `=`、`===>`、`======>` 不再被误识别为高亮或反斜杠转义,`==高亮==` 方言保持可用;开库/首启装载期改为工作区 loading,不再先闪现未命名空文档;2026-11-12:新增全文档 Markdown 源码模式(工具栏 + ⌘/Ctrl+/,基于懒加载 CodeMirror 6 + Lezer Markdown/GFM 的 HBuilder/Typora 式彩色主题(H1–H6 分级配色、链接下划线、代码块轻底色与按语言懒加载的真实 parser 多色 token 着色(C/C++/CSS/HTML/Java/JS/JSON/Python/Rust/Go/Shell/Bash/SQL/TS/XML/YAML,未识别语言通用回退));与排版视图同内容列/纵向滚动容器、无边框,编辑器高度自适应且不单独纵向滚动,排版/源码双向按滚动比例恢复当前阅读位置(首次源码 chunk 懒加载时等待可滚动布局出现后再恢复),源码编辑自动保存,长行在正文列内软折行且不出横向滚动条,右侧大纲在源码态按 CodeMirror 行定位、点击可跳转并联动高亮,代码块使用浏览器原生 selection 保证在彩色代码块背景上可见可选);裸 URL/外部编辑器转义 scheme(`https\\://`)打开即解析为链接;目录树内置图标与右键更改图标上线；2026-11-11:整段 http(s) 图片地址粘贴即转外链图片；未知扩展名 URL 由用户粘贴触发单次图片解码识别。2026-11-03:关闭窗口保持后台;单实例托盘;AI 结构 + 卡片(代码解释改写 / Mermaid 生成修正 / 公式)。签名/公证与 IME 真机回归仍待。2026-11-17:修复新建文档后立即输入正文、再改标题按 Enter 时正文被清空的问题(编辑器 300ms 去抖稿与同文档改名重载的竞态);Markdown 源码粘贴(含 VS Code 源码 HTML 与 PM 源码副本 HTML)改为直接解析进排版视图;HTML 注释以轻量注记可见保留、独立线上 img 转原生图片卡片。
 
 ## 里程碑(PRD §11.4 工期表)
 
@@ -20,12 +20,14 @@
 | --- | --- | --- |
 | TOC 大纲面板 | ✅ | 滚动高亮联动、点击跳转、可折叠 |
 | 代码块卡片 | ✅ | hover 语言切换/复制、行号列;`src/editor/extensions/code-block-card.tsx` |
-| Shiki 语法高亮 | ✅ | `src/editor/extensions/code-highlight.ts`,PM decoration + css-variables 语义槽位 → `--code-*` token |
+| Shiki 语法高亮 | ✅ | `src/editor/extensions/code-highlight.ts` + `shiki-langs.ts`:PM decoration + css-variables 语义槽位 → `--code-*` token;2026-11-18 起语言候选/懒加载统一走 Shiki 官方注册表(vue/svelte/astro 等可用),别名归一,选择器允许自定义语言;HTML/Vue 等 markup 用 TextMate scope 拆标签名/属性名。代码主题通过正文表面的 data-code-theme 切换 design tokens(内置离线,不联网;行内 code 走独立 --inline-code-bg,避免被深色代码主题染黑);Raw HTML 源码态复用同一 HTML tokenizer,并按行补换行保证高亮层与 textarea 对齐 |
 | 表格编辑工具条 | ✅ | 光标入表浮现:行/列增删下拉 + 整列对齐 + 删表;`table-utils.ts` + `toolbar/TableToolbar.tsx` + 表格基础样式;**列宽拖拽**(`Table.resizable`,colwidth 会话级,GFM 无列宽语法,重开回均分);**单元格悬停复制**(设置/表工具条复制图标同源 `tableCellCopy`,默认关,`TableCellCopy` 浮层);**单元格右键**(`TableContextMenu`,按点中的行/列插删行列、对齐、删表,右键分「行操作」「列操作」「单元格」三组:行/列用数量框+勾选插入,「单元格」下「复制内容」复制当前格纯文本;悬停复制开关只留工具条/设置,2026-11-06;前一日换 Radix 多级菜单并统一 `context-menu`/`dropdown-menu` 视觉) |
 | 粘贴清洗 | ✅ | `paste-clean.ts`(transformPastedHTML):样式/脚本/私有 XML 丢弃、追踪参数剥离、合并表格降级纯文本、外部任务列表转 taskItem、外部颜色吸附预设色;2026-11-17 起Markdown 源码(纯文本、VS Code 源码 HTML 或 PM 源码副本 HTML)经 `markdown-paste.ts` 统一解析进排版视图(语义富文本仍走 HTML 清洗,代码块内原样) |
 | 图片卡片 UI | ✅ | 选中图片浮层(宽度档位/对齐/放大 lightbox)+ **左右手柄拖拽改宽**(20%–100%);width/align 会话级不进 md |
 | 文字颜色(语雀式色卡) | ✅ | §10 方言 `<font color>`:色卡 8 色 + 默认清除(`extensions/font-color.ts` + 工具栏 Palette 下拉);粘贴吸附(黑白灰摘除/彩色吸附最近预设色);序列化公共 mark 外提 |
 
+
+2026-11-19 验证:`pnpm test` **384/384**、`pnpm build` 通过;新增官方语言表/自定义语言、vue/html token、Raw HTML iframe 点击与源码高亮对齐、内置代码主题与导出主题、行内 code 不受代码主题影响回归。
 注:PRD 把「[[双链]]+跳转/前进后退」也列在 M2,但跳转依赖知识库文件系统,**挪到 M3 与目录树一起做**。
 
 ### M3 知识库与系统 🔨 进行中
@@ -209,9 +211,11 @@
 
 验证:`pnpm test` **183/183**、`cargo test` **6/6**、`pnpm build` 通过、`pnpm tauri build --no-bundle` 通过(fileAssociations 配置有效);知识库综合回归 `remaining-v3.js` **19/19**。浏览器单文件回归覆盖轻量入口、左右栏降级、手动保存、未保存关闭确认、最近文件重开、崩溃草稿恢复、拖拽打开、assets 确认与资源随文档转存知识库;追加验证「存入后保存原文件并打开知识库 → 自动定位新文档 → 回首页 → 从知识库进入单文件」闭环。系统「打开方式」与 macOS Opened 事件需打包版真机最终确认。
 
-## Raw HTML 渲染(2026-11-09;2026-11-17 移除块内切换)✅ 代码完成
+## Raw HTML 渲染(2026-11-09;2026-11-17 移除块内切换;2026-11-18 加点击进源码)✅ 代码完成
 
-2026-11-17 起效仿 Typora:块级未知 HTML 在隔离 iframe 中无缝直接安全渲染,不再提供块内预览/源码切换,也不添加卡片边框/底色;修改 HTML 原文统一走全文档 Markdown 源码模式并原样写回。HTML 注释在排版视图以轻量注记显示、源码模式可编辑且原文往返保留;独立块级线上 `<img>` 直接转原生图片卡片。渲染禁脚本/表单/嵌入对象/危险协议,移除事件属性;允许 http(s) 远程图片自动加载(图片统一 no-referrer,避免掘金等图床 Referer ACL 拒绝 localhost 来源),本地相对图片经 assets 解析;按内容 intrinsic width 等比缩放,宽浮动布局不被正文列折行。原文仍走 rawHtml 原样序列化,往返不变。
+2026-11-17 起效仿 Typora:块级未知 HTML 在隔离 iframe 中无缝直接安全渲染,不再提供块内预览/源码切换,也不添加卡片边框/底色;HTML 注释在排版视图以轻量注记显示、源码模式可编辑且原文往返保留;独立块级线上 `<img>` 直接转原生图片卡片。渲染禁脚本/表单/嵌入对象/危险协议,移除事件属性;允许 http(s) 远程图片自动加载(图片统一 no-referrer,避免掘金等图床 Referer ACL 拒绝 localhost 来源),本地相对图片经 assets 解析;按内容 intrinsic width 等比缩放,宽浮动布局不被正文列折行。原文仍走 rawHtml 原样序列化,往返不变。
+
+2026-11-18 追加 **点击渲染内容 → 该块切源码态**(Typora 式):点 iframe 里渲染出来的文字/元素(监听挂在 frame document,内部 click 不冒泡到父文档) → 该块换成带 Shiki HTML 高亮的源码编辑层并聚焦,光标落到**点到的那个字符**上;点别处/失焦/Esc → 回到渲染视图(改动即生效重渲)。位置映射走 `extensions/raw-html-source-map.ts`:源码与 iframe 正文用同一套规范化(跳标签/注释/script-style、解实体、连续空白折叠)得到可见文本,再按「同文本节点出现次序」消歧换算回源码下标;点到图片等无文字元素时按标签序号粗定位。源码改动写回 `rawHtml.content` 属性,序列化仍原样写出(往返稳定)。注意:div 开/闭布局边界(`layout`)与 HTML 注释(`comment`)不参与本交互,改它们仍走全文档 Markdown 源码模式。
 
 ## DOCX 语义导出(PRD 5.6,2026-11-09)🔨 代码完成,真机待验
 
@@ -314,7 +318,7 @@
 | 待办进度 | 状态栏有 `taskItem` 时显示「已完成/总数」;点击定位下一个未完成待办,统计弹窗同步展示 |
 | 最近打开 | `⌘/Ctrl+P` 空搜索态展示当前库最近 12 篇文档;记录存应用设置 `recentDocs[root]`,不进入知识库 meta;改名/删除后的失效路径在展示时按当前树过滤 |
 | 复制为 Markdown | 工具栏「复制为」与正文右键新增;有选区复制选区、空选区复制全文,复用 `docToMarkdown` 唯一序列化出口 |
-| 代码语言搜索 | 代码卡语言选择改为可输入过滤的弹层;最近 5 个语言置顶,记录存应用设置 `recentCodeLanguages`;键盘上下/Enter/Esc 可用 |
+| 代码语言搜索 | 代码卡语言选择改为可输入过滤的弹层;候选来自 Shiki 官方注册表(242 canonical,含 vue/svelte/astro 等),未内置名字可作为自定义语言写入 fence,最近 5 个语言置顶,记录存应用设置 `recentCodeLanguages`;键盘上下/Enter/Esc 可用 |
 | 大纲快速定位 | 大纲头部新增局部搜索,支持标题筛选、↑↓选择、Enter 跳转、Esc 清空/收起;跳转后标题稳定贴近正文顶部并立即标记当前项 |
 
 顺手修正:大纲点击原先只 `scrollIntoView` 到视口边缘,长文跳转常停在底边;现显式计算滚动容器偏移并在下一帧校正。
@@ -431,13 +435,15 @@
 - **shadcn new-CLI 组件的动画类错配 data 变体**(全系实录):`data-open:animate-in` 匹配的是布尔属性 `[data-open]`,radix 实际用 `data-state="open"/"closed"/"delayed-open"/"instant-open"`——**右键菜单/popover/dialog/tooltip 的进出场动画从来没生效过**;且 tooltip 模板漏了 `instant-open`(skipDelay 300ms 内二次触发,如菜单项间移动)状态。已全量改为 `data-[state=open]:` 形态 + 补 instant-open 三件套(tooltip/dropdown/context/popover/dialog 五个文件)
 - **flex 滚动**:任何 `flex-1` 滚动容器必须配 `min-h-0`,否则内容把 body 顶出滚动条;整页已设 `body overflow:hidden`,编辑列用 `min-h-0 flex-1`
 - **装新依赖后必须重启 dev**:Vite optimizeDeps 在启动时定型,不重启会 resolve 失败(报错像没装一样)
-- **Shiki**:必须传 theme(css-variables 占位主题)token 才会细分,否则整行一个 token;`@shikijs/langs`/`@shikijs/engine-javascript` 是直接依赖(pnpm 严格解析),新语言在 `code-highlight.ts` 的 `LANG_IMPORTS` 加字面量 import
+- **Shiki**:必须传 theme(css-variables 占位主题)token 才会细分,否则整行一个 token;`@shikijs/langs`/`@shikijs/engine-javascript` 是直接依赖(pnpm 严格解析)。语言表统一走 `shiki-langs.ts` 的官方 `bundledLanguagesInfo` / `bundledLanguages`,别名归一到 canonical id 后懒加载,不再往 `code-highlight.ts` 加字面量 import;HTML/Vue 等 markup 语法需用 token explanation 的 TextMate scope 拆出标签名/属性名
 - **@tiptap/suggestion 3.32**:`allowedPrefixes: null` 才能任意位置触发;浮层定位的 `fixed` 和 left/top 必须在同一个元素上;**同一 editor 挂第二个 suggestion 必须传独立 `pluginKey`**(默认 `suggestion$` 是模块级单例,重复挂载直接报 keyed plugin 冲突白屏)
 - **Tiptap 3.32 InputRule**:handler 返回类型是 `void`(不是 2.x 的 boolean/tr),`undoable` 是必填字段;无效匹配时不改 tr 即可(no-op)
 - **PM 位置算术**(table-utils 踩过):`$from.node(depth)` 的父级在 `depth-1` 不是 `depth+1`;`setNodeMarkup(pos)` 要求 `doc.nodeAt(pos)` 命中目标节点——单元格自身位置 = 表格内容起点(tablePos+1)+ 行偏移 + 行开标签 1 + 行内偏移,整体比直觉多 1
 - **无浏览器工具时的 UI 验证**:`chromium-cli` 不在时,`/tmp/yanzhi-drive` 里有 playwright-core + 系统 Chrome(`channel:"chrome"`)驱动脚本,`pnpm dev` 起来后 `node drive.js` 可复用
 - **updateAttributes 空区间**:collapsed TextSelection 下 `updateAttributes` 按 `[from,to)` 找节点,空区间命不中目标且**不报错**;浮层按钮链路要先 `setNodeSelection(pos)`(ImageToolbar 踩过)
 - **jsdom 的 innerHTML 会把 U+00A0 序列化成 `&nbsp;` 实体文本**,文本级 `split("nbsp字符")` 匹配不到,实体和字符两种形态都要处理(paste-clean 踩过)
+- **jsdom 测试 React 组件的两处必备补丁**(Raw HTML 点击进源码踩过):① `document.elementFromPoint` jsdom 未实现,PM 的 `posAtCoords` 一调就抛 `elementFromPoint is not a function` —— 点预览/正文类交互前先 `document.elementFromPoint = () => null` 打桩(用完还原);② **React 的 `onBlur` 走原生 `focusout`,不是 `blur`** —— 派发 `new FocusEvent("blur")` 不冒泡,React 收不到,断言「失焦收起」要用 `new FocusEvent("focusout", { bubbles: true })`
+- **源码文本 ↔ 渲染位置映射**(Raw HTML 点击进源码踩过):iframe 与源码之间没有 DOM 关系,只能靠「规范化可见文本」对齐 —— 两边用同一套规则(跳标签/注释/script-style、解实体、连续 ASCII 空白折叠成一个空格、丢弃末尾空白),再用「同文本节点在文档中的出现次序」消歧同名文本;点不到文字(图片等)时按标签序号粗定位。另:**iframe 内部 click 不冒泡到父文档**,交互监听要挂到 `frame.contentDocument`,仅父容器 onClick 会漏掉真实点击
 - **斜杠菜单二级不要自绘绝对定位**(2026-11-06):自绘子菜单会被主菜单 `overflow` 裁切,贴边不翻转,父子之间的空隙会把 hover 弄丢。展示改用 `DropdownMenu` 的 Sub。菜单必须 `modal={false}` 并拦住 `onOpenAutoFocus` / `onFocusOutside` / `onPointerDownOutside`,否则焦点离开编辑器,`/` 后面的过滤会中断
 - **radix 菜单会移动焦点,PM 失焦期间不消费 DOM 选区变化**:菜单类(trigger+item)对行内 mark 的操作不能依赖 `chain().focus()` 恢复选区——`onOpenChange(true)` 时快照 `editor.state.selection`,命令前 `setTextSelection(快照)`;trigger 加 `onMouseDown preventDefault`。菜单打开瞬间焦点在 content 上,关闭时 radix 还焦点,均会干扰
 - **PM 的 code mark 吞外层 mark**(DOMParser 行为):`<strong><code>` / `<font><code>` 解析后 code 文本只带 code,外层格式全丢,序列化时 font 被拆开。方言边界:行内代码内无格式,`font-color.test.ts` 锁定降级形态

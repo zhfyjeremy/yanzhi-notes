@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { codeHighlightPlugin, codeHighlightKey } from "../extensions/code-highlight";
+import { codeHighlightKey, codeHighlightPlugin } from "../extensions/code-highlight";
 
 /**
  * 高亮插件可创建;语言懒加载的具体契约见 code-highlight.ts 头注

@@ -26,7 +26,10 @@ const COPY_COLORS = {
 } as const;
 
 /** 给 getHTML 输出注入内联样式(规则对应 editor.css 的正文排版) */
-export function inlineStyles(html: string): string {
+export function inlineStyles(
+  html: string,
+  options: { codeBackground?: string } = {},
+): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
   const body = doc.body;
 
@@ -60,7 +63,7 @@ export function inlineStyles(html: string): string {
     el.style.fontWeight = "600";
   });
   each("pre", (el) => {
-    el.style.background = COPY_COLORS.codeBg;
+    el.style.background = options.codeBackground ?? COPY_COLORS.codeBg;
     el.style.borderRadius = "6px";
     el.style.padding = "0.9em 1.1em";
     el.style.fontFamily =

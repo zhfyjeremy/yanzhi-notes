@@ -39,6 +39,7 @@ import { EDITOR_COLUMN_CLASS } from "../editor/layout";
 import { TocPanel } from "../editor/panel/TocPanel";
 import { StatusBar } from "./StatusBar";
 import type { ShortcutBindings } from "../shortcuts";
+import type { CodeThemeId } from "../settings";
 import { kbBackend } from "./backend";
 import type { SingleFileWorkspace as SingleFileState } from "./useSingleFile";
 import { cn } from "@/lib/utils";
@@ -61,6 +62,7 @@ interface SingleFileWorkspaceProps {
   sourceModeApiRef: MutableRefObject<((next: boolean) => void) | null>;
   tabIndentSize: number;
   cardBorder: boolean;
+  codeTheme: CodeThemeId;
   tableCellCopy: boolean;
   onToggleTableCellCopy: () => void;
   typewriterMode: boolean;
@@ -277,6 +279,7 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
               onPickAttachment={props.onPickAttachment}
               onOpenAttachment={props.onOpenAttachment}
               cardBorder={props.cardBorder}
+              codeTheme={props.codeTheme}
               tableCellCopy={props.tableCellCopy}
               onToggleTableCellCopy={props.onToggleTableCellCopy}
               showToolbar={props.showToolbar && !props.focusMode}

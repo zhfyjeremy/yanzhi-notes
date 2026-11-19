@@ -326,7 +326,8 @@
 
 .yz-editor-doc pre {
   background: var(--code-bg, var(--muted));
-  border: 1px solid var(--border);
+  color: var(--code-fg, var(--foreground));
+  border: 1px solid var(--code-border, var(--border));
   border-radius: var(--radius-md, 6px);
   padding: 0.9em 1.1em;
   font-family: var(--font-mono);
@@ -338,7 +339,8 @@
 /* 代码块卡片(CodeBlockCard NodeView):gutter 行号 + code 内容同字号行高 */
 .yz-editor-doc .yz-code-card {
   background: var(--code-bg, var(--muted));
-  border: 1px solid var(--border);
+  color: var(--code-fg, var(--foreground));
+  border: 1px solid var(--code-border, var(--border));
   border-radius: var(--radius-md, 6px);
   padding: 0.9em 1.1em;
   font-family: var(--font-mono);
@@ -350,8 +352,8 @@
   min-width: 2.2em;
   padding-right: 1em;
   margin-right: 0.75em;
-  border-right: 1px solid var(--border);
-  color: var(--muted-foreground);
+  border-right: 1px solid var(--code-border, var(--border));
+  color: var(--code-fg, var(--foreground));
   opacity: 0.6;
   text-align: right;
 }
@@ -391,7 +393,7 @@
   border: 0;
   color: inherit;
 }
-/* Raw HTML 块:Typora 式直接安全渲染,无块内预览/源码切换 */
+/* Raw HTML 块:Typora 式直接安全渲染;点击渲染内容切源码态(见 raw-html-view.tsx) */
 .yz-editor-doc .yz-raw-html {
   margin: 0;
 }
@@ -402,6 +404,8 @@
   background: transparent;
   overflow: hidden;
   position: relative;
+  /* 点击可进源码编辑 */
+  cursor: text;
 }
 
 .yz-editor-doc .yz-raw-html-preview iframe {
@@ -418,6 +422,105 @@
 
 .yz-editor-doc .yz-raw-html-preview:hover {
   border-color: color-mix(in oklab, var(--primary) 35%, var(--border-subtle));
+}
+
+/* 源码态:带语法高亮的 HTML 原文编辑框,失焦回渲染视图。
+   外层 .yz-raw-html-source-wrap 负责边框/底色,
+   内层 textarea(.yz-raw-html-source)承载输入,文字透明由下层着色。 */
+.yz-editor-doc .yz-raw-html-source-wrap {
+  border: 1px solid var(--code-border, var(--border));
+  border-radius: var(--radius-md, 6px);
+  background: var(--code-bg, var(--muted));
+}
+
+.yz-editor-doc .yz-raw-html-source-wrap:focus-within {
+  border-color: color-mix(in oklab, var(--primary) 45%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 15%, transparent);
+}
+
+.yz-editor-doc .yz-raw-html-source {
+  display: block;
+  width: 100%;
+  min-height: 5em;
+  resize: vertical;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  caret-color: var(--foreground);
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  line-height: 1.65;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 带语法高亮的源码框(highlighted-source.tsx):
+   下层 pre 着色、上层 textarea 透明承载输入,两层排版必须逐字对齐 */
+.yz-editor-doc .yz-highlight-source {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: 5em;
+  padding: 0.75em 0.9em;
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  line-height: 1.65;
+}
+
+.yz-editor-doc .yz-highlight-source-layer,
+.yz-editor-doc .yz-highlight-source-input {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--code-fg, var(--foreground));
+  caret-color: var(--code-fg, var(--foreground));
+  overflow-wrap: anywhere;
+  tab-size: 2;
+  word-break: break-word;
+}
+
+/* 高亮层:绝对定位在 textarea 下方,跟随输入层滚动 */
+.yz-editor-doc .yz-highlight-source-layer {
+  position: absolute;
+  inset: 0.75em 0.9em;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--code-fg, var(--foreground));
+}
+
+.yz-editor-doc .yz-highlight-source-layer code {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* 输入层:默认文字可见(高亮未就绪/不可用的兜底);
+   高亮层就位后(yz-highlight-source-on)才把文字透明化,靠下层着色 */
+.yz-editor-doc .yz-highlight-source-input {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: 3.5em;
+  background: transparent;
+  color: var(--code-fg, var(--foreground));
+  caret-color: var(--code-fg, var(--foreground));
+  outline: none;
+  overflow: auto;
+  /* textarea 滚动条会压缩可用宽度,导致换行位置与下层 pre 不一致 */
+  scrollbar-width: none;
+}
+
+.yz-editor-doc .yz-highlight-source-input::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.yz-editor-doc .yz-highlight-source-on .yz-highlight-source-input {
+  color: transparent;
 }
 
 .yz-editor-doc .yz-raw-html-empty {
@@ -493,6 +596,9 @@
 .yz-editor-doc .yz-tok-ins { color: var(--code-ins); }
 .yz-editor-doc .yz-tok-del { color: var(--code-del); }
 .yz-editor-doc .yz-tok-chg { color: var(--code-chg); }
+/* markup 家族(HTML/Vue/JSX):标签名与属性名 */
+.yz-editor-doc .yz-tok-tag { color: var(--code-tag); }
+.yz-editor-doc .yz-tok-attr { color: var(--code-attr); }
 
 .yz-editor-doc code {
   font-family: var(--font-mono);
@@ -500,7 +606,7 @@
 }
 
 .yz-editor-doc :not(pre) > code {
-  background: var(--code-bg, var(--muted));
+  background: var(--inline-code-bg, var(--muted));
   border-radius: 4px;
   padding: 0.15em 0.4em;
   color: var(--accent-foreground);
@@ -973,7 +1079,7 @@
 }
 
 .yz-source-editor .cm-md-code {
-  color: var(--code-str);
+  color: var(--source-inline-code);
 }
 
 .yz-source-editor .cm-md-quote {
@@ -1058,15 +1164,15 @@
 }
 
 .yz-source-editor .cm-md-code-info {
-  color: var(--source-code-function);
+  color: var(--code-fn);
 }
 
 .yz-source-editor .cm-code-fence-line,
 .yz-source-editor .cm-code-content-line {
   padding-right: 10px;
   padding-left: 10px;
-  background: var(--source-code-bg);
-  box-shadow: inset 3px 0 0 var(--source-code-edge);
+  background: var(--code-bg, var(--muted));
+  box-shadow: inset 3px 0 0 var(--code-border, var(--border));
 }
 
 .yz-source-editor .cm-code-open-line {
@@ -1080,45 +1186,46 @@
 }
 
 .yz-source-editor .cm-code-content-line {
+  color: var(--code-fg, var(--foreground));
   min-height: calc(var(--editor-line-height, 1.6) * 1em);
 }
 
 .yz-source-editor .cm-code-comment {
-  color: var(--source-code-comment);
+  color: var(--code-cm);
 }
 
 .yz-source-editor .cm-code-string {
-  color: var(--source-code-string);
+  color: var(--code-str);
 }
 
 .yz-source-editor .cm-code-number,
 .yz-source-editor .cm-code-atom {
-  color: var(--source-code-number);
+  color: var(--code-num);
 }
 
 .yz-source-editor .cm-code-atom {
-  color: var(--source-code-atom);
+  color: var(--code-num);
 }
 
 .yz-source-editor .cm-code-keyword {
-  color: var(--source-code-keyword);
+  color: var(--code-kw);
 }
 
 .yz-source-editor .cm-code-type {
-  color: var(--source-code-type);
+  color: var(--code-fn);
 }
 
 .yz-source-editor .cm-code-function {
-  color: var(--source-code-function);
+  color: var(--code-fn);
 }
 .yz-source-editor .cm-code-property {
-  color: var(--source-code-property);
+  color: var(--code-num);
 }
 
 .yz-source-editor .cm-code-operator {
-  color: var(--source-code-operator);
+  color: var(--code-op);
 }
 
 .yz-source-editor .cm-code-variable {
-  color: var(--source-code-variable);
+  color: var(--code-var);
 }

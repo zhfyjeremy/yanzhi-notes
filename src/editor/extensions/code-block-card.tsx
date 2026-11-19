@@ -1,6 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import CodeBlock from "@tiptap/extension-code-block";
 import { codeHighlightPlugin } from "./code-highlight";
+import {
+  isKnownCodeLanguage,
+  searchCodeLanguages,
+} from "./shiki-langs";
 import { renderMermaid } from "./mermaid";
 import {
   NodeViewContent,
@@ -33,49 +37,29 @@ import type { AiActionId } from "@/ai/actions";
 
 const MERMAID_LANG = "mermaid";
 
-const CODE_LANGUAGES = [
-  "plaintext",
-  "mermaid",
-  "typescript",
-  "javascript",
-  "json",
-  "bash",
-  "shell",
-  "python",
-  "sql",
-  "css",
-  "html",
-  "xml",
-  "markdown",
-  "yaml",
-  "toml",
-  "rust",
-  "go",
-  "java",
-  "c",
-  "cpp",
-  "csharp",
-  "php",
-  "ruby",
-  "swift",
-  "kotlin",
-  "diff",
-  "dockerfile",
-] as const;
+/**
+ * 语言候选来自 Shiki 官方注册表(242 canonical + 104 alias,见 shiki-langs.ts),
+ * 不再是手写的一小撮;`vue` 等此前缺失的语言因此可用。
+ * 用户还可以直接输入任意语言名(见 LanguagePicker 顶部的自定义输入)。
+ */
 
 let recentCodeLanguages: string[] = [];
 let codeLanguageUsed: ((language: string) => void) | null = null;
 
 export function setCodeLanguageRecents(languages: string[]): void {
-  recentCodeLanguages = languages.filter((lang) =>
-    CODE_LANGUAGES.includes(lang as (typeof CODE_LANGUAGES)[number]),
-  );
+  // 最近使用不限于内置列表:自定义语言也要能记住
+  recentCodeLanguages = languages.filter((lang) => lang.trim().length > 0);
 }
 
 export function setCodeLanguageUsedHandler(
   handler: ((language: string) => void) | null,
 ): void {
   codeLanguageUsed = handler;
+}
+
+/** 自定义语言名是否合法:非空、无空格、纯 ASCII 标识符样式 */
+function isValidCustomLanguage(lang: string): boolean {
+  return /^[a-zA-Z0-9][a-zA-Z0-9+#._-]*$/.test(lang);
 }
 
 function LanguagePicker({
@@ -90,12 +74,36 @@ function LanguagePicker({
   const [active, setActive] = useState(0);
   const [recents, setRecents] = useState<string[]>(recentCodeLanguages);
   const q = query.trim().toLocaleLowerCase();
-  const matches = CODE_LANGUAGES.filter((lang) => !q || lang.includes(q));
-  const recentMatches = recents.filter((lang) =>
-    matches.includes(lang as (typeof CODE_LANGUAGES)[number]),
+
+  /**
+   * 候选 = 官方注册表模糊搜索结果 + 最近使用(可能含自定义语言)。
+   * 自定义语言不在注册表里,只能靠最近使用列表回显。
+   */
+  const matches = useMemo(
+    () => searchCodeLanguages(q, 200).map((option) => option.value),
+    [q],
   );
-  const otherMatches = matches.filter((lang) => !recentMatches.includes(lang));
+  /** 最近使用里、且被搜索命中的(含自定义语言) */
+  const recentMatches = useMemo(
+    () =>
+      recents.filter(
+        (lang) =>
+          !q ||
+          lang.toLowerCase().includes(q) ||
+          matches.includes(lang),
+      ),
+    [recents, q, matches],
+  );
+  const recentSet = new Set(recentMatches);
+  const otherMatches = matches.filter((lang) => !recentSet.has(lang));
   const ordered = [...recentMatches, ...otherMatches];
+
+  /**
+   * 自定义语言:搜索词本身。Shiki 能识别就高亮,不能识别就只是纯文本
+   * (language 属性照常写进 md,外部编辑器仍可自行处理)。
+   */
+  const custom = q && isValidCustomLanguage(q) ? q : null;
+  const customKnown = custom ? isKnownCodeLanguage(custom) : false;
 
   const choose = (lang: string) => {
     const next = [lang, ...recentCodeLanguages.filter((item) => item !== lang)].slice(0, 5);
@@ -146,16 +154,25 @@ function LanguagePicker({
                 else setOpen(false);
               } else if (e.key === "ArrowDown") {
                 e.preventDefault();
-                setActive((i) => (i + 1) % Math.max(ordered.length, 1));
+                setActive((i) => (i + 1) % Math.max(ordered.length + (custom ? 1 : 0), 1));
               } else if (e.key === "ArrowUp") {
                 e.preventDefault();
-                setActive((i) => (i - 1 + Math.max(ordered.length, 1)) % Math.max(ordered.length, 1));
-              } else if (e.key === "Enter" && ordered[active]) {
+                setActive(
+                  (i) =>
+                    (i - 1 + Math.max(ordered.length + (custom ? 1 : 0), 1)) %
+                    Math.max(ordered.length + (custom ? 1 : 0), 1),
+                );
+              } else if (e.key === "Enter") {
                 e.preventDefault();
-                choose(ordered[active]);
+                // 末项是「自定义语言」:回车直接用它
+                if (custom && active === ordered.length) {
+                  choose(custom);
+                } else if (ordered[active]) {
+                  choose(ordered[active]);
+                }
               }
             }}
-            placeholder="搜索语言…"
+            placeholder="搜索或输入语言…"
             className="min-w-0 flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/60"
           />
           {query && (
@@ -170,7 +187,7 @@ function LanguagePicker({
           )}
         </div>
         <div className="mt-1 max-h-60 overflow-y-auto">
-          {ordered.length === 0 ? (
+          {ordered.length === 0 && !custom ? (
             <p className="text-muted-foreground px-2 py-3 text-center text-[11px]">
               没有匹配的语言
             </p>
@@ -208,6 +225,32 @@ function LanguagePicker({
                       onSelect={() => choose(lang)}
                     />
                   ))}
+                </>
+              )}
+              {/* 自定义语言:注册表里没有也能写进 language 属性 */}
+              {custom && (
+                <>
+                  <div className="text-muted-foreground px-2 pt-1 pb-0.5 text-[10px]">
+                    自定义
+                  </div>
+                  <button
+                    type="button"
+                    className={`flex h-7 w-full items-center rounded-md px-2 text-left text-[11px] ${
+                      active === ordered.length
+                        ? "bg-selection text-foreground"
+                        : "hover:bg-hover"
+                    }`}
+                    onMouseEnter={() => setActive(ordered.length)}
+                    onClick={() => choose(custom)}
+                  >
+                    <span className="font-medium">{custom}</span>
+                    <span className="text-muted-foreground ml-auto pl-2 text-[10px]">
+                      {customKnown ? "已支持高亮" : "无高亮"}
+                    </span>
+                    {custom === language && (
+                      <Check className="text-primary ml-auto size-3.5" />
+                    )}
+                  </button>
                 </>
               )}
             </>

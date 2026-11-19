@@ -40,6 +40,7 @@ type MarkdownSourceOutlineController = import("./source-mode/MarkdownSourceEdito
 type MarkdownSourceCursorApi = import("./source-mode/MarkdownSourceEditor").MarkdownSourceCursorApi;
 import { mdOffsetToPmPos, pmPosToMdOffset } from "./source-mode/cursor-map";
 import { DEFAULT_SHORTCUTS, shortcutMatches, type ShortcutBindings } from "../shortcuts";
+import type { CodeThemeId } from "../settings";
 import { scrollCaretToTypewriterLine } from "./typewriter";
 import { AiChrome } from "../ai/AiChrome";
 import { setCardAiHandler } from "../ai/card-bridge";
@@ -105,6 +106,8 @@ interface YanzhiEditorProps {
   flushPendingRef?: MutableRefObject<(() => void) | null>;
   /** §8 编辑器设置:特殊卡片边框;false → 容器挂 yz-flat-cards(边框透明) */
   cardBorder?: boolean;
+  /** 内置离线代码块主题;作用于正文表面,避免污染壳层其它 --code-* 用途 */
+  codeTheme?: CodeThemeId;
   /** §8 编辑器:表格单元格悬停复制,默认关 */
   tableCellCopy?: boolean;
   onToggleTableCellCopy?: () => void;
@@ -213,6 +216,7 @@ export function YanzhiEditor({
   onContentReady,
   flushPendingRef,
   cardBorder = true,
+  codeTheme = "yanzhi",
   tableCellCopy = false,
   onToggleTableCellCopy,
   showToolbar = true,
@@ -810,6 +814,7 @@ export function YanzhiEditor({
             打字机加大上下留白,首行/文末也能滚到视口中线 */}
         <div
           ref={contentSurfaceRef}
+          data-code-theme={codeTheme}
           className={`relative mx-auto flex w-full ${EDITOR_COLUMN_CLASS} flex-1 flex-col px-16 ${
             typewriter && !sourceMode ? "pt-[42vh] pb-[58vh]" : "pt-5 pb-24"
           }`}

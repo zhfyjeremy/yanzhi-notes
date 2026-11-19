@@ -25,6 +25,7 @@ import { AssetCleanupDialog } from "./AssetCleanupDialog";
 import { AiSettingsPanel } from "../ai/AiSettingsPanel";
 import type {
   AppSettings,
+  CodeThemeId,
   DocxRemoteImageMode,
   EditorWidthMode,
   LaunchMode,
@@ -33,7 +34,7 @@ import type {
   UiStyle,
 } from "../settings";
 import type { PandocStatus } from "./types";
-import { ACCENT_PRESETS, DESK_PRESETS, DEFAULT_DESK, resolvedIsDark } from "../settings";
+import { ACCENT_PRESETS, CODE_THEME_OPTIONS, DESK_PRESETS, DEFAULT_DESK, resolvedIsDark } from "../settings";
 import { APP_VERSION } from "../version";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -82,7 +83,7 @@ const PAGE_META: Record<SettingsTab, { title: string; description: string }> = {
   general: { title: "通用", description: "控制启动方式、关闭是否进后台,并查看应用数据的存放边界。" },
   templates: { title: "模板", description: "管理当前知识库的文档模板,模板仍是标准 Markdown 文件。" },
   appearance: { title: "外观", description: "调整界面风格、主题、台面背景、主色与正文排版,所有变化即时预览。" },
-  editor: { title: "编辑器", description: "控制卡片视觉与专注写作相关偏好。" },
+  editor: { title: "编辑器", description: "控制代码主题、卡片视觉与专注写作相关偏好。" },
   storage: { title: "存储", description: "管理历史快照与冗余资源,保持知识库可备份、可迁移。" },
   image: { title: "图片", description: "控制图片进入知识库时的处理方式。" },
   export: {
@@ -130,6 +131,61 @@ const UI_STYLE_OPTIONS: {
     description: "浮起面板 · 胶囊工具栏 · 圆角选中",
   },
 ];
+
+/** 代码主题选择:缩略预览直接消费 index.css 的 --code-* tokens,不另设色源。 */
+function CodeThemePicker({
+  value,
+  onChange,
+}: {
+  value: CodeThemeId;
+  onChange: (value: CodeThemeId) => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" aria-label="代码块主题">
+      {CODE_THEME_OPTIONS.map((option) => {
+        const active = value === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            className={cn(
+              "border-border-subtle bg-raised/55 hover:border-primary/25 flex cursor-pointer items-center gap-3 rounded-lg border p-2.5 text-left transition-colors",
+              active && "bg-selection border-primary/25 ring-primary/10 ring-1",
+            )}
+            onClick={() => onChange(option.value)}
+          >
+            <span
+              aria-hidden="true"
+              data-code-theme={option.value}
+              className="border-border-subtle flex h-12 min-w-0 flex-1 items-center overflow-hidden rounded-md border px-2 font-mono text-[10px]"
+              style={{
+                background: "var(--code-bg, var(--muted))",
+                color: "var(--code-fg, var(--foreground))",
+                borderColor: "var(--code-border, var(--border))",
+              }}
+            >
+              <span style={{ color: "var(--code-kw)" }}>const</span>
+              <span className="opacity-70"> </span>
+              <span style={{ color: "var(--code-fn)" }}>fn</span>
+              <span className="opacity-70">=(</span>
+              <span style={{ color: "var(--code-str)" }}>"a"</span>
+              <span className="opacity-70">)</span>
+            </span>
+            <span className="w-24 shrink-0">
+              <span className="block text-xs font-medium">{option.label}</span>
+              <span className="text-muted-foreground mt-0.5 block text-[10px] leading-4">
+                {option.description}
+              </span>
+            </span>
+            {active && <Check className="text-primary size-3.5 shrink-0" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 /** 界面风格预览:壳层三栏 + 搜索/选中行/工具栏差异,方便一眼区分。 */
 function UiStylePreview({ style }: { style: UiStyle }) {
@@ -1020,6 +1076,16 @@ export function SettingsPage({
 
           {tab === "editor" && (
             <>
+              <SettingsSection
+                title="代码块主题"
+                hint="内置离线主题,切换不联网;只影响 fenced 代码块、Raw HTML 源码态与 HTML/PDF 导出;行内 code 与 `` 标记仍跟随应用主题,不写入 Markdown"
+              >
+                <CodeThemePicker
+                  value={settings.codeTheme}
+                  onChange={(codeTheme) => onChange({ codeTheme })}
+                />
+              </SettingsSection>
+
               <SettingsSection
                 title="输入"
                 hint="影响排版正文、代码块与 Markdown 源码;列表/表格仍保留 Tab 的结构语义"
