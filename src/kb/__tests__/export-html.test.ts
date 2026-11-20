@@ -109,4 +109,116 @@ describe("HTML export", () => {
     expect(rawFrame?.getAttribute("srcdoc")).toContain("data:image/png;base64,aW1n");
     expect(rawFrame?.getAttribute("srcdoc")).not.toContain("<script");
   });
+
+  it("exports a left outline sidebar with anchors for headings", async () => {
+    const html = await buildExportHtml({
+      md: ["# 总标题", "", "## 一级节", "", "正文内容", "", "### 二级小节", "", "更多正文"].join("\n"),
+      title: "Outline",
+      docRel: "notes/outline.md",
+      readAssetBase64: async () => null,
+    });
+
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const toc = doc.querySelector("nav.yz-toc");
+    expect(toc).not.toBeNull();
+    expect(toc?.getAttribute("aria-label")).toBe("文档大纲");
+
+    const links = Array.from(toc?.querySelectorAll<HTMLAnchorElement>("a.yz-toc-link") ?? []);
+    expect(links.map((link) => link.textContent)).toEqual([
+      "总标题",
+      "一级节",
+      "二级小节",
+    ]);
+
+    // 每个大纲条目都要能跳到对应的正文标题(锚点 id 写进标题元素)
+    for (const link of links) {
+      const target = link.getAttribute("href") ?? "";
+      expect(target.startsWith("#")).toBe(true);
+      const id = target.slice(1);
+      expect(doc.getElementById(id)?.tagName).toMatch(/^H[1-6]$/);
+    }
+
+    // 层级缩进:H1/H2/H3 逐级右移
+    const paddings = links.map((link) => parseInt(link.style.paddingLeft, 10));
+    expect(paddings[0]).toBeLessThan(paddings[1] as number);
+    expect(paddings[1]).toBeLessThan(paddings[2] as number);
+
+    // 正文与大纲同处两栏容器
+    expect(doc.querySelector(".yz-layout > nav.yz-toc")).not.toBeNull();
+    expect(doc.querySelector(".yz-layout > article.yz-content")).not.toBeNull();
+    expect(html).toContain("<script>");
+  });
+
+  it("omits the outline when the document has no headings", async () => {
+    const html = await buildExportHtml({
+      md: "只有一段正文,没有标题。",
+      title: "NoHeading",
+      docRel: "notes/plain.md",
+      readAssetBase64: async () => null,
+    });
+
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    expect(doc.querySelector("nav.yz-toc")).toBeNull();
+    expect(doc.querySelector(".yz-layout.yz-layout-solo article.yz-content")).not.toBeNull();
+    expect(html).not.toContain("<script>");
+  });
+
+  it("hides the outline in the print stylesheet", async () => {
+    const html = await buildExportHtml({
+      md: "# 标题\n\n正文",
+      title: "Print",
+      docRel: "notes/print.md",
+      readAssetBase64: async () => null,
+    });
+
+    // 打印/导 PDF 只留正文:@media print 必须能盖住两栏布局。
+    const printBlock = html.slice(html.indexOf("@media print"));
+    expect(printBlock).toContain(".yz-toc { display: none !important; }");
+    expect(printBlock).toContain(".yz-layout { display: block !important;");
+    // @media print 必须排在基础规则之后,否则同优先级下会被后写的 .yz-layout 覆盖
+    expect(html.indexOf("@media print")).toBeGreaterThan(html.indexOf(".yz-layout {"));
+  });
+
+  it("补文档标题:正文没有同名 H1 时在顶部加标题横幅", async () => {
+    const html = await buildExportHtml({
+      md: "正文内容",
+      title: "我的文档",
+      docRel: "notes/titled.md",
+      readAssetBase64: async () => null,
+    });
+
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const banner = doc.querySelector("h1.yz-doc-title");
+    expect(banner?.textContent).toBe("我的文档");
+    // 标题在正文最前面(inlineStyles 会套一层 div,banner 在这层之内)
+    const content = doc.querySelector(".yz-content");
+    expect(content?.firstElementChild?.firstElementChild?.className).toBe("yz-doc-title");
+  });
+
+  it("正文已有同名 H1 时不重复加标题横幅", async () => {
+    const html = await buildExportHtml({
+      md: "# 我的文档\n\n正文内容",
+      title: "我的文档",
+      docRel: "notes/titled2.md",
+      readAssetBase64: async () => null,
+    });
+
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    expect(doc.querySelector("h1.yz-doc-title")).toBeNull();
+    expect(doc.querySelectorAll("h1")).toHaveLength(1);
+  });
+
+  it("标题横幅不进大纲(它是文档名,不是章节)", async () => {
+    const html = await buildExportHtml({
+      md: "正文内容\n\n## 章节一",
+      title: "我的文档",
+      docRel: "notes/titled3.md",
+      readAssetBase64: async () => null,
+    });
+
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const links = Array.from(doc.querySelectorAll(".yz-toc-link")).map((l) => l.textContent);
+    expect(links).toEqual(["章节一"]);
+    expect(doc.querySelector("h1.yz-doc-title")).not.toBeNull();
+  });
 });

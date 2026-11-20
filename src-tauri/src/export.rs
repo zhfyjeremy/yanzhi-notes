@@ -889,7 +889,7 @@ pub async fn export_pdf(
                         r#"(() => {
                           const style = document.createElement('style');
                           style.id = 'yanzhi-pdf-print-layout';
-                          style.textContent = 'html,body{background:#fff !important}body{max-width:none !important;width:794px !important;padding:0 !important}pre{white-space:pre-wrap !important;overflow:visible !important}table{width:100% !important;table-layout:fixed !important}[data-yz-pdf-page-break]{display:block !important;height:0;margin:0 !important;padding:0 !important;background:transparent !important}';
+                          style.textContent = 'html,body{background:#fff !important}body{max-width:none !important;width:794px !important;padding:0 !important}.yz-layout{display:block !important;max-width:none !important;padding:0 !important}.yz-toc{display:none !important}.yz-content{max-width:none !important}pre{white-space:pre-wrap !important;overflow:visible !important}table{width:100% !important;table-layout:fixed !important}[data-yz-pdf-page-break]{display:block !important;height:0;margin:0 !important;padding:0 !important;background:transparent !important}';
                           document.head.append(style);
 
                           // 与 Rust paginate_macos_pdf 的 794px 源画布 -> A4 内容区换算保持一致。

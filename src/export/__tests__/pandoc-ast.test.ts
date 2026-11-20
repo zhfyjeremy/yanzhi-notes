@@ -93,6 +93,27 @@ describe("PM doc → Pandoc AST", () => {
     expect(json).toContain('"Table"');
   });
 
+  it("文档标题走 Pandoc title metadata(渲染成顶部 Title 段落)", async () => {
+    const { ast } = await pmDocToPandocAst(markdownToDoc("正文内容", schema), {
+      ...options,
+      title: "我的文档",
+    });
+    expect(ast.meta.title).toEqual({ t: "MetaInlines", c: [{ t: "Str", c: "我的文档" }] });
+  });
+
+  it("正文已有同名 H1 时不重复加标题 metadata", async () => {
+    const { ast } = await pmDocToPandocAst(markdownToDoc("# 我的文档\n\n正文内容", schema), {
+      ...options,
+      title: "我的文档",
+    });
+    expect(ast.meta.title).toBeUndefined();
+  });
+
+  it("不传标题时不加 title metadata", async () => {
+    const { ast } = await pmDocToPandocAst(markdownToDoc("正文内容", schema), options);
+    expect(ast.meta.title).toBeUndefined();
+  });
+
   it("外链图片可选择不请求并降级为普通链接", async () => {
     const md = '![远图](https://example.com/a.png "题注")\n';
     const { ast, stats } = await pmDocToPandocAst(markdownToDoc(md, schema), {

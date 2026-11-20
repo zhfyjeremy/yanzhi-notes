@@ -13,6 +13,7 @@ import { katexHtml, decodeLatex } from "@/editor/extensions/math";
 import { renderMermaid } from "@/editor/extensions/mermaid";
 import { sanitizeRawHtmlPreview } from "@/editor/extensions/raw-html-preview";
 import { assetRelPosix, isExternalSrc } from "./asset-src";
+import { normalizeDocTitle, plainInline } from "@/export/doc-title";
 import type { CodeThemeId } from "../settings";
 
 export interface ExportHtmlOptions {
@@ -120,31 +121,9 @@ const PAGE_STYLE = `
 }
 * { box-sizing: border-box; }
 @page { size: A4; margin: 16mm; }
-@media print {
-  body {
-    max-width: none;
-    padding: 0;
-    background: #fff;
-  }
-  pre {
-    white-space: pre-wrap;
-    overflow: visible;
-    break-inside: avoid;
-  }
-  table {
-    width: 100%;
-    table-layout: fixed;
-  }
-  th, td { overflow-wrap: anywhere; }
-  img, .yz-callout, .yz-details, .yz-math-block, .yz-mmd-stage, .yz-raw-html-preview {
-    break-inside: avoid;
-  }
-}
 body {
-  margin: 0 auto;
-  padding: 48px 24px 96px;
-  max-width: 848px;
-  color: var(--page-fg);
+  margin: 0;
+  padding: 0;
   background: var(--page-bg);
   font-family: ${FONT_SANS};
   font-size: 16px;
@@ -152,7 +131,93 @@ body {
   letter-spacing: 0.004em;
   word-break: break-word;
 }
+/* 两栏:左侧大纲(阅读导航)+ 右侧正文 */
+.yz-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 48px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 48px 24px 96px;
+}
+.yz-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 848px;
+  color: var(--page-fg);
+}
+/* 无标题文档:没有大纲,正文仍按 848px 居中 */
+.yz-layout-solo { max-width: 848px; }
+.yz-toc {
+  flex: 0 0 232px;
+  position: sticky;
+  top: 48px;
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  border-right: 1px solid var(--page-border);
+  padding-right: 16px;
+  font-size: 0.8125em;
+  line-height: 1.5;
+}
+.yz-toc-title {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+  font-size: 0.75em;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--page-muted);
+  margin: 0 0 0.6em;
+}
+.yz-toc-title:hover { color: var(--page-fg); }
+.yz-toc-list { list-style: none; margin: 0; padding: 0; }
+.yz-toc-list li { margin: 0; }
+.yz-toc-link {
+  display: block;
+  padding: 3px 0;
+  color: var(--page-muted);
+  text-decoration: none;
+  border-left: 2px solid transparent;
+  padding-left: 10px;
+  overflow-wrap: anywhere;
+}
+.yz-toc-link:hover { color: var(--page-fg); }
+.yz-toc-link[aria-current="true"] {
+  color: var(--page-blue);
+  border-left-color: var(--page-blue);
+  font-weight: 600;
+}
+/* 窄屏(手机/邮件预览宽度):大纲移到正文上方,不再占侧栏 */
+@media (max-width: 900px) {
+  .yz-layout { display: block; max-width: 848px; padding: 24px 16px 64px; }
+  .yz-content { max-width: none; }
+  .yz-toc {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    border-right: none;
+    border-bottom: 1px solid var(--page-border);
+    padding: 0 0 12px;
+    margin-bottom: 24px;
+  }
+}
+/* 折叠状态:窄屏默认折叠(脚本加类),宽屏可手动折叠 */
+body.yz-toc-collapsed .yz-toc-list { display: none; }
+body.yz-toc-collapsed .yz-toc-title::after { content: " ▸"; }
 h1, h2, h3, h4, h5, h6 { line-height: 1.35; margin: 1.15em 0 0.45em; font-weight: 600; }
+/* 文档标题横幅:正文没有同名 H1 时补的一个文档名 */
+.yz-doc-title {
+  font-size: 2.1em;
+  letter-spacing: -0.02em;
+  margin-top: 0;
+  padding-bottom: 0.35em;
+  border-bottom: 1px solid var(--page-border);
+}
 h1 { font-size: 1.9em; margin-top: 0.4em; letter-spacing: -0.018em; }
 h2 { font-size: 1.5em; letter-spacing: -0.018em; }
 h3 { font-size: 1.22em; letter-spacing: -0.018em; }
@@ -249,6 +314,32 @@ input[type="checkbox"] { margin-right: 0.35em; }
   background: transparent; overflow: hidden; margin: 0;
 }
 .yz-raw-html-preview iframe { display: block; width: 100%; border: 0; background: #fff; }
+
+/* 打印版只留正文:大纲是阅读导航,印成纸没有意义。
+   放在最后 —— 同优先级下后写的规则赢,放前面会被上面的 .yz-layout 覆盖掉。 */
+@media print {
+  body {
+    max-width: none;
+    padding: 0;
+    background: #fff;
+  }
+  .yz-layout { display: block !important; max-width: none !important; padding: 0 !important; }
+  .yz-content { max-width: none !important; }
+  .yz-toc { display: none !important; }
+  pre {
+    white-space: pre-wrap;
+    overflow: visible;
+    break-inside: avoid;
+  }
+  table {
+    width: 100%;
+    table-layout: fixed;
+  }
+  th, td { overflow-wrap: anywhere; }
+  img, .yz-callout, .yz-details, .yz-math-block, .yz-mmd-stage, .yz-raw-html-preview {
+    break-inside: avoid;
+  }
+}
 `;
 
 const RAW_HTML_IFRAME_CSS = `
@@ -537,6 +628,140 @@ function escapeHtmlTitle(value: string): string {
   );
 }
 
+/** 大纲条目:层级 + 标题文本 + 锚点 id */
+interface TocEntry {
+  level: number;
+  text: string;
+  id: string;
+}
+
+const HEADING_SELECTOR = "h1, h2, h3, h4, h5, h6";
+
+/**
+ * 收集正文标题并写入锚点 id,返回左侧大纲的 HTML。
+ * 标题锚点用 `sec-序号`(稳定且不与正文内容冲突);同名标题靠序号区分。
+ */
+function buildToc(body: HTMLElement): { html: string; count: number } {
+  const headings = Array.from(body.querySelectorAll<HTMLElement>(HEADING_SELECTOR));
+  const entries: TocEntry[] = [];
+  const used = new Set<string>();
+
+  headings.forEach((heading, index) => {
+    const text = (heading.textContent ?? "").trim();
+    const level = Number(heading.tagName.slice(1)) || 1;
+    let id = `sec-${index + 1}`;
+    while (used.has(id)) id = `${id}-x`;
+    used.add(id);
+    heading.id = id;
+    entries.push({ level, text: text || "无标题", id });
+  });
+
+  if (!entries.length) return { html: "", count: 0 };
+
+  const doc = body.ownerDocument;
+  const nav = doc.createElement("nav");
+  nav.className = "yz-toc";
+  nav.setAttribute("aria-label", "文档大纲");
+
+  const toggle = doc.createElement("button");
+  toggle.type = "button";
+  toggle.className = "yz-toc-title";
+  toggle.setAttribute("aria-expanded", "true");
+  toggle.textContent = "大纲";
+  nav.append(toggle);
+
+  const list = doc.createElement("ul");
+  list.className = "yz-toc-list";
+  for (const entry of entries) {
+    const item = doc.createElement("li");
+    const link = doc.createElement("a");
+    link.className = "yz-toc-link";
+    link.href = `#${entry.id}`;
+    link.textContent = entry.text;
+    link.dataset.tocTarget = entry.id;
+    link.style.paddingLeft = `${10 + (entry.level - 1) * 12}px`;
+    item.append(link);
+    list.append(item);
+  }
+  nav.append(list);
+  return { html: nav.outerHTML, count: entries.length };
+}
+
+/**
+ * 导出页脚本(全部内联,零外部请求):
+ * - 大纲折叠(窄屏默认收起,宽屏恒展开)
+ * - 滚动高亮当前标题(与编辑器右栏 TOC 同口径:取最后一个已滚过顶部的标题)
+ */
+const TOC_SCRIPT = `
+(function () {
+  var nav = document.querySelector('.yz-toc');
+  if (!nav) return;
+  var toggle = nav.querySelector('.yz-toc-title');
+  var links = Array.prototype.slice.call(nav.querySelectorAll('.yz-toc-link'));
+  if (!links.length) return;
+
+  if (toggle) {
+    toggle.addEventListener('click', function () {
+      var collapsed = document.body.classList.toggle('yz-toc-collapsed');
+      toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    });
+    // 窄屏默认折叠,宽屏始终展开(桌面无 JS 也能看全大纲)
+    if (window.matchMedia('(max-width: 900px)').matches) {
+      document.body.classList.add('yz-toc-collapsed');
+      toggle.setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  var targets = links.map(function (link) {
+    return document.getElementById(link.getAttribute('data-toc-target'));
+  });
+  var ticking = false;
+  function update() {
+    ticking = false;
+    var top = 96;
+    var active = 0;
+    for (var i = 0; i < targets.length; i++) {
+      var el = targets[i];
+      if (!el) continue;
+      if (el.getBoundingClientRect().top <= top) active = i;
+    }
+    links.forEach(function (link, i) {
+      if (i === active) link.setAttribute('aria-current', 'true');
+      else link.removeAttribute('aria-current');
+    });
+  }
+  function onScroll() {
+    if (!ticking) {
+      ticking = true;
+      window.requestAnimationFrame(update);
+    }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', onScroll);
+  update();
+})();
+`;
+
+/**
+ * 文档标题横幅。
+ * 正文里已经有同名 H1 就不重复加(避免「标题 + 标题」);否则在正文顶部补一个。
+ * 标题不进大纲 —— 它是文档名,不是章节。
+ */
+function buildDocTitle(body: HTMLElement, title: string): string {
+  const target = normalizeDocTitle(title);
+  if (!target) return "";
+  const hasSameH1 = Array.from(body.querySelectorAll<HTMLElement>("h1")).some(
+    (h1) => plainInline(h1.textContent ?? "") === target,
+  );
+  if (hasSameH1) return "";
+  const doc = body.ownerDocument;
+  const heading = doc.createElement("h1");
+  heading.className = "yz-doc-title";
+  heading.textContent = target;
+  body.prepend(heading);
+  return target;
+}
+
 export async function buildExportHtml(opts: ExportHtmlOptions): Promise<string> {
   const doc = new DOMParser().parseFromString(mdToHtml(opts.md), "text/html");
   renderCallouts(doc.body);
@@ -547,9 +772,16 @@ export async function buildExportHtml(opts: ExportHtmlOptions): Promise<string> 
   await renderRawHtml(doc.body, opts);
   await highlightCodeElements(doc.body);
   await embedLocalImages(doc.body, opts);
+  // 大纲要在取 innerHTML 之前算:锚点 id 是写进标题元素上的。
+  // 标题横幅在大纲之后加 —— 标题是文档名,不算章节,不该出现在大纲里。
+  const toc = buildToc(doc.body);
+  buildDocTitle(doc.body, opts.title);
   const codeTheme = codeThemeOf(opts.codeTheme ?? "yanzhi");
-  const body = inlineStyles(doc.body.innerHTML, { codeBackground: codeTheme.background });
+  const content = inlineStyles(doc.body.innerHTML, { codeBackground: codeTheme.background });
   const styles = `${PAGE_STYLE}${codeTheme.css}${hasMath ? await embeddedKatexCss() : ""}`;
+  const layout = toc.count
+    ? `<div class="yz-layout">${toc.html}<article class="yz-content">${content}</article></div>`
+    : `<div class="yz-layout yz-layout-solo"><article class="yz-content">${content}</article></div>`;
   return `<!doctype html>
 <html lang="zh" data-code-theme="${opts.codeTheme ?? "yanzhi"}">
 <head>
@@ -558,8 +790,9 @@ export async function buildExportHtml(opts: ExportHtmlOptions): Promise<string> 
 <title>${escapeHtmlTitle(opts.title)}</title>
 <style>${styles}</style>
 </head>
-<body>
-${body}
+<body${toc.count ? ' class="yz-has-toc"' : ""}>
+${layout}
+${toc.count ? `<script>${TOC_SCRIPT}</script>` : ""}
 </body>
 </html>
 `;

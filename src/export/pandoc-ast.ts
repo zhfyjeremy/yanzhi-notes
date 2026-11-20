@@ -5,6 +5,7 @@
  */
 import type { Mark, Node as PMNode } from "@tiptap/pm/model";
 import type { PandocAlignment, PandocAttr, PandocBlock, PandocColWidth, PandocDocument, PandocInline, PandocRow, PandocTableCell, PandocTableBody } from "./pandoc-types";
+import { docHasTitleHeading, normalizeDocTitle } from "./doc-title";
 
 export type ExportWarningKind =
   | "unknown-node"
@@ -30,6 +31,8 @@ export interface DocxExportStats {
 }
 
 export interface PandocExportOptions {
+  /** 文档标题:导出到 Word 时作为 Title 样式段落置于顶部 */
+  title?: string;
   tags?: string[];
   /** wikiLink target → 可供 Word 打开的 Markdown 文件路径;null = 无法解析 */
   resolveWikiTarget?: (target: string) => string | null;
@@ -248,8 +251,12 @@ class Converter {
   async convert(node: PMNode): Promise<PandocDocument> {
     const blocks = await this.convertBlocks(node);
     const meta: Record<string, unknown> = {};
-    // 注意: Pandoc 的 title metadata 会渲染成文档顶部 Title 段落。
-    // 砚知导出以正文为准,文件名只用于保存对话框,不额外插入标题。
+    // 文档标题走 Pandoc 的 title metadata:会渲染成文档顶部的 Title 样式段落
+    // (reference.docx 里有 Title 样式)。正文已有同名 H1 就不重复加。
+    const title = normalizeDocTitle(this.opts.title);
+    if (title && !docHasTitleHeading(node, title)) {
+      meta.title = { t: "MetaInlines", c: str(title) };
+    }
     if (this.opts.tags?.length) {
       meta.keywords = {
         t: "MetaList",

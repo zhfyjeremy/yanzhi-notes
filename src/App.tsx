@@ -43,6 +43,7 @@ import { assetRelPosix, isExternalSrc, setAssetResolver } from "./kb/asset-src";
 import { buildExportHtml } from "./kb/export-html";
 import { collectHttpImageUrls, renderMermaidDataUrl } from "./export/prepare";
 import { pmDocToPandocAst, type DocxExportStats } from "./export/pandoc-ast";
+import { withMdTitle } from "./export/doc-title";
 import { copyPlainText } from "./editor/clipboard";
 import { prepareSingleMarkdownForKb } from "./kb/assets";
 import { flattenDocs, resolveWikiTarget, wikiLinkTextFor, wikiTargetFor } from "./kb/wiki-refs";
@@ -86,6 +87,8 @@ interface PdfExportSource {
 interface PendingDocxExport {
   doc: PMNode;
   defaultName: string;
+  /** 文档标题:导出到 Word 顶部 Title 段落 */
+  title: string;
   tags: string[];
   resourcePath: string | null;
   assetRoot: string | null;
@@ -602,9 +605,12 @@ function App() {
 
   const onExportMd = useCallback(() => {
     if (!kb.currentPath) return;
-    void kb.exportText(`${title || "未命名文档"}.md`, "md", kb.getMarkdownNow()).then((p) => {
-      if (p) showToast(`已导出:${p}`);
-    });
+    const docTitle = title || "未命名文档";
+    void kb
+      .exportText(`${docTitle}.md`, "md", withMdTitle(kb.getMarkdownNow(), docTitle))
+      .then((p) => {
+        if (p) showToast(`已导出:${p}`);
+      });
   }, [kb, showToast, title]);
 
   const onExportHtml = useCallback(() => {
@@ -655,10 +661,17 @@ function App() {
     });
   }, [kb, runPdfExport, title, settings.codeTheme]);
   const exportSingleMd = useCallback(() => {
-    void kbBackend.exportText(single.fileName || "未命名文档.md", "md", single.getMarkdownNow()).then((p) => {
-      if (p) showToast(`已导出:${p}`);
-    });
-  }, [showToast, single.fileName, single.getMarkdownNow]);
+    const docTitle = single.fileStem || "未命名文档";
+    void kbBackend
+      .exportText(
+        single.fileName || "未命名文档.md",
+        "md",
+        withMdTitle(single.getMarkdownNow(), docTitle),
+      )
+      .then((p) => {
+        if (p) showToast(`已导出:${p}`);
+      });
+  }, [showToast, single.fileName, single.fileStem, single.getMarkdownNow]);
 
   const exportSingleHtml = useCallback(() => {
     void buildExportHtml({
@@ -708,6 +721,7 @@ function App() {
       };
       try {
         const { ast, warnings, stats } = await pmDocToPandocAst(pending.doc, {
+          title: pending.title,
           tags: pending.tags,
           remoteImages: downloadRemoteImages ? "embed" : "link",
           renderMermaid: renderMermaidDataUrl,
@@ -821,6 +835,7 @@ function App() {
     const pending: PendingDocxExport = {
       doc,
       defaultName: `${exportTitle}.docx`,
+      title: exportTitle,
       tags: singleActive ? [] : kb.currentTags,
       resourcePath,
       assetRoot,
