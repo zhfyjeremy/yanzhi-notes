@@ -21,6 +21,7 @@ import { Attachment } from "./extensions/attachment";
 import { MathInline, MathBlock } from "./extensions/math";
 import { FontColor } from "./extensions/font-color";
 import { HeadingShortcuts } from "./extensions/heading-shortcuts";
+import { yzAutolinkPlugin, yzPasteLinkPlugin } from "./extensions/autolink";
 import { TableImeCaret } from "./extensions/table-ime-caret";
 import { EmptyDocPlaceholder } from "./extensions/empty-doc-placeholder";
 
@@ -94,7 +95,28 @@ export const baseExtensions = [
       return {
         ...this.parent?.(),
         title: { default: null as string | null },
+        // 自动链接内部标记(不入 DOM/不落 md):删除回退、实时生长时区分
+        // 「自动链接痕迹」与用户手动创建的链接
+        auto: { default: false as boolean, rendered: false },
       };
+    },
+    // 内置 autolink/linkOnPaste 用 linkifyjs,URL 后紧跟的「, (」会被整段吞进链接,
+    // 与 md-open 路径(linkify-it)不一致且错误;换 yz 插件(见 extensions/autolink.ts)
+    addOptions() {
+      return {
+        ...this.parent!(),
+        autolink: false,
+        linkOnPaste: false,
+      };
+    },
+    addProseMirrorPlugins() {
+      const markType = this.type;
+      const shouldAutoLink = this.options.shouldAutoLink ?? (() => true);
+      return [
+        ...(this.parent?.() ?? []),
+        yzAutolinkPlugin(markType, shouldAutoLink),
+        yzPasteLinkPlugin(this.editor, markType, shouldAutoLink),
+      ];
     },
   }),
   CodeBlockCard,

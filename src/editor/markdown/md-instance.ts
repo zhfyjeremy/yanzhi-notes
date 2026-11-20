@@ -368,6 +368,40 @@ md.core.ruler.after("yz_details", "yz_attachment", (state) => {
   }
 });
 
+/* 修复历史 autolink 缺陷写盘的损坏链接:旧 Tiptap autolink(linkifyjs)把
+ * 「URL 后紧跟的逗号+括注」整段吞进链接并以 [text](href) 落盘,打开时整段成链。
+ * 仅当 text === href、linkify-it 在尾部截断、且尾部是「逗号+括注」形态(全/半角)
+ * 才拆成 [url](url) + 尾注纯文本;其余显式链接(改名/带 title/合法逗号 URL)不动。 */
+md.core.ruler.after("yz_attachment", "yz_repair_autolink_junk", (state) => {
+  for (const token of state.tokens) {
+    if (token.type !== "inline" || !token.children) continue;
+    const kids = token.children;
+    for (let i = 0; i < kids.length; i++) {
+      if (kids[i].type !== "link_open") continue;
+      const text = kids[i + 1];
+      const close = kids[i + 2];
+      if (text?.type !== "text" || close?.type !== "link_close") continue;
+      const href = String(kids[i].attrGet("href") ?? "");
+      const content = text.content;
+      // 只修自动链接痕迹(text === href);用户改名过的链接不动
+      if (content !== href || !content) continue;
+      const matches = md.linkify.match(content);
+      if (!matches) continue;
+      const end = matches[matches.length - 1].lastIndex;
+      if (end >= content.length) continue;
+      const tail = content.slice(end);
+      // 括注形态:可选空白 + 逗号 + (…),全/半角都认;避免误伤合法含逗号 URL
+      if (!/^[ \t]*[,，][ \t]*[（(].*[）)]$/.test(tail)) continue;
+      const url = content.slice(0, end);
+      kids[i].attrSet("href", url);
+      text.content = url;
+      const tailToken = new state.Token("text", "", 0);
+      tailToken.content = tail;
+      kids.splice(i + 3, 0, tailToken);
+    }
+  }
+});
+
 /** HTML 注释作为轻量注记显示,序列化时原文写回。 */
 const HTML_COMMENT_RE = /^<!--[\s\S]*-->$/;
 
