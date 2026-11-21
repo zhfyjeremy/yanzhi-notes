@@ -169,15 +169,15 @@ export interface DeskPreset {
 
 export const DESK_PRESETS: DeskPreset[] = [
   {
-    id: "cloud",
-    name: "云白",
-    swatch: "hsl(40 12% 96%)",
+    id: "moon",
+    name: "月白",
+    swatch: "hsl(0 0% 100%)",
     light: {
-      workspace: "hsl(40 12% 96%)",
-      sidebar: "hsl(40 10% 97.5%)",
-      hover: "hsl(40 8% 92%)",
+      workspace: "hsl(0 0% 100%)",
+      sidebar: "hsl(0 0% 97.5%)",
+      hover: "hsl(0 0% 92%)",
       editor: "hsl(0 0% 100%)",
-      codeBg: "hsl(40 10% 96%)",
+      codeBg: "hsl(0 0% 96%)",
     },
     dark: {
       workspace: "hsl(240 4% 9%)",
@@ -285,7 +285,7 @@ export const DESK_PRESETS: DeskPreset[] = [
 ];
 
 const DESK_IDS = new Set(DESK_PRESETS.map((p) => p.id));
-export const DEFAULT_DESK = "cloud";
+export const DEFAULT_DESK = "moon";
 export const DEFAULT_UI_STYLE: UiStyle = "flat";
 
 export function deskPresetOf(id: string | undefined): DeskPreset {
@@ -317,6 +317,8 @@ export interface AppSettings {
   cardBorder: boolean;
   /** 内置离线代码块主题;只影响排版/源码/导出观感,不写入 Markdown */
   codeTheme: CodeThemeId;
+  /** 导出 HTML/PDF 的文档标题对齐;默认居左 */
+  exportTitleAlign: "left" | "center";
   /** §8 编辑器:表格单元格悬停显示复制按钮,默认关(账号/口令类表才需要) */
   tableCellCopy: boolean;
   /** §8 编辑器:打字机滚动(专注模式子项),默认关;仅专注模式下生效 */
@@ -385,6 +387,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
   cardBorder: true,
   codeTheme: "yanzhi",
+  exportTitleAlign: "left",
   tableCellCopy: false,
   typewriterMode: false,
   tabIndentSize: 4,
@@ -481,6 +484,7 @@ export function parseSettings(raw: string): AppSettings {
       codeTheme: CODE_THEME_IDS.includes(v?.codeTheme as CodeThemeId)
         ? (v.codeTheme as CodeThemeId)
         : "yanzhi",
+      exportTitleAlign: v?.exportTitleAlign === "center" ? "center" : "left",
       tableCellCopy: typeof v?.tableCellCopy === "boolean" ? v.tableCellCopy : false,
       typewriterMode: typeof v?.typewriterMode === "boolean" ? v.typewriterMode : false,
       tabIndentSize: clampInt(v?.tabIndentSize, 4, 1, 8),

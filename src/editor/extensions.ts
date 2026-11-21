@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableCell,
 } from "@tiptap/extension-table";
-import { markInputRule, markPasteRule } from "@tiptap/core";
+import { Extension, markInputRule, markPasteRule } from "@tiptap/core";
 import { WikiLink } from "./extensions/wiki-link";
 import { RawHtml } from "./extensions/raw-html";
 import { CodeBlockCard } from "./extensions/code-block-card";
@@ -24,6 +24,7 @@ import { HeadingShortcuts } from "./extensions/heading-shortcuts";
 import { yzAutolinkPlugin, yzPasteLinkPlugin } from "./extensions/autolink";
 import { TableImeCaret } from "./extensions/table-ime-caret";
 import { EmptyDocPlaceholder } from "./extensions/empty-doc-placeholder";
+import { TextSelection } from "@tiptap/pm/state";
 
 /**
  * 斜体只用 *…*(与序列化一致)。默认 _…_ 粘贴/输入规则会把 `_SPECIAL_LABEL`
@@ -72,6 +73,36 @@ const TableCellAligned = TableCell.extend({
   },
 });
 
+/**
+ * 文档首个块清空后,再按 Backspace 应删除这个空块。
+ * ProseMirror 默认在文档起点没有“前一个块”可合并,所以光标会停在空行上;
+ * 这里在文档仍有后续内容时删掉空块,并把光标放到原下一块开头。
+ */
+const DeleteEmptyFirstBlock = Extension.create({
+  name: "yzDeleteEmptyFirstBlock",
+
+  addKeyboardShortcuts() {
+    return {
+      Backspace: () => {
+        const { state, view } = this.editor;
+        const { selection } = state;
+        if (!selection.empty) return false;
+        const { $from } = selection;
+        const first = state.doc.firstChild;
+        if (!first || !first.isTextblock || first.content.size > 0) return false;
+        if ($from.parent !== first || $from.before(1) !== 0) return false;
+        if (state.doc.childCount < 2) return false;
+
+        const end = $from.after(1);
+        const tr = state.tr.delete(0, end);
+        const nextSelection = TextSelection.near(tr.doc.resolve(0), 1);
+        view.dispatch(tr.setSelection(nextSelection).scrollIntoView());
+        return true;
+      },
+    };
+  },
+});
+
 const TableHeaderAligned = TableHeader.extend({
   addAttributes() {
     return { ...withoutBuiltinAlign(this.parent?.()), ...textAlignAttr };
@@ -86,9 +117,15 @@ export const baseExtensions = [
   // 内置 codeBlock 由 CodeBlockCard 取代(语言选择/复制/行号);Image 由 ImageCard 取代(宽度/对齐 UI);
   // Link 换成带 title 属性的扩展(标准 md 链接 title 不再静默丢弃,§4.6);
   // italic 换 ItalicAsteriskOnly,禁用 _…_ 粘贴/输入规则
-  StarterKit.configure({ codeBlock: false, link: false, italic: false }),
+  StarterKit.configure({
+    codeBlock: false,
+    link: false,
+    italic: false,
+    undoRedo: { depth: 100, newGroupDelay: 500 },
+  }),
   ItalicAsteriskOnly,
   HeadingShortcuts,
+  DeleteEmptyFirstBlock,
   TableImeCaret,
   Link.extend({
     addAttributes() {

@@ -4,6 +4,7 @@ import { useEditorState } from "@tiptap/react";
 import { ChevronDown, ChevronUp, Replace, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/hint";
+import { cn } from "@/lib/utils";
 import {
   closeFind,
   findStateOf,
@@ -24,6 +25,8 @@ interface FindReplaceBarProps {
   showReplace: boolean;
   onToggleReplace: () => void;
   onClose: () => void;
+  /** 覆盖定位:有工具栏时从工具栏下方开始,避免遮住按钮 */
+  className?: string;
 }
 
 export function FindReplaceBar({
@@ -31,6 +34,7 @@ export function FindReplaceBar({
   showReplace,
   onToggleReplace,
   onClose,
+  className,
 }: FindReplaceBarProps) {
   const [query, setQuery] = useState("");
   const [replacement, setReplacement] = useState("");
@@ -76,8 +80,13 @@ export function FindReplaceBar({
       : "无结果";
 
   return (
-    <div className="bg-background flex shrink-0 items-start justify-end gap-1 px-3 py-1.5">
-      <div className="bg-popover text-popover-foreground flex flex-col rounded-lg p-1 shadow-md ring-1 ring-foreground/10">
+    <div
+      className={cn(
+        "pointer-events-none absolute right-4 z-40 flex items-start justify-end gap-1",
+        className,
+      )}
+    >
+      <div className="bg-popover text-popover-foreground pointer-events-auto flex flex-col rounded-lg p-1 shadow-md ring-1 ring-foreground/10">
         <div className="flex items-center gap-1">
           <Search className="text-muted-foreground mx-1 size-3.5 shrink-0" />
           <input

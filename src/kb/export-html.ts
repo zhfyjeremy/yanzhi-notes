@@ -24,6 +24,10 @@ export interface ExportHtmlOptions {
   readAssetBase64: (rel: string) => Promise<{ data: string; mime: string } | null>;
   /** 内置离线代码主题;默认跟随砚知浅色导出 */
   codeTheme?: CodeThemeId;
+  /** 文档标题横幅对齐;默认居左 */
+  titleAlign?: "left" | "center";
+  /** 导出 PDF 时注入大纲书签标记(HTML 导出不注入,保持成品干净) */
+  pdfBookmarks?: boolean;
 }
 
 const FONT_MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
@@ -212,11 +216,9 @@ body.yz-toc-collapsed .yz-toc-title::after { content: " ▸"; }
 h1, h2, h3, h4, h5, h6 { line-height: 1.35; margin: 1.15em 0 0.45em; font-weight: 600; }
 /* 文档标题横幅:正文没有同名 H1 时补的一个文档名 */
 .yz-doc-title {
-  font-size: 2.1em;
+  font-size: 2.8em;
   letter-spacing: -0.02em;
-  margin-top: 0;
-  padding-bottom: 0.35em;
-  border-bottom: 1px solid var(--page-border);
+  margin: 0 0 1em;
 }
 h1 { font-size: 1.9em; margin-top: 0.4em; letter-spacing: -0.018em; }
 h2 { font-size: 1.5em; letter-spacing: -0.018em; }
@@ -762,6 +764,37 @@ function buildDocTitle(body: HTMLElement, title: string): string {
   return target;
 }
 
+/**
+ * PDF 大纲书签标记:给每个标题末尾追加一个隐形 span,
+ * Rust 侧(export.rs apply_pdf_outline)按最终 PDF 分页提取该标记定位页码,
+ * 再写入 PDF /Outlines。字符串格式勿改;HTML 导出不调用本函数。
+ */
+function injectPdfBookmarkMarkers(body: HTMLElement): void {
+  const doc = body.ownerDocument;
+  // 全局递增 seq:Rust 侧按 seq 去重,防止引擎文本层重复(如 macOS 分块边界复制)
+  let seq = 0;
+  for (const heading of Array.from(body.querySelectorAll<HTMLElement>(HEADING_SELECTOR))) {
+    const level = Number(heading.tagName.slice(1)) || 1;
+    // 书签名里的方括号/竖线与标记定界符冲突,替换成空格
+    const title = (heading.textContent ?? "")
+      .replace(/[\[\]|]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!title) continue;
+    const marker = doc.createElement("span");
+    marker.className = "yz-bm-marker";
+    // 不能用 overflow:hidden 裁掉标记:Chrome/WebView 打印文本层会连同被裁文字一起
+    // 丢弃,PDF 书签就提取不到。让标题作为定位容器,标记绝对定位且透明、2px,
+    // 不裁剪、不换行,视觉零占位的同时保留完整可提取文本。
+    if (getComputedStyle(heading).position === "static") heading.style.position = "relative";
+    marker.style.cssText =
+      "position:absolute;left:0;top:0;color:transparent;font-size:2px;line-height:1;white-space:nowrap;pointer-events:none";
+    marker.textContent = `[[YZ-PDF-BM:${level}:${seq}|${title}]]`;
+    seq += 1;
+    heading.append(marker);
+  }
+}
+
 export async function buildExportHtml(opts: ExportHtmlOptions): Promise<string> {
   const doc = new DOMParser().parseFromString(mdToHtml(opts.md), "text/html");
   renderCallouts(doc.body);
@@ -776,9 +809,11 @@ export async function buildExportHtml(opts: ExportHtmlOptions): Promise<string> 
   // 标题横幅在大纲之后加 —— 标题是文档名,不算章节,不该出现在大纲里。
   const toc = buildToc(doc.body);
   buildDocTitle(doc.body, opts.title);
+  if (opts.pdfBookmarks) injectPdfBookmarkMarkers(doc.body);
   const codeTheme = codeThemeOf(opts.codeTheme ?? "yanzhi");
   const content = inlineStyles(doc.body.innerHTML, { codeBackground: codeTheme.background });
-  const styles = `${PAGE_STYLE}${codeTheme.css}${hasMath ? await embeddedKatexCss() : ""}`;
+  const titleAlignCss = opts.titleAlign === "center" ? "\n.yz-doc-title { text-align: center; }" : "";
+  const styles = `${PAGE_STYLE}${titleAlignCss}${codeTheme.css}${hasMath ? await embeddedKatexCss() : ""}`;
   const layout = toc.count
     ? `<div class="yz-layout">${toc.html}<article class="yz-content">${content}</article></div>`
     : `<div class="yz-layout yz-layout-solo"><article class="yz-content">${content}</article></div>`;

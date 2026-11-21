@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -44,7 +44,6 @@ function SaveGlyph({ state }: { state: SaveState }) {
   if (state === "dirty") return <span className="bg-primary size-1.5 rounded-full" aria-label="未保存" />;
   return null;
 }
-
 function TabIcon({
   iconId,
   active,
@@ -100,22 +99,38 @@ export function DocTabs({
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
 
-  // tab 被下拉列表/目录树/快捷键激活时,横向滚到完全可见;已可见则不动。
+  // tab 被下拉列表/目录树/快捷键激活,或开库恢复标签页时,横向滚到完全可见。
   // 手动算边界而不是 scrollIntoView:inline nearest,避免意外带动页面纵向滚动。
-  useEffect(() => {
+  // 初始恢复要等一轮布局/字体加载后再补滚,否则 scrollWidth 仍旧会裁掉当前 tab。
+  const scrollActiveTabIntoView = useCallback(() => {
     const strip = stripRef.current;
     const tab = activeTabRef.current;
     if (!strip || !tab) return;
     const stripRect = strip.getBoundingClientRect();
     const tabRect = tab.getBoundingClientRect();
-    const hiddenLeft = tabRect.left < stripRect.left;
-    const hiddenRight = tabRect.right > stripRect.right;
+    const hiddenLeft = tabRect.left < stripRect.left - 1;
+    const hiddenRight = tabRect.right > stripRect.right + 1;
     if (!hiddenLeft && !hiddenRight) return;
     const delta = hiddenLeft
       ? tabRect.left - stripRect.left
       : tabRect.right - stripRect.right;
     strip.scrollTo({ left: strip.scrollLeft + delta, behavior: "smooth" });
-  }, [activeId, tabs]);
+  }, []);
+
+  useEffect(() => {
+    scrollActiveTabIntoView();
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      scrollActiveTabIntoView();
+      secondFrame = window.requestAnimationFrame(scrollActiveTabIntoView);
+    });
+    const timer = window.setTimeout(scrollActiveTabIntoView, 120);
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+      window.clearTimeout(timer);
+    };
+  }, [activeId, tabs, scrollActiveTabIntoView]);
 
   const wheelToHorizontal = (event: React.WheelEvent<HTMLDivElement>) => {
     const el = stripRef.current;
@@ -178,7 +193,7 @@ export function DocTabs({
                   className={cn(
                     "group/tab relative flex h-8 min-w-[120px] max-w-[220px] shrink-0 cursor-pointer items-center gap-1.5 rounded-t-lg border border-b-0 px-2 text-left text-xs transition-colors outline-none",
                     active
-                      ? "bg-editor border-border-subtle text-foreground"
+                      ? "border-transparent bg-selection text-foreground shadow-sm after:absolute after:inset-x-3 after:-bottom-[4px] after:h-[2px] after:rounded-full after:bg-primary after:content-['']"
                       : "border-transparent text-muted-foreground hover:bg-hover/65 hover:text-foreground",
                     dragIndex === index && "opacity-55",
                     overIndex === index && dragIndex !== index && "border-primary/40",

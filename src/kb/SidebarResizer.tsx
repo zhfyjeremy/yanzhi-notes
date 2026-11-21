@@ -5,8 +5,8 @@ import { SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, clampSidebarWidth } from "../sett
  * 左栏(目录树)与正文之间的可拖拽分隔条。
  *
  * 交互:
- * - 常态:一条 1px 细线(落在两侧面板之间的间隙正中)
- * - 悬停/拖动:线加粗并染主色,鼠标变 col-resize
+ * - 常态:一条 1px 细线(相邻面板边框由全局样式合并,避免三线叠加)
+ * - 悬停/拖动:线加粗到 2px 并染主色,带轻微投影;鼠标变 col-resize
  * - 拖动:实时改宽度;拖动中禁用 transition 保证跟手(0 延迟),
  *   松手后恢复 transition,右侧正文区随之平滑收缩
  *
@@ -155,8 +155,8 @@ export function SidebarResizer({
         className={[
           "absolute inset-y-0 left-1/2 -translate-x-1/2 rounded-full transition-all duration-150",
           dragging
-            ? "bg-primary w-[3px]"
-            : "bg-border-subtle w-px group-hover/resizer:bg-primary group-hover/resizer:w-[3px]",
+            ? "bg-primary w-[2px] shadow-[0_0_10px_1px_color-mix(in_oklab,var(--primary)_30%,transparent)]"
+            : "bg-border-subtle w-px group-hover/resizer:bg-primary group-hover/resizer:w-[2px] group-hover/resizer:shadow-[0_0_9px_1px_color-mix(in_oklab,var(--primary)_26%,transparent)]",
         ].join(" ")}
       />
     </div>

@@ -908,6 +908,16 @@ export function useKb(settings: AppSettings) {
           workspacePaths[0] ??
           (lastDoc && valid.has(lastDoc) ? lastDoc : firstDoc_);
         if (initialPath) {
+          // 当前文档可能在折叠目录里;开库/恢复后先展开其父目录,
+          // 让 DocTree 的 scrollIntoView 能找到真实行。
+          setCollapsed((prev) => {
+            const next = new Set(prev);
+            const segments = initialPath.split("/");
+            for (let depth = 1; depth < segments.length; depth += 1) {
+              next.delete(segments.slice(0, depth).join("/"));
+            }
+            return next;
+          });
           const restored = workspacePaths.length
             ? restoreTabs(workspacePaths, workspaceActive)
             : restoreTabs([initialPath], initialPath);

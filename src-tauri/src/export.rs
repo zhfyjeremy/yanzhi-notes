@@ -792,6 +792,254 @@ fn print_webview_to_pdf(
     }
 }
 
+/// PDF 大纲书签:导出 HTML 里由前端注入隐形标记
+/// `[[YZ-PDF-BM:{level}:{seq}|{title}]]`;
+/// macOS 生成 PDF 前还会按连续画布分页结果改写为
+/// `[[YZ-PDF-BM:{level}:{seq}:{page}:{top}|{title}]]`。
+/// Rust 提取标记与目标页后,用 lopdf 写入 /Outlines。带 page 字段的标记优先,
+/// 用于规避 macOS A4 重绘时“整页内容被裁剪但文本层仍重复”的定位歧义。
+const PDF_BM_PREFIX: &str = "[[YZ-PDF-BM:";
+
+/// 单个书签命中:seq 是前端注入时的全局序号,用于跨页/跨轮去重。
+struct BmHit {
+    seq: u32,
+    level: u8,
+    title: String,
+    page: usize,
+    destination_top: Option<f64>,
+}
+
+/// 从一页提取文本里收集书签标记。
+/// 引擎文本层可能:(1) 在字符间插入空白;(2) macOS 分块边界把同一行复制进
+/// 相邻 chunk(重绘后同一标记出现在两个页面)。因此原文与去空白两轮都收集,
+/// 由调用方按 seq 去重。无内嵌 page 时使用物理提取页,有内嵌 page 时使用它。
+fn collect_pdf_bm_markers(text: &str, page: usize, push: &mut dyn FnMut(BmHit)) {
+    let mut seen = std::collections::HashSet::new();
+    let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    for source in [text, &compact] {
+        let mut rest = source;
+        while let Some(pos) = rest.find(PDF_BM_PREFIX) {
+            let after = &rest[pos + PDF_BM_PREFIX.len()..];
+            let Some(marker_end) = after.find("]]") else {
+                rest = after;
+                continue;
+            };
+            let marker = &after[..marker_end];
+            let Some((header, title)) = marker.split_once('|') else {
+                rest = &after[marker_end + 2..];
+                continue;
+            };
+            // 兼容三种格式:level:seq、level:seq:page 以及
+            // macOS 分页脚本写入的 level:seq:page:destination-top。
+            let fields: Vec<&str> = header.split(':').map(str::trim).collect();
+            let parse_u32 = |value: &str| value.trim().parse::<u32>().ok();
+            let parse_f64 = |value: &str| value.trim().parse::<f64>().ok();
+            let (level, seq, embedded_page, destination_top) = match fields.as_slice() {
+                [level, seq] => (parse_u32(level), parse_u32(seq), None, None),
+                [level, seq, pdf_page] => {
+                    (parse_u32(level), parse_u32(seq), parse_u32(pdf_page), None)
+                }
+                [level, seq, pdf_page, destination_top] => (
+                    parse_u32(level),
+                    parse_u32(seq),
+                    parse_u32(pdf_page),
+                    parse_f64(destination_top),
+                ),
+                _ => (None, None, None, None),
+            };
+            let title = title.trim();
+            let level = level.filter(|v| (1..=6).contains(&(*v as u8)));
+            if let (Some(level), Some(seq)) = (level, seq) {
+                if !title.is_empty() {
+                    let title = title.to_string();
+                    let destination_page = embedded_page.map_or(page, |page| page as usize);
+                    let destination_top =
+                        destination_top.filter(|value| value.is_finite() && *value >= 0.0);
+                    if seen.insert((seq, level as u8, title.clone(), destination_page)) {
+                        push(BmHit {
+                            seq,
+                            level: level as u8,
+                            title,
+                            page: destination_page,
+                            destination_top,
+                        });
+                    }
+                }
+            }
+            rest = &after[marker_end + 2..];
+        }
+    }
+}
+
+fn utf16_be(s: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(2 + s.len() * 2);
+    out.extend_from_slice(&[0xFE, 0xFF]);
+    for unit in s.encode_utf16() {
+        out.extend_from_slice(&unit.to_be_bytes());
+    }
+    out
+}
+
+/// 把提取到的书签写入 PDF /Outlines。失败由调用方静默忽略,不影响已生成的 PDF。
+fn apply_pdf_outline(path: &Path) -> Result<(), String> {
+    use std::collections::{BTreeMap, HashMap};
+
+    use lopdf::{Dictionary, Document, Object, ObjectId};
+
+    let pages_text =
+        pdf_extract::extract_text_by_pages(path).map_err(|e| format!("PDF 文本提取失败:{e}"))?;
+    let mut hits: Vec<BmHit> = Vec::new();
+    for (page_index, text) in pages_text.iter().enumerate() {
+        let page = page_index + 1;
+        let mut push = |hit: BmHit| hits.push(hit);
+        collect_pdf_bm_markers(text, page, &mut push);
+    }
+    // 按 seq 去重:同一 seq 保留页码最小的一份(分块边界复制时第一份在正确页)。
+    // BTreeMap 同时保证输出按文档顺序排列。
+    let mut by_seq: BTreeMap<u32, (u8, String, usize, Option<f64>)> = BTreeMap::new();
+    for hit in hits {
+        let entry = by_seq.entry(hit.seq).or_insert((
+            hit.level,
+            hit.title.clone(),
+            hit.page,
+            hit.destination_top,
+        ));
+        if hit.page < entry.2 {
+            *entry = (hit.level, hit.title.clone(), hit.page, hit.destination_top);
+        }
+    }
+    let items: Vec<(u8, String, usize, Option<f64>)> = by_seq.into_values().collect();
+    if items.is_empty() {
+        return Ok(());
+    }
+
+    let mut doc = Document::load(path).map_err(|e| format!("PDF 解析失败:{e}"))?;
+    let page_ids = doc.get_pages();
+    let page_count = page_ids.len() as u32;
+    if page_count == 0 {
+        return Err("PDF 无页面".into());
+    }
+    let page_ref = |page: usize| -> ObjectId {
+        let number = (page as u32).clamp(1, page_count);
+        page_ids[&number]
+    };
+
+    let outlines_id = doc.add_object(Object::Null);
+    // 节点先占位拿 id(parent/prev/next 互相引用),最后统一写入 dict。
+    struct BmNode {
+        id: ObjectId,
+        parent: ObjectId,
+        title: String,
+        page: usize,
+        destination_top: Option<f64>,
+    }
+    let mut nodes: Vec<BmNode> = Vec::new();
+    let mut ancestors: Vec<ObjectId> = Vec::new();
+    let mut first_child: HashMap<ObjectId, ObjectId> = HashMap::new();
+    let mut last_child: HashMap<ObjectId, ObjectId> = HashMap::new();
+    let mut count: HashMap<ObjectId, i64> = HashMap::new();
+
+    for (level, title, page, destination_top) in &items {
+        while ancestors.len() >= *level as usize {
+            ancestors.pop();
+        }
+        let parent = ancestors.last().copied().unwrap_or(outlines_id);
+        let id = doc.add_object(Object::Null);
+        first_child.entry(parent).or_insert(id);
+        last_child.insert(parent, id);
+        // Count 语义:开放容器的可见后代总数,沿祖先链累加。
+        let mut p = parent;
+        loop {
+            *count.entry(p).or_insert(0) += 1;
+            if p == outlines_id {
+                break;
+            }
+            let node = nodes
+                .iter()
+                .find(|n| n.id == p)
+                .expect("outline parent not found");
+            p = node.parent;
+        }
+        ancestors.push(id);
+        nodes.push(BmNode {
+            id,
+            parent,
+            title: title.clone(),
+            page: *page,
+            destination_top: *destination_top,
+        });
+    }
+
+    for (index, node) in nodes.iter().enumerate() {
+        let mut dict = Dictionary::new();
+        dict.set(
+            "Title",
+            Object::String(utf16_be(&node.title), lopdf::StringFormat::Hexadecimal),
+        );
+        dict.set("Parent", Object::Reference(node.parent));
+        if let Some(prev) = nodes[..index]
+            .iter()
+            .rev()
+            .find(|n| n.parent == node.parent)
+        {
+            dict.set("Prev", Object::Reference(prev.id));
+        }
+        if let Some(next) = nodes[index + 1..].iter().find(|n| n.parent == node.parent) {
+            dict.set("Next", Object::Reference(next.id));
+        }
+        if let Some(first) = first_child.get(&node.id) {
+            dict.set("First", Object::Reference(*first));
+        }
+        if let Some(last) = last_child.get(&node.id) {
+            dict.set("Last", Object::Reference(*last));
+        }
+        if let Some(c) = count.get(&node.id) {
+            // PDF outline 的 Count 为负表示容器默认折叠。所有父级书签都写负值,
+            // 阅读器打开侧栏时只展示顶层,用户点击后再逐级展开。
+            dict.set("Count", Object::Integer(-*c));
+        }
+        let destination = match node.destination_top {
+            // XYZ 的 top 是视口上边缘对应的 PDF y 坐标;写入标题上边缘,
+            // 让阅读器点击书签后把该标题滚动到窗口顶部,而不是只跳到所在页。
+            Some(top) => Object::Array(vec![
+                Object::Reference(page_ref(node.page)),
+                Object::Name(b"XYZ".to_vec()),
+                Object::Null,
+                Object::Real(top as f32),
+                Object::Null,
+            ]),
+            // Windows 标记没有预计算 y 坐标,保留页级 Fit 兜底。
+            None => Object::Array(vec![
+                Object::Reference(page_ref(node.page)),
+                Object::Name(b"Fit".to_vec()),
+            ]),
+        };
+        dict.set("Dest", destination);
+        *doc.objects.get_mut(&node.id).expect("outline node missing") = Object::Dictionary(dict);
+    }
+
+    let mut outlines = Dictionary::new();
+    outlines.set("Type", Object::Name(b"Outlines".to_vec()));
+    if let Some(first) = first_child.get(&outlines_id) {
+        outlines.set("First", Object::Reference(*first));
+    }
+    if let Some(last) = last_child.get(&outlines_id) {
+        outlines.set("Last", Object::Reference(*last));
+    }
+    outlines.set(
+        "Count",
+        Object::Integer(-*count.get(&outlines_id).unwrap_or(&0)),
+    );
+    *doc.objects.get_mut(&outlines_id).expect("outlines missing") = Object::Dictionary(outlines);
+
+    let catalog = doc
+        .catalog_mut()
+        .map_err(|e| format!("PDF 目录读取失败:{e}"))?;
+    catalog.set("Outlines", Object::Reference(outlines_id));
+    doc.save(path).map_err(|e| format!("PDF 保存失败:{e}"))?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn export_pdf(
     app: AppHandle,
@@ -894,6 +1142,9 @@ pub async fn export_pdf(
 
                           // 与 Rust paginate_macos_pdf 的 794px 源画布 -> A4 内容区换算保持一致。
                           const PAGE_HEIGHT = 1182.0786516853934;
+                          const A4_HEIGHT = 841.8897637795277;
+                          const PAGE_MARGIN = 45.35433070866142;
+                          const SOURCE_SCALE = 0.6354747218310558;
                           const selector = [
                             'h1,h2,h3,h4,h5,h6', 'p', 'li', 'dt', 'dd', 'blockquote',
                             'pre', 'table', 'img', 'figure', '.yz-callout', '.yz-details',
@@ -926,6 +1177,22 @@ pub async fn export_pdf(
                             let nextTop = el.getBoundingClientRect().top + window.scrollY;
                             spacer.style.height = `${Math.max(0, Number.parseFloat(spacer.style.height) + boundary - nextTop)}px`;
                           }
+
+                          // macOS 的 A4 重绘会保留被裁剪的文本层,同一标记可能
+                          // 出现在多页。这里按分页 spacer 插入后的标题位置写入目标页
+                          // 与最终 PDF y 坐标,让 Rust 同时规避页码歧义并精确滚动到标题。
+                          for (const marker of document.querySelectorAll('.yz-bm-marker')) {
+                            const heading = marker.parentElement;
+                            if (!heading) continue;
+                            const top = heading.getBoundingClientRect().top + window.scrollY;
+                            const page = Math.max(1, Math.floor(top / PAGE_HEIGHT) + 1);
+                            const offsetInPage = top - (page - 1) * PAGE_HEIGHT;
+                            const destinationTop = A4_HEIGHT - PAGE_MARGIN - offsetInPage * SOURCE_SCALE;
+                            const prefix = '[[YZ-PDF-BM:';
+                            const markerBody = marker.textContent.slice(prefix.length, -2);
+                            const [header, ...titleParts] = markerBody.split('|');
+                            marker.textContent = `${prefix}${header}:${page}:${destinationTop.toFixed(3)}|${titleParts.join('|')}]]`;
+                          }
                         })()"#,
                     )
                     .map_err(|e| format!("切换 PDF 打印布局失败:{e}"))?;
@@ -934,9 +1201,10 @@ pub async fn export_pdf(
             tokio::time::sleep(std::time::Duration::from_millis(80)).await;
 
             let (print_tx, print_rx) = mpsc::channel::<Result<(), String>>();
+            let output_for_outline = output.clone();
             export_webview
                 .with_webview(move |webview| {
-                    print_webview_to_pdf(webview, output.clone(), print_tx)
+                    print_webview_to_pdf(webview, output, print_tx)
                 })
                 .map_err(|e| format!("调用原生 PDF 引擎失败:{e}"))?;
             let print_result: Result<(), String> = {
@@ -967,6 +1235,10 @@ pub async fn export_pdf(
                 }
             };
             print_result?;
+            // 大纲书签(尽力而为):写失败只记日志,不影响已生成的 PDF。
+            if let Err(err) = apply_pdf_outline(&output_for_outline) {
+                eprintln!("[export-pdf] PDF 书签写入失败(忽略):{err}");
+            }
             Ok(())
         }
         .await;
@@ -1215,6 +1487,280 @@ fn downgrade_failed_images(
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod pdf_bookmark_tests {
+    use super::{BmHit, apply_pdf_outline, collect_pdf_bm_markers};
+
+    fn collect(text: &str, page: usize) -> Vec<(u32, u8, String, usize, Option<f64>)> {
+        let mut out = Vec::new();
+        let mut push =
+            |hit: BmHit| out.push((hit.seq, hit.level, hit.title, hit.page, hit.destination_top));
+        collect_pdf_bm_markers(text, page, &mut push);
+        out
+    }
+
+    #[test]
+    fn collects_markers_in_order() {
+        // 原文轮 + 去空白轮都会产出;apply_pdf_outline 层按 seq 去重后使用
+        let hits = collect(
+            "前言\n[[YZ-PDF-BM:1:0|第一章 概述]]\n正文\n[[YZ-PDF-BM:2:1|1.1 背景]]\n尾",
+            3,
+        );
+        assert_eq!(
+            hits,
+            vec![
+                (0u32, 1u8, "第一章 概述".to_string(), 3usize, None,),
+                (1u32, 2u8, "1.1 背景".to_string(), 3usize, None,),
+                (0u32, 1u8, "第一章概述".to_string(), 3usize, None,),
+                (1u32, 2u8, "1.1背景".to_string(), 3usize, None,),
+            ]
+        );
+    }
+
+    #[test]
+    fn survives_whitespace_insertion() {
+        let hits = collect("[[YZ-PDF-BM: 3 :7 | 安装与配置 ]]", 1);
+        assert_eq!(
+            hits,
+            vec![(7u32, 3u8, "安装与配置".to_string(), 1usize, None)]
+        );
+    }
+
+    #[test]
+    fn uses_embedded_page_and_top_over_physical_extraction_page() {
+        // macOS A4 重绘会复制被裁剪文本;标记内 page/top 才是目标位置。
+        let hits = collect(
+            "[[YZ-PDF-BM:2:7:3:796.497|跨页标题]]\n[[[YZ-PDF-BM: 1 : 8 : 4 : 751.181 | 白空格变体]]",
+            1,
+        );
+        assert_eq!(
+            hits,
+            vec![
+                (7u32, 2u8, "跨页标题".to_string(), 3usize, Some(796.497),),
+                (8u32, 1u8, "白空格变体".to_string(), 4usize, Some(751.181),),
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_malformed_markers() {
+        assert!(collect("[[YZ-PDF-BM:9:0|非法层级]] [[YZ-PDF-BM:1:1|未闭合", 1).is_empty());
+        assert!(collect("[[YZ-PDF-BM:x:0|坏序号]]", 1).is_empty());
+    }
+
+    #[test]
+    fn end_to_end_dedupes_chunk_boundary_copies() {
+        // macOS 分块边界会把同一行复制进相邻 chunk:同 seq 出现在两页,
+        // apply_pdf_outline 必须只写一份书签,且取页码最小(视觉所在页)的那份。
+        use lopdf::{Dictionary, Document, Object, Stream, dictionary};
+
+        let mut doc = Document::new();
+        let font_id = doc.add_object(dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type1",
+            "BaseFont" => "Helvetica",
+        });
+        let pages_id = doc.add_object(Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => Object::Array(vec![]),
+            "Count" => Object::Integer(0),
+        }));
+        let mut kid_ids = Vec::new();
+        // 页 1 与页 2 都印同一标记(seq 0) + 页 2 再印下一个标记(seq 1)
+        let lines = [
+            ("[[YZ-PDF-BM:1:0|Chapter One]]", 1),
+            ("[[YZ-PDF-BM:1:0|Chapter One]]", 2),
+            ("[[YZ-PDF-BM:2:1|Section 1-1]]", 2),
+        ];
+        for (i, (marker, page_no)) in lines.iter().enumerate() {
+            let y = 720 - (i * 100) as i64;
+            let content = format!("BT /F1 12 Tf 72 {y} Td ({marker}) Tj ET");
+            let content_id = doc.add_object(Object::Stream(Stream::new(
+                Dictionary::new(),
+                content.into_bytes(),
+            )));
+            let page_id = doc.add_object(Object::Dictionary(dictionary! {
+                "Type" => "Page",
+                "Parent" => Object::Reference(pages_id),
+                "Contents" => Object::Reference(content_id),
+                "Resources" => dictionary! {
+                    "Font" => dictionary! { "F1" => Object::Reference(font_id) },
+                },
+                "MediaBox" => Object::Array(vec![
+                    Object::Integer(0),
+                    Object::Integer(0),
+                    Object::Integer(612),
+                    Object::Integer(792),
+                ]),
+            }));
+            kid_ids.push(page_id);
+            let _ = page_no;
+        }
+        if let Object::Dictionary(pages_dict) = doc.objects.get_mut(&pages_id).unwrap() {
+            pages_dict.set(
+                "Kids",
+                Object::Array(kid_ids.iter().map(|id| Object::Reference(*id)).collect()),
+            );
+        }
+        let catalog_id = doc.add_object(Object::Dictionary(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => Object::Reference(pages_id),
+        }));
+        doc.trailer.set("Root", Object::Reference(catalog_id));
+
+        let path = std::env::temp_dir().join(format!(
+            "yanzhi-outline-dedupe-{}-{}.pdf",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        doc.save(&path).unwrap();
+        apply_pdf_outline(&path).expect("outline should apply");
+
+        let doc = Document::load(&path).unwrap();
+        let catalog = doc.catalog().unwrap();
+        let Object::Reference(outlines_id) = catalog.get(b"Outlines").unwrap() else {
+            panic!("catalog should reference outlines");
+        };
+        let Object::Dictionary(outlines) = &doc.objects.get(outlines_id).unwrap() else {
+            panic!("outlines should be a dictionary");
+        };
+        // 去重后只有 2 个书签,而不是 3 个;负数表示默认折叠。
+        assert_eq!(outlines.get(b"Count").unwrap(), &Object::Integer(-2));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn writes_outline_into_pdf_end_to_end() {
+        use lopdf::{Dictionary, Document, Object, Stream, dictionary};
+
+        // 构造两页 PDF:每页一条标记文本(ASCII 标题,标准字体可提取)
+        let mut doc = Document::new();
+        let font_id = doc.add_object(dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type1",
+            "BaseFont" => "Helvetica",
+        });
+        let pages_id = doc.add_object(Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => Object::Array(vec![]),
+            "Count" => Object::Integer(0),
+        }));
+        let mut kid_ids = Vec::new();
+        for (i, marker) in [
+            "[[YZ-PDF-BM:1:0|Chapter One]]",
+            "[[YZ-PDF-BM:3:1:2:650|Deep Section]]",
+            "[[YZ-PDF-BM:2:2|Shallow Section]]",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let y = 720 - (i * 180) as i64;
+            let content = format!("BT /F1 12 Tf 72 {y} Td ({marker}) Tj ET");
+            let content_id = doc.add_object(Object::Stream(Stream::new(
+                Dictionary::new(),
+                content.into_bytes(),
+            )));
+            let page_id = doc.add_object(Object::Dictionary(dictionary! {
+                "Type" => "Page",
+                "Parent" => Object::Reference(pages_id),
+                "Contents" => Object::Reference(content_id),
+                "Resources" => dictionary! {
+                    "Font" => dictionary! { "F1" => Object::Reference(font_id) },
+                },
+                "MediaBox" => Object::Array(vec![
+                    Object::Integer(0),
+                    Object::Integer(0),
+                    Object::Integer(612),
+                    Object::Integer(792),
+                ]),
+            }));
+            kid_ids.push(page_id);
+        }
+        if let Object::Dictionary(pages_dict) = doc.objects.get_mut(&pages_id).unwrap() {
+            pages_dict.set(
+                "Kids",
+                Object::Array(kid_ids.iter().map(|id| Object::Reference(*id)).collect()),
+            );
+        }
+        let catalog_id = doc.add_object(Object::Dictionary(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => Object::Reference(pages_id),
+        }));
+        doc.trailer.set("Root", Object::Reference(catalog_id));
+
+        let path = std::env::temp_dir().join(format!(
+            "yanzhi-outline-test-{}-{}.pdf",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        doc.save(&path).unwrap();
+
+        apply_pdf_outline(&path).expect("outline should apply");
+
+        // 重新加载验证 /Outlines 结构
+        let doc = Document::load(&path).unwrap();
+        let catalog = doc.catalog().unwrap();
+        let Object::Reference(outlines_id) = catalog.get(b"Outlines").unwrap() else {
+            panic!("catalog should reference outlines");
+        };
+        let Object::Dictionary(outlines) = &doc.objects.get(outlines_id).unwrap() else {
+            panic!("outlines should be a dictionary");
+        };
+        assert_eq!(outlines.get(b"Count").unwrap(), &Object::Integer(-3));
+        let Object::Reference(first_id) = outlines.get(b"First").unwrap() else {
+            panic!("outlines should have First");
+        };
+        let Object::Dictionary(first) = &doc.objects.get(first_id).unwrap() else {
+            panic!("first node should be a dictionary");
+        };
+        assert_eq!(first.get(b"Count").unwrap(), &Object::Integer(-2));
+        let Object::Reference(child_first_id) = first.get(b"First").unwrap() else {
+            panic!("parent bookmark should expose First");
+        };
+        let Object::Reference(child_last_id) = first.get(b"Last").unwrap() else {
+            panic!("parent bookmark should expose Last");
+        };
+        assert_ne!(child_first_id, child_last_id);
+        let Object::Dictionary(child_first) = &doc.objects.get(child_first_id).unwrap() else {
+            panic!("first child should be a dictionary");
+        };
+        assert_eq!(
+            child_first.get(b"Parent").unwrap(),
+            &Object::Reference(*first_id)
+        );
+        let Object::Reference(child_next_id) = child_first.get(b"Next").unwrap() else {
+            panic!("outline siblings should expose Next");
+        };
+        assert_eq!(child_next_id, child_last_id);
+        let Object::Dictionary(deep) = &doc.objects.get(child_first_id).unwrap() else {
+            panic!("deep child should be a dictionary");
+        };
+        let Object::Array(destination) = deep.get(b"Dest").unwrap() else {
+            panic!("bookmark should have a destination array");
+        };
+        assert_eq!(destination[1], Object::Name(b"XYZ".to_vec()));
+        assert_eq!(destination[2], Object::Null);
+        assert_eq!(destination[3], Object::Real(650.0));
+        assert_eq!(destination[4], Object::Null);
+        let Object::String(bytes, _) = first.get(b"Title").unwrap() else {
+            panic!("title should be a string");
+        };
+        let decoded: Vec<u16> = bytes[2..]
+            .chunks(2)
+            .map(|c| u16::from_be_bytes([c[0], c[1]]))
+            .collect();
+        assert_eq!(String::from_utf16(&decoded).unwrap(), "Chapter One");
+
+        std::fs::remove_file(&path).ok();
     }
 }
 

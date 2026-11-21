@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useState, type MutableRefObject } from "react";
+import { Suspense, lazy, useEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { baseExtensions } from "./extensions";
@@ -69,6 +69,8 @@ interface YanzhiEditorProps {
   onReady?: (editor: Editor) => void;
   /** 编辑区滚动容器挂载回调(滚动联动面板消费) */
   scrollContainerRef?: (el: HTMLDivElement | null) => void;
+  /** 文档头插槽:标题与正文同处一个滚动面,对齐语雀式阅读/编辑布局 */
+  docHeader?: ReactNode;
   /** 源码模式 CodeMirror 挂载/卸载;右侧大纲用它按源码行定位 */
   onSourceOutlineController?: (controller: MarkdownSourceOutlineController | null) => void;
   /** `[[` 检索文档列表(每次唤起取最新;见 wiki-link-command) */
@@ -201,6 +203,7 @@ export function YanzhiEditor({
   onMarkdownChange,
   onReady,
   scrollContainerRef,
+  docHeader,
   onSourceOutlineController,
   wikiDocs,
   onOpenWikiLink,
@@ -794,13 +797,14 @@ export function YanzhiEditor({
   }, [editor, contentPath]);
 
   return (
-    <div className={`flex min-h-0 flex-1 flex-col${cardBorder ? "" : " yz-flat-cards"}`}>
+    <div className={`relative flex min-h-0 flex-1 flex-col${cardBorder ? "" : " yz-flat-cards"}`}>
       {editor && showToolbar && (
         <EditorToolbar editor={editor} sourceMode={sourceMode} onToggleSource={toggleSourceMode} />
       )}
       {editor && findBar && (
         <FindReplaceBar
           editor={editor}
+          className={showToolbar ? "top-14" : "top-3"}
           showReplace={replaceRow}
           onToggleReplace={() => setReplaceRow((v) => !v)}
           onClose={() => setFindBar(false)}
@@ -808,6 +812,7 @@ export function YanzhiEditor({
       )}
       <div
         ref={bindScrollRef}
+        data-editor-scroll="true"
         className="relative flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable]"
       >
         {/* relative 是 TableToolbar/ImageToolbar/AiChrome 浮层的定位锚;
@@ -820,6 +825,7 @@ export function YanzhiEditor({
           }`}
           onMouseDown={focusEditorFromBlankArea}
         >
+          {docHeader && <div className="mt-8 mb-10 shrink-0">{docHeader}</div>}
           {editor ? (
             <>
               {/* 统一右键菜单(外层)+ 表格单元格菜单(内层):

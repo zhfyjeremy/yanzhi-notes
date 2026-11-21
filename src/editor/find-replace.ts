@@ -117,6 +117,39 @@ export function findStateOf(editor: Editor): FindState {
   );
 }
 
+/**
+ * 把当前匹配滚进编辑区可视窗口。
+ * 不能只依赖 PM 的 tr.scrollIntoView():查找条是覆盖浮层,
+ * PM 的“最近边”滚动可能正好把匹配藏在浮条下面。
+ * 这里始终使用外层编辑滚动容器,并把匹配中心对齐到滚动视口中线。
+ */
+function scrollMatchIntoView(editor: Editor, match: FindMatch): void {
+  window.requestAnimationFrame(() => {
+    if (editor.isDestroyed) return;
+    const container = editor.view.dom.closest<HTMLElement>("[data-editor-scroll]");
+    const { from, to } = match;
+    const start = editor.view.coordsAtPos(from);
+    const end = editor.view.coordsAtPos(to);
+
+    if (!container) {
+      editor.view.dom.scrollIntoView({ block: "center", behavior: "smooth" });
+      return;
+    }
+
+    const box = container.getBoundingClientRect();
+    const matchTop = Math.min(start.top, end.top);
+    const matchBottom = Math.max(start.bottom, end.bottom);
+    const matchCenter = (matchTop + matchBottom) / 2;
+    // 当前匹配滚动到滚动视口中线;目标贴近文档边界时浏览器会自然钳制。
+    const viewportCenter = box.top + box.height / 2;
+    const delta = matchCenter - viewportCenter;
+
+    if (Math.abs(delta) > 1) {
+      container.scrollBy({ top: delta, behavior: "smooth" });
+    }
+  });
+}
+
 /** 设置查找词(并可选指定当前项);当前项滚入可视区 */
 export function setSearch(editor: Editor, query: string, active = 0): void {
   const { state } = editor;
@@ -125,9 +158,10 @@ export function setSearch(editor: Editor, query: string, active = 0): void {
   const clamped = matches.length ? Math.min(active, matches.length - 1) : 0;
   const m = matches[clamped];
   if (m) {
-    tr.setSelection(TextSelection.create(state.doc, m.from, m.to)).scrollIntoView();
+    tr.setSelection(TextSelection.create(state.doc, m.from, m.to));
   }
   editor.view.dispatch(tr);
+  if (m) scrollMatchIntoView(editor, m);
 }
 
 /** 步进:dir 1 下一个 / -1 上一个;步进后当前项选中 + 滚动跟随 */

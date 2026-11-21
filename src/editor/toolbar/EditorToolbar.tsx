@@ -93,7 +93,7 @@ function ToolButton({
         size="icon"
         disabled={disabled}
         className={cn(
-          "text-muted-foreground hover:text-foreground size-7 rounded-md",
+          "text-muted-foreground hover:text-foreground size-8 rounded-md",
           className,
           active && "bg-selection text-foreground ring-primary/20 hover:text-foreground ring-1",
         )}
@@ -195,10 +195,10 @@ export function EditorToolbar({
       <div
         role="toolbar"
         aria-label="源码模式工具栏"
-        className="yz-toolbar chrome-toolbar-host bg-editor flex h-10 shrink-0 items-center justify-center px-4"
+        className="yz-toolbar chrome-toolbar-host bg-editor flex h-11 shrink-0 items-center justify-center px-4 py-1"
       >
         <div className={`chrome-toolbar-align mx-auto h-full w-full min-w-0 px-16 ${EDITOR_COLUMN_CLASS}`}>
-          <div className="chrome-toolbar border-border-subtle bg-raised flex h-8 items-center gap-2 rounded-lg border px-2 shadow-sm">
+          <div className="chrome-toolbar border-border-subtle bg-raised flex h-9 items-center gap-2 rounded-lg border px-2 shadow-sm">
             <FileCode2 className="text-primary size-4 shrink-0" />
             <span className="text-foreground/85 text-xs font-medium">Markdown 源码</span>
             <span className="text-muted-foreground text-[10px]">标准 Markdown · 自动保存</span>
@@ -206,7 +206,7 @@ export function EditorToolbar({
             <Button
               variant="ghost"
               size="sm"
-              className="text-muted-foreground hover:text-foreground h-7 gap-1.5 px-2 text-xs"
+              className="text-muted-foreground hover:text-foreground h-8 gap-1.5 px-2 text-xs"
               onMouseDown={(e) => e.preventDefault()}
               onClick={onToggleSource}
             >
@@ -220,16 +220,16 @@ export function EditorToolbar({
   }
 
   return (
-    <div role="toolbar" aria-label="格式工具栏" className="yz-toolbar chrome-toolbar-host bg-editor flex h-10 shrink-0 items-center justify-center px-4">
+    <div role="toolbar" aria-label="格式工具栏" className="yz-toolbar chrome-toolbar-host bg-editor flex h-11 shrink-0 items-center justify-center px-4 py-1">
       {/* 卡片:display:contents,胶囊仍由 host 居中。平铺:变成正文同宽的列,按钮对齐文字而不是贴面板左缘 */}
       <div className={`chrome-toolbar-align mx-auto h-full w-full min-w-0 px-16 ${EDITOR_COLUMN_CLASS}`}>
-      <div className="chrome-toolbar border-border-subtle bg-raised flex h-8 max-h-8 w-fit max-w-full min-w-0 items-center gap-0.5 overflow-x-auto overflow-y-hidden rounded-lg border px-1 shadow-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="chrome-toolbar border-border-subtle bg-raised flex h-9 max-h-9 w-fit max-w-full min-w-0 items-center gap-0.5 overflow-x-auto overflow-y-hidden rounded-lg border px-1 shadow-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {/* 标题下拉 */}
       <DropdownMenu onOpenChange={snapshotMenuSelection}>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            className="text-muted-foreground hover:text-foreground h-7 min-w-[4.5rem] justify-between gap-1 rounded-md px-2 font-normal"
+            className="text-muted-foreground hover:text-foreground h-8 min-w-[4.5rem] justify-between gap-1 rounded-md px-2 font-normal"
             onMouseDown={(e) => e.preventDefault()}
           >
             <span className="truncate">{currentHeading.label}</span>
@@ -242,12 +242,16 @@ export function EditorToolbar({
           onCloseAutoFocus={restoreEditorFocus}
         >
           {HEADING_ITEMS.map((item) => (
-            <DropdownMenuItem key={item.level} onClick={() => applyHeading(item.level)}>
+            <DropdownMenuItem
+              key={item.level}
+              onClick={() => applyHeading(item.level)}
+              className={cn(
+                state.heading === item.level &&
+                  "bg-selection text-foreground hover:bg-selection focus:bg-selection",
+              )}
+            >
               <span className={cn("flex-1", item.className)}>{item.label}</span>
               <span className="text-muted-foreground text-[10px]">⌘/Ctrl+{item.level}</span>
-              {state.heading === item.level && (
-                <Check className="ml-1 size-3.5 shrink-0" />
-              )}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
@@ -283,7 +287,7 @@ export function EditorToolbar({
               variant="ghost"
               size="icon"
               className={cn(
-                "text-muted-foreground hover:text-foreground size-7 rounded-md yz-toolbar-hide-compact",
+                "text-muted-foreground hover:text-foreground size-8 rounded-md yz-toolbar-hide-compact",
                 state.fontColor && "bg-selection text-foreground ring-primary/20 hover:text-foreground ring-1",
               )}
               onMouseDown={(e) => e.preventDefault()}
@@ -342,7 +346,7 @@ export function EditorToolbar({
               variant="ghost"
               size="icon"
               className={cn(
-                "text-muted-foreground hover:text-foreground size-7 rounded-md",
+                "text-muted-foreground hover:text-foreground size-8 rounded-md",
                 state.link && "bg-selection text-foreground ring-primary/20 hover:text-foreground ring-1",
               )}
             >
@@ -421,7 +425,7 @@ export function EditorToolbar({
             <Button
               variant="ghost"
               size="icon"
-              className="text-muted-foreground hover:text-foreground size-7 rounded-md yz-toolbar-hide-cozy"
+              className="text-muted-foreground hover:text-foreground size-8 rounded-md yz-toolbar-hide-cozy"
               onMouseDown={(e) => e.preventDefault()}
             >
               <ClipboardCopy className="size-4" />

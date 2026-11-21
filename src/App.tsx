@@ -2,11 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { ChevronLeft, ChevronRight, CircleCheck, Folder, Loader2, X } from "lucide-react";
+import { CircleCheck, FileText, Folder, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/hint";
 import { YanzhiEditor } from "./editor/YanzhiEditor";
-import { EDITOR_COLUMN_CLASS } from "./editor/layout";
 import { insertImage } from "./editor/extensions/image-card";
 import type { WikiDocRef } from "./editor/wiki-link-command";
 import { TocPanel } from "./editor/panel/TocPanel";
@@ -18,7 +17,8 @@ import { SidebarResizer } from "./kb/SidebarResizer";
 import { DocTabs, DocTabsEmptyState } from "./kb/DocTabs";
 import { TagsPanel } from "./kb/TagsPanel";
 import { filterTreeByTag } from "./kb/meta";
-import { folderBreadcrumbs } from "./kb/breadcrumb";
+import { treeIconComponent } from "./kb/tree-icons";
+import { IconPickerDialog } from "./kb/IconPickerDialog";
 import { StatusBar } from "./kb/StatusBar";
 import { TrashDialog } from "./kb/TrashDialog";
 import { OrphanMetaDialog } from "./kb/OrphanMetaDialog";
@@ -48,7 +48,7 @@ import { copyPlainText } from "./editor/clipboard";
 import { prepareSingleMarkdownForKb } from "./kb/assets";
 import { flattenDocs, resolveWikiTarget, wikiLinkTextFor, wikiTargetFor } from "./kb/wiki-refs";
 import type { HistoryEntry } from "./kb/types";
-import { formatShortcut, shortcutMatches } from "./shortcuts";
+import { shortcutMatches } from "./shortcuts";
 import { focusGlobalSearch } from "./kb/search-focus";
 import type { BatchRenameItem, BatchResult } from "./kb/batch";
 import {
@@ -82,6 +82,7 @@ interface PdfExportSource {
   docRel: string;
   readAssetBase64: (rel: string) => Promise<{ data: string; mime: string } | null>;
   codeTheme: CodeThemeId;
+  titleAlign: "left" | "center";
 }
 
 interface PendingDocxExport {
@@ -175,11 +176,13 @@ function DocxExportingOverlay() {
   );
 }
 
-function PdfExportSuccessToast({
+function ExportSuccessToast({
+  title,
   path,
   onClose,
   onReveal,
 }: {
+  title: string;
   path: string;
   onClose: () => void;
   onReveal: (path: string) => void;
@@ -192,7 +195,7 @@ function PdfExportSuccessToast({
     >
       <CircleCheck className="text-[var(--callout-success)] size-4 shrink-0" aria-hidden />
       <div className="min-w-0 flex-1">
-        <span className="font-medium">PDF 导出完成</span>
+        <span className="font-medium">{title}</span>
         <div className="text-muted-foreground truncate text-xs" title={path}>
           {path}
         </div>
@@ -237,7 +240,15 @@ function PdfExportingOverlay() {
   );
 }
 
-function DocxReportDialog({ report, onClose }: { report: DocxReport; onClose: () => void }) {
+function DocxReportDialog({
+  report,
+  onClose,
+  onReveal,
+}: {
+  report: DocxReport;
+  onClose: () => void;
+  onReveal: (path: string) => void;
+}) {
   const details = [
     `本地图片:${report.stats.localImages}`,
     `外链图片:${report.stats.remoteImages} 个 / ${report.remoteEmbedded} 嵌入 / ${report.remoteFailed} 失败降级 / ${Math.max(0, report.stats.remoteImages - report.remoteEmbedded - report.remoteFailed)} 选择链接`,
@@ -279,6 +290,10 @@ function DocxReportDialog({ report, onClose }: { report: DocxReport; onClose: ()
           )}
         </div>
         <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => onReveal(report.path)}>
+            <Folder className="size-3.5" aria-hidden />
+            在文件管理器中显示
+          </Button>
           <Button size="sm" onClick={onClose}>
             知道了
           </Button>
@@ -345,8 +360,6 @@ function App() {
   const [searchPreset, setSearchPreset] = useState<{ term: string; seq: number } | null>(null);
   /* 标签筛选(6.3-2):左栏树只显示带该标签的文档;null = 未筛选 */
   const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const [treeReveal, setTreeReveal] = useState<{ path: string; seq: number } | null>(null);
-  const treeRevealSeq = useRef(0);
   /* 新建文档模板选择(7.5):知识库有模板时「新建文档」先经 TemplatePicker */
   const [tplPicker, setTplPicker] = useState<{ folder: string; name: string } | null>(null);
   const [tplNames, setTplNames] = useState<string[]>([]);
@@ -368,6 +381,7 @@ function App() {
   /** /ai 等入口未就绪时先提示,确认后再进设置,避免生硬直跳 */
   const [aiSetupPromptOpen, setAiSetupPromptOpen] = useState(false);
   const [titleAiPopoverOpen, setTitleAiPopoverOpen] = useState(false);
+  const [titleIconPickerOpen, setTitleIconPickerOpen] = useState(false);
   // 单文件大纲默认展开(无目录树,大纲占左导航);与知识库右栏 showOutline 独立
   const [singleOutlineOpen, setSingleOutlineOpen] = useState(true);
   const singleAssetsAllowedRef = useRef(false);
@@ -615,33 +629,35 @@ function App() {
 
   const onExportHtml = useCallback(() => {
     if (!kb.currentPath) return;
+    setExportSuccess(null);
     void buildExportHtml({
       md: kb.getMarkdownNow(),
       title: title || "未命名文档",
       docRel: kb.currentPath,
       readAssetBase64: kb.readAssetBase64,
       codeTheme: settings.codeTheme,
+      titleAlign: settings.exportTitleAlign,
     }).then((html) =>
       kb.exportText(`${title || "未命名文档"}.html`, "html", html).then((p) => {
-        if (p) showToast(`已导出:${p}`);
+        if (p) setExportSuccess({ title: "HTML 导出完成", path: p });
       }),
     );
-  }, [kb, showToast, title, settings.codeTheme]);
+  }, [kb, title, settings.codeTheme, settings.exportTitleAlign]);
 
   const [pdfExportBusy, setPdfExportBusy] = useState(false);
-  const [pdfExportSuccessPath, setPdfExportSuccessPath] = useState<string | null>(null);
+  const [exportSuccess, setExportSuccess] = useState<{ title: string; path: string } | null>(null);
 
   const runPdfExport = useCallback(
     async (source: PdfExportSource) => {
       if (pdfExportBusy) return;
-      setPdfExportSuccessPath(null);
+      setExportSuccess(null);
       const outputPath = await kbBackend.pickPdfOutputPath(`${source.title}.pdf`);
       if (!outputPath) return;
       setPdfExportBusy(true);
       try {
-        const html = await buildExportHtml(source);
+        const html = await buildExportHtml({ ...source, pdfBookmarks: true });
         const result = await kbBackend.exportPdf({ outputPath, html });
-        setPdfExportSuccessPath(result.path);
+        setExportSuccess({ title: "PDF 导出完成", path: result.path });
       } catch (e) {
         showToast(`PDF 导出失败:${e instanceof Error ? e.message : String(e)}`, "error");
       } finally {
@@ -658,8 +674,9 @@ function App() {
       docRel: kb.currentPath,
       readAssetBase64: kb.readAssetBase64,
       codeTheme: settings.codeTheme,
+      titleAlign: settings.exportTitleAlign,
     });
-  }, [kb, runPdfExport, title, settings.codeTheme]);
+  }, [kb, runPdfExport, title, settings.codeTheme, settings.exportTitleAlign]);
   const exportSingleMd = useCallback(() => {
     const docTitle = single.fileStem || "未命名文档";
     void kbBackend
@@ -674,18 +691,20 @@ function App() {
   }, [showToast, single.fileName, single.fileStem, single.getMarkdownNow]);
 
   const exportSingleHtml = useCallback(() => {
+    setExportSuccess(null);
     void buildExportHtml({
       md: single.getMarkdownNow(),
       title: single.fileStem || "未命名文档",
       docRel: single.fileName,
       readAssetBase64: single.readAssetBase64,
       codeTheme: settings.codeTheme,
+      titleAlign: settings.exportTitleAlign,
     }).then((html) =>
       kbBackend.exportText(`${single.fileStem || "未命名文档"}.html`, "html", html).then((p) => {
-        if (p) showToast(`已导出:${p}`);
+        if (p) setExportSuccess({ title: "HTML 导出完成", path: p });
       }),
     );
-  }, [showToast, single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64, settings.codeTheme]);
+  }, [single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64, settings.codeTheme, settings.exportTitleAlign]);
 
   const exportSinglePdf = useCallback(() => {
     void runPdfExport({
@@ -694,8 +713,9 @@ function App() {
       docRel: single.fileName,
       readAssetBase64: single.readAssetBase64,
       codeTheme: settings.codeTheme,
+      titleAlign: settings.exportTitleAlign,
     });
-  }, [runPdfExport, single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64, settings.codeTheme]);
+  }, [runPdfExport, single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64, settings.codeTheme, settings.exportTitleAlign]);
   /* ---- DOCX 语义导出(5.6):PM doc → Pandoc AST,不让 Pandoc 重解析 Markdown ---- */
   const [docxExportBusy, setDocxExportBusy] = useState(false);
   const [docxLoadingVisible, setDocxLoadingVisible] = useState(false);
@@ -711,6 +731,7 @@ function App() {
       // Show loading immediately after the native Save dialog returns.
       // Keep it visible for at least 300ms so fast exports still give clear feedback.
       const loadingStartedAt = Date.now();
+      setExportSuccess(null);
       setDocxExportBusy(true);
       setDocxLoadingVisible(true);
       const waitMinimumLoading = async () => {
@@ -763,8 +784,9 @@ function App() {
           stats.rawHtmlBlocks > 0 ||
           stats.details > 0;
         await waitMinimumLoading();
-        showToast("DOCX 导出成功", "success");
-        if (hasExportIssues) {
+        if (!hasExportIssues) {
+          setExportSuccess({ title: "Word 导出完成", path: result.path });
+        } else {
           setDocxReport({
             path: result.path,
             warnings: allWarnings,
@@ -1452,27 +1474,17 @@ function App() {
   // 打开/切换文档 → 标题跟随文件名(9.2)
   const currentPath = kb.currentPath;
   currentPathRef.current = currentPath;
+  const changeCurrentDocIcon = useCallback(
+    (icon: string | null) => {
+      if (!currentPath) return;
+      const path = currentPath;
+      // 与目录树图标选择器同口径:先等弹窗退场,再写 meta/触发树和标签页刷新。
+      window.setTimeout(() => kb.setTreeIcon(path, false, icon), 120);
+    },
+    [currentPath, kb.setTreeIcon],
+  );
   const kbEditor = editorScope === "kb" ? editor : null;
   const singleEditor = editorScope === "single" ? editor : null;
-
-  const kbRootName = useMemo(() => {
-    const root = kb.kbRoot ?? "";
-    const parts = root.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean);
-    return parts[parts.length - 1] ?? root;
-  }, [kb.kbRoot]);
-
-  const revealFolderInTree = useCallback(
-    (path: string) => {
-      setFocusMode(false);
-      setTagFilter(null);
-      if (path) {
-        const parts = path.split("/");
-        kb.expandFolders(parts.map((_, i) => parts.slice(0, i + 1).join("/")));
-      }
-      setTreeReveal({ path, seq: ++treeRevealSeq.current });
-    },
-    [kb.expandFolders],
-  );
 
   useEffect(() => {
     if (!settingsReady || !kb.kbRoot || !currentPath) return;
@@ -1855,10 +1867,6 @@ function App() {
     });
   }, [kb.kbRoot, settings.recentDocs, wikiDocs]);
   const docNames = useMemo(() => new Map(wikiDocs.map((doc) => [doc.path, doc.name] as const)), [wikiDocs]);
-  const breadcrumbFolders = useMemo(
-    () => (currentPath ? folderBreadcrumbs(currentPath) : []),
-    [currentPath],
-  );
   const wikiDocRefs = useMemo<WikiDocRef[]>(
     () => wikiDocs.map((d) => ({ name: d.name, path: d.path, target: wikiTargetFor(wikiDocs, d.path) })),
     [wikiDocs],
@@ -2218,15 +2226,20 @@ function App() {
       )}
       {docxLoadingVisible && <DocxExportingOverlay />}
       {pdfExportBusy && <PdfExportingOverlay />}
-      {pdfExportSuccessPath && (
-        <PdfExportSuccessToast
-          path={pdfExportSuccessPath}
-          onClose={() => setPdfExportSuccessPath(null)}
+      {exportSuccess && (
+        <ExportSuccessToast
+          title={exportSuccess.title}
+          path={exportSuccess.path}
+          onClose={() => setExportSuccess(null)}
           onReveal={revealExportedFile}
         />
       )}
       {docxReport && (
-        <DocxReportDialog report={docxReport} onClose={() => setDocxReport(null)} />
+        <DocxReportDialog
+          report={docxReport}
+          onClose={() => setDocxReport(null)}
+          onReveal={revealExportedFile}
+        />
       )}
       <SettingsDialog
         open={settingsOpen}
@@ -2272,6 +2285,80 @@ function App() {
             ? `已自动保存 ${kb.savedAt}`
             : "就绪";
 
+  const currentDocIconId = currentPath ? kb.entryIcons.get(currentPath) ?? null : null;
+  const CurrentDocIcon = treeIconComponent(currentDocIconId);
+
+  const kbDocHeader = (
+    <div className="flex w-full min-w-0 items-center gap-1">
+      <Hint label="更改图标">
+        <button
+          type="button"
+          aria-label="更改文档图标"
+          className="hover:text-foreground text-muted-foreground flex size-10 shrink-0 cursor-pointer items-center justify-center outline-none focus-visible:opacity-80"
+          onClick={() => setTitleIconPickerOpen(true)}
+        >
+          {CurrentDocIcon ? (
+            <CurrentDocIcon className="size-7" data-tree-icon={currentDocIconId} />
+          ) : (
+            <FileText className="size-7" />
+          )}
+        </button>
+      </Hint>
+      <div className="relative min-w-[4ch] flex-1">
+        <span
+          aria-hidden
+          className="invisible block max-w-full truncate text-3xl leading-snug font-semibold tracking-[-0.03em] whitespace-pre"
+        >
+          {title || "未命名文档"}
+        </span>
+        <input
+          aria-label="文档标题"
+          className="absolute inset-0 w-full bg-transparent text-3xl leading-snug font-semibold tracking-[-0.03em] outline-none placeholder:text-muted-foreground/45"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onBlur={() => void commitTitleRename()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.currentTarget.blur();
+              requestAnimationFrame(() => {
+                if (editorScope !== "kb" || !editor || editor.isDestroyed) return;
+                editor.view.dom.focus({ preventScroll: true });
+              });
+            }
+          }}
+          placeholder="未命名文档"
+        />
+      </div>
+      <div className="ml-auto shrink-0">
+        <TitleAiControl
+          state={titleAi.state}
+          ready={titleAi.ready}
+          currentTitle={title}
+          stale={
+            titleAi.state.phase !== "idle" &&
+            (currentPath !== titleAi.state.sourcePath ||
+              markdownFingerprint(buildTitleContext(kb.getMarkdownNow()).text) !==
+                titleAi.state.fingerprint)
+          }
+          popoverOpen={titleAiPopoverOpen}
+          onPopoverOpenChange={changeTitleAiPopoverOpen}
+          onStart={startTitleAi}
+          onNeedSettings={promptAiSetup}
+          onApply={applyTitleAi}
+          onCancel={() => {
+            setTitleAiPopoverOpen(false);
+            void titleAi.cancel();
+          }}
+          onDismiss={() => {
+            titleAi.clearResult();
+            setTitleAiPopoverOpen(false);
+          }}
+        />
+      </div>
+    </div>
+  );
+
   return (
     <main className="app-shell bg-workspace text-foreground flex h-screen flex-col">
       {/* 顶距略收:紧贴系统菜单栏,两侧/底保留呼吸 */}
@@ -2300,7 +2387,6 @@ function App() {
             onMoveEntry={(src, dest, ordered) => void moveWithToast(src, dest, ordered)}
             onSearch={kb.search}
             onSearchSelect={onSearchSelect}
-            revealFolder={treeReveal}
             recentDocs={recentDocItems}
             canCopyWikiRef={canCopyWikiRef}
             onCopyWikiRef={copyWikiRef}
@@ -2370,132 +2456,11 @@ function App() {
             />
           )}
           {currentPath ? (
-            /* 专注模式:导航按钮收起(纯 chrome,⌘[ ⌘] 仍可用);标题与正文同列对齐 */
-            <div className="w-full shrink-0 px-6 pt-2 pb-0">
-              <div className={`mx-auto ${EDITOR_COLUMN_CLASS} px-16`}>
-                <div className="flex h-5 min-w-0 items-center gap-1">
-                  {!focusMode && (
-                    <div
-                      role="group"
-                      aria-label="文档导航"
-                      className="chrome-nav text-muted-foreground flex shrink-0 items-center"
-                    >
-                      <Hint label={`后退 (${formatShortcut(settings.shortcuts.navBack)})`}>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-muted-foreground/80 hover:text-foreground hover:bg-hover size-5 rounded-md"
-                          disabled={!kb.canBack}
-                          onClick={() => void kb.navBack()}
-                        >
-                          <ChevronLeft className="size-3.5" />
-                        </Button>
-                      </Hint>
-                      <Hint label={`前进 (${formatShortcut(settings.shortcuts.navForward)})`}>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-muted-foreground/80 hover:text-foreground hover:bg-hover size-5 rounded-md"
-                          disabled={!kb.canFront}
-                          onClick={() => void kb.navForward()}
-                        >
-                          <ChevronRight className="size-3.5" />
-                        </Button>
-                      </Hint>
-                    </div>
-                  )}
-                  <nav
-                    aria-label="文档位置"
-                    className="text-muted-foreground/75 flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden text-[11px]"
-                  >
-                    <button
-                      type="button"
-                      className="hover:bg-hover hover:text-foreground flex min-w-0 shrink items-center gap-1 rounded px-1 py-0.5"
-                      onClick={() => revealFolderInTree("")}
-                      title={kb.kbRoot}
-                    >
-                      <Folder className="size-3 shrink-0 opacity-80" />
-                      <span className="max-w-32 truncate">{kbRootName}</span>
-                    </button>
-                    {breadcrumbFolders.map((crumb) => (
-                      <span key={crumb.path} className="flex min-w-0 shrink items-center gap-0.5">
-                        <ChevronRight className="text-muted-foreground/40 size-3 shrink-0" />
-                        <button
-                          type="button"
-                          className="hover:bg-hover hover:text-foreground max-w-36 truncate rounded px-1 py-0.5"
-                          onClick={() => revealFolderInTree(crumb.path)}
-                          title={crumb.path}
-                        >
-                          {crumb.label}
-                        </button>
-                      </span>
-                    ))}
-                  </nav>
-                </div>
-                <div className="mt-1 flex w-full min-w-0 items-center gap-1">
-                  {/* 标题按内容撑开,AI 入口固定在正文列最右侧 */}
-                  <div className="relative min-w-[4ch] flex-1">
-                    <span
-                      aria-hidden
-                      className="invisible block max-w-full truncate text-3xl leading-snug font-semibold tracking-[-0.03em] whitespace-pre"
-                    >
-                      {title || "未命名文档"}
-                    </span>
-                    <input
-                      className="absolute inset-0 w-full bg-transparent text-3xl leading-snug font-semibold tracking-[-0.03em] outline-none placeholder:text-muted-foreground/45"
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                      onBlur={() => void commitTitleRename()}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          e.currentTarget.blur();
-                          requestAnimationFrame(() => {
-                            if (editorScope !== "kb" || !editor || editor.isDestroyed) return;
-                            editor.view.dom.focus({ preventScroll: true });
-                          });
-                        }
-                      }}
-                      placeholder="未命名文档"
-                    />
-                  </div>
-                  <div className="ml-auto shrink-0">
-                    <TitleAiControl
-                      state={titleAi.state}
-                      ready={titleAi.ready}
-                      currentTitle={title}
-                      stale={
-                        titleAi.state.phase !== "idle" &&
-                        (currentPath !== titleAi.state.sourcePath ||
-                          markdownFingerprint(buildTitleContext(kb.getMarkdownNow()).text) !==
-                            titleAi.state.fingerprint)
-                      }
-                      popoverOpen={titleAiPopoverOpen}
-                      onPopoverOpenChange={changeTitleAiPopoverOpen}
-                      onStart={startTitleAi}
-                      onNeedSettings={promptAiSetup}
-                      onApply={applyTitleAi}
-                      onCancel={() => {
-                        setTitleAiPopoverOpen(false);
-                        void titleAi.cancel();
-                      }}
-                      onDismiss={() => {
-                        titleAi.clearResult();
-                        setTitleAiPopoverOpen(false);
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="h-12 shrink-0" />
-          )}
-          {currentPath ? (
             <YanzhiEditor
               markdown={kb.markdown}
               onReady={handleKbReady}
               scrollContainerRef={handleScrollRef}
+              docHeader={kbDocHeader}
               onSourceOutlineController={setSourceOutlineController}
               onMarkdownChange={kb.onMarkdownChange}
               wikiDocs={getWikiDocs}
@@ -2641,10 +2606,11 @@ function App() {
         )}
       {docxLoadingVisible && <DocxExportingOverlay />}
       {pdfExportBusy && <PdfExportingOverlay />}
-      {pdfExportSuccessPath && (
-        <PdfExportSuccessToast
-          path={pdfExportSuccessPath}
-          onClose={() => setPdfExportSuccessPath(null)}
+      {exportSuccess && (
+        <ExportSuccessToast
+          title={exportSuccess.title}
+          path={exportSuccess.path}
+          onClose={() => setExportSuccess(null)}
           onReveal={revealExportedFile}
         />
       )}
@@ -2656,8 +2622,19 @@ function App() {
         />
       )}
       {docxReport && (
-        <DocxReportDialog report={docxReport} onClose={() => setDocxReport(null)} />
+        <DocxReportDialog
+          report={docxReport}
+          onClose={() => setDocxReport(null)}
+          onReveal={revealExportedFile}
+        />
       )}
+      <IconPickerDialog
+        open={titleIconPickerOpen && !!currentPath}
+        onOpenChange={setTitleIconPickerOpen}
+        targetName={title || (currentPath ? docBasename(currentPath) : "") || "未命名文档"}
+        targetIcon={currentDocIconId}
+        onSelect={changeCurrentDocIcon}
+      />
       <TrashDialog
         open={trashOpen}
         onOpenChange={setTrashOpen}

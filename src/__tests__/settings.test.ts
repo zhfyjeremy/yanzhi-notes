@@ -7,6 +7,7 @@ import {
   SIDEBAR_WIDTH_MIN,
   accentPresetOf,
   applyTheme,
+  DESK_PRESETS,
   deskPresetOf,
   parseSettings,
   resolvedIsDark,
@@ -32,11 +33,17 @@ describe("settings 解析(PRD §8)", () => {
     expect(parseSettings("{}").uiStyle).toBe("flat");
     expect(parseSettings('{"uiStyle":"glass"}').uiStyle).toBe("flat");
   });
-  it("台面背景:合法 id 直读,缺失/未知回云白", () => {
+  it("台面背景:6 预设;旧 cloud 迁移月白,未知回月白", () => {
+    expect(parseSettings('{"desk":"warm"}').desk).toBe("warm");
     expect(parseSettings('{"desk":"mist"}').desk).toBe("mist");
     expect(parseSettings('{"desk":"ink"}').desk).toBe("ink");
-    expect(parseSettings("{}").desk).toBe("cloud");
-    expect(parseSettings('{"desk":"neon"}').desk).toBe("cloud");
+    expect(parseSettings("{}").desk).toBe("moon");
+    expect(parseSettings('{"desk":"neon"}').desk).toBe("moon");
+    expect(parseSettings('{"desk":"cloud"}').desk).toBe("moon");
+    expect(DESK_PRESETS).toHaveLength(6);
+    const moon = deskPresetOf("moon");
+    expect(moon.name).toBe("月白");
+    expect(moon.light.workspace).toBe(moon.light.editor);
   });
   it("主色预设:合法 id 直读,未知/异型回语雀蓝", () => {
     expect(parseSettings('{"accent":"teal"}').accent).toBe("teal");
@@ -192,10 +199,10 @@ describe("applyTheme 主色覆盖(浅/深两套)", () => {
     expect(document.documentElement.style.getPropertyValue("--primary")).toBe("hsl(258 78% 48%)");
     expect(document.documentElement.dataset.uiStyle).toBe("card");
     expect(document.documentElement.style.getPropertyValue("--workspace")).toBe(
-      deskPresetOf("cloud").light.workspace,
+      deskPresetOf("moon").light.workspace,
     );
     expect(document.documentElement.style.getPropertyValue("--code-desk-bg")).toBe(
-      deskPresetOf("cloud").light.codeBg,
+      deskPresetOf("moon").light.codeBg,
     );
     applyTheme(
       { ...DEFAULT_SETTINGS, theme: "dark", accent: "violet", uiStyle: "flat", desk: "mist" },

@@ -30,13 +30,13 @@
   --border-subtle: hsl(34 18% 93%);
   --input: hsl(34 15% 88%);
   --ring: hsl(204 89% 44%);
-  /* 工作区层级:默认「云白」台面;运行时可被 settings.desk 覆盖(见 applyTheme)。 */
-  --workspace: hsl(40 12% 96%);
-  --sidebar: hsl(40 10% 97.5%);
+  /* 工作区层级:默认「纯白」台面并与编辑区同色;运行时可被 settings.desk 覆盖。 */
+  --workspace: hsl(0 0% 100%);
+  --sidebar: hsl(0 0% 97.5%);
   --editor: hsl(0 0% 100%);
   --raised: hsl(0 0% 100%);
-  --surface-hover: hsl(40 8% 92%);
-  --code-bg: var(--code-desk-bg, hsl(40 10% 96%));
+  --surface-hover: hsl(0 0% 92%);
+  --code-bg: var(--code-desk-bg, hsl(0 0% 96%));
   --code-border: var(--border);
   --code-fg: hsl(25 15% 13%);
   --selection: color-mix(in oklab, var(--primary) 11%, var(--editor) 89%);
@@ -463,14 +463,24 @@ body {
   box-shadow: none !important;
 }
 
+/* 左栏分隔线两侧的边框合并到 resizer 自身,
+   否则面板边框 + 1px resizer + 面板边框会叠成约 3px 粗线。 */
+.shell-panel:has(+ [data-resizer="sidebar"]) {
+  border-right-width: 0 !important;
+}
+
+[data-resizer="sidebar"] + .shell-panel {
+  border-left-width: 0 !important;
+}
+
 /* 工具栏:底部分隔线仍通栏;按钮落在正文同宽的列里,不再贴面板左缘 */
 .chrome-toolbar-align {
   display: contents;
 }
 
 :root[data-ui-style="flat"] .chrome-toolbar-host {
-  height: 2.25rem !important;
-  padding: 0 !important;
+  height: 2.75rem !important;
+  padding: 0.25rem 0 !important;
   border-bottom: 1px solid var(--border);
 }
 

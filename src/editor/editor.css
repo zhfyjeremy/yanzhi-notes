@@ -752,7 +752,9 @@
   position: absolute;
   right: 100%;
   margin-right: 0.6em;
-  top: 0.67em; /* 首行文字的垂直中线(line-height 1.35 → 0.675em) */
+  /* 以标题盒中心对齐;badge 自身 translateY(-50%) 后与标题文字垂直居中。
+     不能用 top:0.67em —— absolute 元素的 em 会按 badge 自己的 10px 计算。 */
+  top: 50%;
   transform: translateY(-50%);
   padding: 0.15em 0.35em;
   border: 1px solid var(--border-subtle);

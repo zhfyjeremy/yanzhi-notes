@@ -208,6 +208,39 @@ describe("HTML export", () => {
     expect(doc.querySelectorAll("h1")).toHaveLength(1);
   });
 
+  it("PDF 导出注入书签标记,HTML 导出不注入", async () => {
+    const md = "# 章节甲\n\n正文\n\n## 小节乙\n\n内容";
+    const base = {
+      title: "测试文档",
+      docRel: "notes/bookmark.md",
+      readAssetBase64: async () => null,
+    };
+
+    const pdfHtml = await buildExportHtml({ ...base, md, pdfBookmarks: true });
+    const pdfDoc = new DOMParser().parseFromString(pdfHtml, "text/html");
+    const markers = Array.from(pdfDoc.querySelectorAll(".yz-bm-marker")).map(
+      (m) => m.textContent,
+    );
+    // 标题横幅(文档名)也是 h1,排第一;正文标题按文档序排列
+    expect(markers).toEqual([
+      "[[YZ-PDF-BM:1:0|测试文档]]",
+      "[[YZ-PDF-BM:1:1|章节甲]]",
+      "[[YZ-PDF-BM:2:2|小节乙]]",
+    ]);
+    // 回归:overflow:hidden 会把标记从打印文本层裁掉,导致 PDF 书签缺失。
+    // 标记必须透明绝对定位,且不能被裁剪/换行。
+    for (const marker of pdfDoc.querySelectorAll<HTMLElement>(".yz-bm-marker")) {
+      expect(marker.parentElement?.style.position).toBe("relative");
+      expect(marker.style.position).toBe("absolute");
+      expect(marker.style.color).toBe("transparent");
+      expect(marker.style.whiteSpace).toBe("nowrap");
+      expect(marker.style.overflow).toBe("");
+    }
+
+    const htmlExport = await buildExportHtml({ ...base, md });
+    expect(htmlExport).not.toContain("YZ-PDF-BM");
+  });
+
   it("标题横幅不进大纲(它是文档名,不是章节)", async () => {
     const html = await buildExportHtml({
       md: "正文内容\n\n## 章节一",

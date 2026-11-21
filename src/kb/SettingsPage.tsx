@@ -1193,6 +1193,27 @@ export function SettingsPage({
           {tab === "export" && (
             <>
               <SettingsSection
+                title="HTML / PDF 排版"
+                hint="只影响导出页顶部补充的文档标题横幅;正文自带同名 H1 时不重复加"
+              >
+                <Group>
+                  <Row label="标题对齐">
+                    <select
+                      aria-label="导出文档标题对齐"
+                      className="border-border-subtle bg-raised h-8 cursor-pointer rounded-md border px-2 text-xs outline-none"
+                      value={settings.exportTitleAlign}
+                      onChange={(e) =>
+                        onChange({ exportTitleAlign: e.target.value as "left" | "center" })
+                      }
+                    >
+                      <option value="left">居左</option>
+                      <option value="center">居中</option>
+                    </select>
+                  </Row>
+                </Group>
+              </SettingsSection>
+
+              <SettingsSection
                 title="Pandoc"
                 hint="DOCX 导出使用用户本机 Pandoc;砚知不内置、不自动下载"
                 action={
