@@ -1,4 +1,5 @@
 /** 知识库前端类型(与 src-tauri/src/kb.rs 的 serde 输出对齐) */
+import type { CodeThemeId } from "../settings";
 
 export interface TreeNode {
   name: string;
@@ -85,6 +86,10 @@ export interface DocxExportRequest {
   downloadRemoteImages: boolean;
   pandocPath: string | null;
   referenceDocPath: string | null;
+  /** 当前代码块主题 id;DOCX 语法高亮配色跟随它 */
+  codeTheme: CodeThemeId;
+  /** 代码块导出配色:current 跟随主题 / yanzhi 默认 / none 不高亮 */
+  codeHighlightMode: "current" | "yanzhi" | "none";
 }
 
 export interface DocxExportResult {

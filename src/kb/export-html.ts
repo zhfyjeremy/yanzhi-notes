@@ -26,6 +26,8 @@ export interface ExportHtmlOptions {
   codeTheme?: CodeThemeId;
   /** 文档标题横幅对齐;默认居左 */
   titleAlign?: "left" | "center";
+  /** 是否在顶部补文档名标题;默认 true。正文已有同名 H1 时本就不重复加 */
+  includeDocTitle?: boolean;
   /** 导出 PDF 时注入大纲书签标记(HTML 导出不注入,保持成品干净) */
   pdfBookmarks?: boolean;
 }
@@ -808,7 +810,9 @@ export async function buildExportHtml(opts: ExportHtmlOptions): Promise<string> 
   // 大纲要在取 innerHTML 之前算:锚点 id 是写进标题元素上的。
   // 标题横幅在大纲之后加 —— 标题是文档名,不算章节,不该出现在大纲里。
   const toc = buildToc(doc.body);
-  buildDocTitle(doc.body, opts.title);
+  if (opts.includeDocTitle !== false) {
+    buildDocTitle(doc.body, opts.title);
+  }
   if (opts.pdfBookmarks) injectPdfBookmarkMarkers(doc.body);
   const codeTheme = codeThemeOf(opts.codeTheme ?? "yanzhi");
   const content = inlineStyles(doc.body.innerHTML, { codeBackground: codeTheme.background });

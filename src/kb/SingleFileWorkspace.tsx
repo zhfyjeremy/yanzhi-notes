@@ -72,6 +72,10 @@ interface SingleFileWorkspaceProps {
   onCodeLanguageUsed: (language: string) => void;
   /** 导出当前文档(DOCX) */
   onExportDocx?: () => void;
+  /** 导出当前文档(Markdown),与知识库模式右键菜单保持一致 */
+  onExportMd?: () => void;
+  /** 导出当前文档(离线 HTML),与知识库模式右键菜单保持一致 */
+  onExportHtml?: () => void;
   onExportPdf?: () => void;
   aiReady: boolean;
   aiSession: import("../ai/useAiSession").AiSession;
@@ -290,6 +294,8 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
               shortcuts={props.shortcuts}
               codeLanguageRecents={props.codeLanguageRecents}
               onCodeLanguageUsed={props.onCodeLanguageUsed}
+              onExportMd={props.onExportMd}
+              onExportHtml={props.onExportHtml}
               onExportDocx={props.onExportDocx}
               onExportPdf={props.onExportPdf}
               aiReady={props.aiReady}

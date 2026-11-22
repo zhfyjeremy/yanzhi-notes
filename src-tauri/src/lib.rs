@@ -301,8 +301,9 @@ fn replace_submenu_items(submenu: &SubMenu, items: &[PlainItem]) -> tauri::Resul
 }
 
 /// 应用菜单(参考 Typora,全量中文重建):砚知 / 文件 / 编辑 / 显示 / 窗口。
-/// 编辑与窗口用预定义项(快捷键、系统行为由 OS 接管);文件/显示里的自定义项
-/// 经 `kb-menu` 事件转发前端执行。recent 列表取自 recent.json,set_recent 时刷新子菜单。
+/// 撤销/重做必须转发前端:预定义项走 WebView 原生编辑撤销,看不到 toolbar command
+/// 产生的 PM transaction。文件/显示里的自定义项同样经 `kb-menu` 事件转发前端执行。
+/// recent 列表取自 recent.json,set_recent 时刷新子菜单。
 fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     let app_name = app
         .config()
@@ -476,9 +477,17 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
             .build()?
     };
 
+    let undo = MenuItem::with_id(app, "yz_undo", "撤销", true, Some("CmdOrCtrl+Z"))?;
+    let redo = MenuItem::with_id(
+        app,
+        "yz_redo",
+        "重做",
+        true,
+        Some("CmdOrCtrl+Shift+Z"),
+    )?;
     let edit = SubmenuBuilder::new(app, "编辑")
-        .undo()
-        .redo()
+        .item(&undo)
+        .item(&redo)
         .separator()
         .cut()
         .copy()
@@ -974,6 +983,10 @@ pub fn run() {
             }
             let payload = if id == "yz_new_kb" {
                 serde_json::json!({ "action": "new" })
+            } else if id == "yz_undo" {
+                serde_json::json!({ "action": "undo" })
+            } else if id == "yz_redo" {
+                serde_json::json!({ "action": "redo" })
             } else if id == "yz_open_kb" {
                 serde_json::json!({ "action": "open" })
             } else if id == "yz_open_single" {

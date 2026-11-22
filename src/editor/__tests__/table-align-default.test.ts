@@ -40,6 +40,25 @@ describe("表格默认对齐", () => {
     editor.destroy();
   });
 
+  it("工具栏插入的表格可用 Mod+Z 撤销", () => {
+    const editor = makeEditor("<p>正文</p>");
+    editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+    expect(editor.state.doc.firstChild?.type.name).toBe("table");
+
+    const event = new KeyboardEvent("keydown", {
+      key: "z",
+      code: "KeyZ",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    editor.view.dom.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(editor.state.doc.firstChild?.type.name).toBe("paragraph");
+    editor.destroy();
+  });
+
   it("编辑器 CSS:th/td 统一显式左对齐,盖掉浏览器 UA 的 th 居中", () => {
     const rule = /\.yz-editor-doc th,\s*\.yz-editor-doc td \{[^}]+\}/.exec(editorCss)?.[0] ?? "";
     expect(rule, "表格单元格规则缺失").not.toBe("");

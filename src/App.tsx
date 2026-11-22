@@ -28,7 +28,7 @@ import { TemplateManager } from "./kb/TemplateManager";
 import { templateToContent, uniqueTemplateName } from "./kb/templates";
 import { compressImageFile, isImageFile } from "./kb/image-compress";
 import { useSettings } from "./settings";
-import type { CodeThemeId } from "./settings";
+import type { CodeThemeId, DocxCodeThemeMode } from "./settings";
 import { useAiSession } from "./ai/useAiSession";
 import { useTitleAiSession } from "./ai/useTitleAiSession";
 import { TitleAiControl } from "./ai/TitleAiControl";
@@ -83,6 +83,7 @@ interface PdfExportSource {
   readAssetBase64: (rel: string) => Promise<{ data: string; mime: string } | null>;
   codeTheme: CodeThemeId;
   titleAlign: "left" | "center";
+  includeDocTitle: boolean;
 }
 
 interface PendingDocxExport {
@@ -99,6 +100,8 @@ interface PendingDocxExport {
   remoteMode: "ask" | "always" | "never";
   pandocPath: string | null;
   referenceDocPath: string | null;
+  codeTheme: CodeThemeId;
+  codeHighlightMode: DocxCodeThemeMode;
 }
 
 interface DocxReport {
@@ -317,6 +320,7 @@ function App() {
    * 切文档/窗口失焦时写进 meta,下次开同一篇恢复到上次的位置。
    * 搜索结果跳转与双链跳转不恢复(用户要看的是命中处,不是上次位置)。 */
   const cursorMapRef = useRef(new Map<string, { pos: number; scrollTop: number }>());
+  const cursorPersistTimerRef = useRef<number | undefined>(undefined);
   const prevPathRef = useRef<string | null>(null);
   const skipRestoreRelRef = useRef<string | null>(null);
   /** 编辑器正文已换成该 path 后才允许把选区记进去;避免切文档瞬间旧选区写到新 path */
@@ -637,12 +641,13 @@ function App() {
       readAssetBase64: kb.readAssetBase64,
       codeTheme: settings.codeTheme,
       titleAlign: settings.exportTitleAlign,
+      includeDocTitle: settings.exportDocTitle,
     }).then((html) =>
       kb.exportText(`${title || "未命名文档"}.html`, "html", html).then((p) => {
         if (p) setExportSuccess({ title: "HTML 导出完成", path: p });
       }),
     );
-  }, [kb, title, settings.codeTheme, settings.exportTitleAlign]);
+  }, [kb, title, settings.codeTheme, settings.exportTitleAlign, settings.exportDocTitle]);
 
   const [pdfExportBusy, setPdfExportBusy] = useState(false);
   const [exportSuccess, setExportSuccess] = useState<{ title: string; path: string } | null>(null);
@@ -675,8 +680,9 @@ function App() {
       readAssetBase64: kb.readAssetBase64,
       codeTheme: settings.codeTheme,
       titleAlign: settings.exportTitleAlign,
+      includeDocTitle: settings.exportDocTitle,
     });
-  }, [kb, runPdfExport, title, settings.codeTheme, settings.exportTitleAlign]);
+  }, [kb, runPdfExport, title, settings.codeTheme, settings.exportTitleAlign, settings.exportDocTitle]);
   const exportSingleMd = useCallback(() => {
     const docTitle = single.fileStem || "未命名文档";
     void kbBackend
@@ -699,12 +705,13 @@ function App() {
       readAssetBase64: single.readAssetBase64,
       codeTheme: settings.codeTheme,
       titleAlign: settings.exportTitleAlign,
+      includeDocTitle: settings.exportDocTitle,
     }).then((html) =>
       kbBackend.exportText(`${single.fileStem || "未命名文档"}.html`, "html", html).then((p) => {
         if (p) setExportSuccess({ title: "HTML 导出完成", path: p });
       }),
     );
-  }, [single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64, settings.codeTheme, settings.exportTitleAlign]);
+  }, [single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64, settings.codeTheme, settings.exportTitleAlign, settings.exportDocTitle]);
 
   const exportSinglePdf = useCallback(() => {
     void runPdfExport({
@@ -714,8 +721,9 @@ function App() {
       readAssetBase64: single.readAssetBase64,
       codeTheme: settings.codeTheme,
       titleAlign: settings.exportTitleAlign,
+      includeDocTitle: settings.exportDocTitle,
     });
-  }, [runPdfExport, single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64, settings.codeTheme, settings.exportTitleAlign]);
+  }, [runPdfExport, single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64, settings.codeTheme, settings.exportTitleAlign, settings.exportDocTitle]);
   /* ---- DOCX 语义导出(5.6):PM doc → Pandoc AST,不让 Pandoc 重解析 Markdown ---- */
   const [docxExportBusy, setDocxExportBusy] = useState(false);
   const [docxLoadingVisible, setDocxLoadingVisible] = useState(false);
@@ -766,6 +774,8 @@ function App() {
           downloadRemoteImages,
           pandocPath: pending.pandocPath,
           referenceDocPath: pending.referenceDocPath,
+          codeTheme: pending.codeTheme,
+          codeHighlightMode: pending.codeHighlightMode,
         });
         if (!result) return;
         const allWarnings = [
@@ -867,6 +877,8 @@ function App() {
       remoteMode: settings.docxRemoteImageMode,
       pandocPath: settings.pandocPath,
       referenceDocPath: settings.docxReferencePath,
+      codeTheme: settings.codeTheme,
+      codeHighlightMode: settings.docxCodeThemeMode,
     };
 
     if (pending.remoteImages.length > 0 && pending.remoteMode === "ask") {
@@ -889,6 +901,8 @@ function App() {
     kb.tree,
     openSettings,
     runDocxExport,
+    settings.docxCodeThemeMode,
+    settings.codeTheme,
     settings.docxReferencePath,
     settings.docxRemoteImageMode,
     settings.pandocPath,
@@ -987,10 +1001,55 @@ function App() {
     key?: string;
     value?: boolean;
   };
+  const dispatchSourceHistoryKey = (redo: boolean) => {
+    const active = document.activeElement;
+    const target =
+      active instanceof HTMLElement && active.closest(".yz-source-editor")
+        ? active
+        : document.querySelector<HTMLElement>(".yz-source-editor .cm-content");
+    if (!target) return;
+    const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+    target.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "z",
+        code: "KeyZ",
+        shiftKey: redo,
+        metaKey: isMac,
+        ctrlKey: !isMac,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  };
   const onKbMenuRef = useRef<(payload: KbMenuPayload) => void>(() => {});
   onKbMenuRef.current = (payload) => {
     void (async () => {
       const { action, root, key, value, doc, path } = payload;
+      if (action === "undo" || action === "redo") {
+        const redo = action === "redo";
+        const active = document.activeElement;
+        const bodyFallback = active === document.body || !active;
+        const activeElement = active instanceof HTMLElement ? active : null;
+        const inSource =
+          activeElement?.closest(".yz-source-editor") !== null ||
+          (sourceModeRef.current && bodyFallback);
+        if (inSource) {
+          dispatchSourceHistoryKey(redo);
+          return;
+        }
+        if (
+          editor &&
+          !editor.isDestroyed &&
+          (editor.view.hasFocus() || bodyFallback)
+        ) {
+          const chain = editor.chain().focus();
+          if (redo) chain.redo().run();
+          else chain.undo().run();
+          return;
+        }
+        document.execCommand(redo ? "redo" : "undo");
+        return;
+      }
       if (action === "new") {
         if (single.active && single.dirty) {
           setSinglePending({ kind: "new-kb" });
@@ -1932,34 +1991,45 @@ function App() {
 
   /* ---- 上次光标/滚动位置:记录 / 落盘 / 恢复 ---- */
   // 记录:选区或滚动变化 → 内存 Map。仅当正文已加载到该 path 才写入。
+  const snapshotCursor = useCallback(
+    (rel: string) => {
+      if (!editor || editor.isDestroyed) return null;
+      const snapshot = {
+        pos: editor.state.selection.from,
+        scrollTop: scrollEl?.scrollTop ?? 0,
+      };
+      cursorMapRef.current.set(rel, snapshot);
+      return snapshot;
+    },
+    [editor, scrollEl],
+  );
+
   useEffect(() => {
     if (!editor) return;
     const record = () => {
       const rel = loadedPathRef.current;
       if (!rel) return;
-      cursorMapRef.current.set(rel, {
-        pos: editor.state.selection.from,
-        scrollTop: scrollEl?.scrollTop ?? 0,
-      });
+      const snapshot = snapshotCursor(rel);
+      if (!snapshot) return;
+      // 滚动停止后延迟落盘:会话内切换走内存 Map 即时恢复,同时避免拖动滚动条时高频写 meta。
+      window.clearTimeout(cursorPersistTimerRef.current);
+      cursorPersistTimerRef.current = window.setTimeout(() => {
+        kb.saveCursor(rel, snapshot.pos, snapshot.scrollTop);
+      }, 600);
     };
     editor.on("selectionUpdate", record);
     editor.on("update", record);
     const el = scrollEl;
     el?.addEventListener("scroll", record, { passive: true });
     return () => {
-      // 切走前把旧文档当前位置再记一笔(此时 loadedPath 可能已清空,用闭包外的 map 键)
-      const rel = loadedPathRef.current;
-      if (rel) {
-        cursorMapRef.current.set(rel, {
-          pos: editor.state.selection.from,
-          scrollTop: el?.scrollTop ?? 0,
-        });
-      }
+      // effect 重建/卸载前把当前位置再记一笔;真正切文档由下方的切换 effect 落盘。
+      if (loadedPathRef.current) snapshotCursor(loadedPathRef.current);
+      window.clearTimeout(cursorPersistTimerRef.current);
       editor.off("selectionUpdate", record);
       editor.off("update", record);
       el?.removeEventListener("scroll", record);
     };
-  }, [editor, scrollEl]);
+  }, [editor, scrollEl, kb.saveCursor, snapshotCursor]);
 
   // 切文档:旧文档的位置落 meta;并清掉 loaded 标记,等编辑器换文后再放开记录。
   // 此时编辑器正文尚未 setContent,选区仍属旧文档,先快照再落盘。
@@ -1968,29 +2038,34 @@ function App() {
     const rel = kb.currentPath;
     if (prev && prev !== rel) {
       if (editor && !editor.isDestroyed && loadedPathRef.current === prev) {
-        cursorMapRef.current.set(prev, {
-          pos: editor.state.selection.from,
-          scrollTop: scrollEl?.scrollTop ?? 0,
-        });
+        snapshotCursor(prev);
       }
       const c = cursorMapRef.current.get(prev);
       if (c) kb.saveCursor(prev, c.pos, c.scrollTop);
       loadedPathRef.current = null;
     }
     prevPathRef.current = rel;
-  }, [kb.currentPath, kb.saveCursor, editor, scrollEl]);
+  }, [kb.currentPath, kb.saveCursor, editor, scrollEl, snapshotCursor]);
 
   // 窗口失焦:当前文档位置落 meta(关窗/切应用不丢位置)
   useEffect(() => {
-    const onBlur = () => {
-      const rel = loadedPathRef.current ?? kb.currentPath;
+    const persist = () => {
+      const rel = loadedPathRef.current;
       if (!rel) return;
-      const c = cursorMapRef.current.get(rel);
-      if (c) kb.saveCursor(rel, c.pos, c.scrollTop);
+      const c = snapshotCursor(rel);
+      if (c) {
+        kb.saveCursor(rel, c.pos, c.scrollTop);
+        kb.flushMeta();
+      }
     };
-    window.addEventListener("blur", onBlur);
-    return () => window.removeEventListener("blur", onBlur);
-  }, [kb.currentPath, kb.saveCursor]);
+    // blur 覆盖切应用;pagehide 覆盖窗口关闭/应用退出,避免最后一次滚动只留在内存。
+    window.addEventListener("blur", persist);
+    window.addEventListener("pagehide", persist);
+    return () => {
+      window.removeEventListener("blur", persist);
+      window.removeEventListener("pagehide", persist);
+    };
+  }, [kb.currentPath, kb.saveCursor, kb.flushMeta, snapshotCursor]);
 
   /** 打开文档后取回上次位置(内存优先,再回落 meta);搜索/双链跳转不恢复 */
   const getRestoreCursor = useCallback(
@@ -2014,13 +2089,10 @@ function App() {
       editorFlushPendingRef.current?.();
       const rel = loadedPathRef.current;
       if (!rel || !editor || editor.isDestroyed) return;
-      cursorMapRef.current.set(rel, {
-        pos: editor.state.selection.from,
-        scrollTop: scrollEl?.scrollTop ?? 0,
-      });
+      snapshotCursor(rel);
     });
     return () => kb.setBeforeSwitch(null);
-  }, [kb.setBeforeSwitch, editor, scrollEl]);
+  }, [kb.setBeforeSwitch, editor, scrollEl, snapshotCursor]);
 
   /* ---- 图片落盘(5.3.7/9.3):粘贴/拖拽 → 可选压缩 → assets → 插入 ---- */
   const onImageFiles = useCallback(
@@ -2182,6 +2254,8 @@ function App() {
         shortcuts={settings.shortcuts}
         codeLanguageRecents={settings.recentCodeLanguages}
         onCodeLanguageUsed={recordCodeLanguage}
+        onExportMd={exportSingleMd}
+        onExportHtml={exportSingleHtml}
         onExportDocx={onExportDocx}
         onExportPdf={onExportPdf}
         aiReady={settings.aiEnabled && settings.aiVerified}

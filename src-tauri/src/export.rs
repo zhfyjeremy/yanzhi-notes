@@ -33,6 +33,10 @@ pub struct DocxExportRequest {
     pub download_remote_images: bool,
     pub pandoc_path: Option<String>,
     pub reference_doc_path: Option<String>,
+    /// 编辑器设置的代码块主题 id;DOCX 语法高亮配色跟随它(缺省/未知回砚知主题)
+    pub code_theme: Option<String>,
+    /// current 跟随编辑器主题,yanzhi 用砚知默认,none 不做语法高亮(缺省视为 none)
+    pub code_highlight_mode: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1259,6 +1263,7 @@ fn run_pandoc(
     resource_path: Option<&str>,
     reference_doc: Option<&Path>,
     highlight_theme: Option<&Path>,
+    no_highlight: bool,
     modern_highlight_flag: bool,
 ) -> Result<String, String> {
     let mut command = pandoc_command(pandoc);
@@ -1272,7 +1277,14 @@ fn run_pandoc(
     if let Some(path) = reference_doc {
         command.arg("--reference-doc").arg(path);
     }
-    if let Some(path) = highlight_theme {
+    if no_highlight {
+        // Pandoc 3.10+ 推荐 syntax-highlighting=none;旧 3.x 用 no-highlight。
+        if modern_highlight_flag {
+            command.arg("--syntax-highlighting").arg("none");
+        } else {
+            command.arg("--no-highlight");
+        }
+    } else if let Some(path) = highlight_theme {
         command
             .arg(if modern_highlight_flag {
                 "--syntax-highlighting"
@@ -1391,18 +1403,42 @@ pub async fn export_docx(
         }
     }
 
+    let highlight_mode = request.code_highlight_mode.as_deref().unwrap_or("none");
+    let no_highlight = highlight_mode == "none";
+    let theme_prefix = if highlight_mode == "current" {
+        match request.code_theme.as_deref() {
+            Some(id @ ("github-light" | "github-dark" | "one-dark-pro" | "monokai" | "dracula" | "night-owl")) => id,
+            _ => "yanzhi",
+        }
+    } else {
+        "yanzhi"
+    };
+    let highlight_theme = if no_highlight {
+        None
+    } else {
+        locate_export_resource(&app, &format!("{theme_prefix}-highlight.theme"))
+    };
     let reference_doc = request
         .reference_doc_path
         .as_deref()
         .filter(|p| !p.trim().is_empty())
         .map(PathBuf::from)
-        .or_else(|| locate_export_resource(&app, "yanzhi-reference.docx"));
+        .or_else(|| {
+            if no_highlight {
+                // 无主题 = 不做 token 高亮,并去掉代码块底色与行内代码染色。
+                locate_export_resource(&app, "yanzhi-plain-reference.docx")
+                    .or_else(|| locate_export_resource(&app, "yanzhi-reference.docx"))
+            } else {
+                // 主题模板带 SourceCode 底色与 VerbatimChar 行内代码色;缺文件回砚知默认模板
+                locate_export_resource(&app, &format!("{theme_prefix}-reference.docx"))
+                    .or_else(|| locate_export_resource(&app, "yanzhi-reference.docx"))
+            }
+        });
     if let Some(path) = &reference_doc {
         if !path.is_file() {
             return Err(format!("Word 模板不存在:{}", path.display()));
         }
     }
-    let highlight_theme = locate_export_resource(&app, "yanzhi-highlight.theme");
     let version_parts: Vec<u32> = version
         .split_whitespace()
         .nth(1)
@@ -1426,6 +1462,7 @@ pub async fn export_docx(
             resource_for_job.as_deref(),
             reference_for_job.as_deref(),
             theme_for_job.as_deref(),
+            no_highlight,
             modern_highlight_flag,
         )
     })
@@ -1862,6 +1899,7 @@ mod tests {
             None,
             Some(Path::new("resources/yanzhi-reference.docx")),
             Some(Path::new("resources/yanzhi-highlight.theme")),
+            false,
             true,
         )
         .expect("pandoc should write docx");

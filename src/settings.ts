@@ -64,6 +64,10 @@ export const CODE_THEME_OPTIONS: {
   { value: "night-owl", label: "Night Owl", description: "深海蓝 · 夜间" },
 ];
 
+/** Word 代码块导出配色模式;current 跟随编辑器,none 表示不高亮且无代码底色/行内代码色 */
+export const DOCX_CODE_THEME_MODES = ["current", "yanzhi", "none"] as const;
+export type DocxCodeThemeMode = (typeof DOCX_CODE_THEME_MODES)[number];
+
 /**
  * 壳层 UI 风格(外观):只改工作区面板怎么摆,不改 Markdown / token 色源。
  * card = 浮卡台面(圆角+阴影+留白);flat = 线框平铺(贴边+发丝分隔)。
@@ -78,69 +82,133 @@ export interface AccentPreset {
   name: string;
   /** 展示色块(浅色主色) */
   swatch: string;
+  /** 覆盖变量含 --link(正文链接跟随主色);--selection 走 color-mix(--primary) 自动跟随 */
   light: Record<string, string>;
   dark: Record<string, string>;
 }
 
-const accentVars = (h: number, pS: number, pL: number, aS: number, aL: number, fL: number) => ({
-  "--primary": `hsl(${h} ${pS}% ${pL}%)`,
-  "--primary-foreground": "hsl(0 0% 100%)",
-  "--ring": `hsl(${h} ${pS}% ${pL}%)`,
-  "--accent": `hsl(${h} ${aS}% ${aL}%)`,
-  "--accent-foreground": `hsl(${h} ${pS}% ${fL}%)`,
-});
+/** 单个主色预设的 6 个覆盖变量;--selection 走 color-mix(--primary) 自动跟随 */
+const accentVars = (
+  h: number,
+  pS: number,
+  pL: number,
+  aS: number,
+  aL: number,
+  fL: number,
+  opts?: {
+    /** 深色高明度预设(琥珀/玫瑰/雾蓝/靛蓝/石墨)需要深字才能保对比 */
+    pFg?: string;
+    /** 浅色正文链接色(保 WCAG AA);不传 = 主色明度 -6 */
+    linkLight?: string;
+    /** 深色正文链接色(比深色主色亮一档);不传 = 沿用浅色链接值 */
+    linkDark?: string;
+  },
+) => {
+  const linkLight = opts?.linkLight ?? `hsl(${h} ${pS}% ${pL - 6}%)`;
+  return {
+    "--primary": `hsl(${h} ${pS}% ${pL}%)`,
+    "--primary-foreground": opts?.pFg ?? "hsl(0 0% 100%)",
+    "--ring": `hsl(${h} ${pS}% ${pL}%)`,
+    "--accent": `hsl(${h} ${aS}% ${aL}%)`,
+    "--accent-foreground": `hsl(${h} ${pS}% ${fL}%)`,
+    "--link": linkLight,
+  };
+};
 
 export const ACCENT_PRESETS: AccentPreset[] = [
+  {
+    id: "green",
+    name: "苔绿",
+    swatch: "hsl(152 62% 36%)",
+    light: accentVars(152, 62, 36, 45, 94, 28),
+    dark: accentVars(152, 58, 50, 25, 18, 76, { linkDark: "hsl(152 58% 58%)" }),
+  },
+  {
+    id: "teal",
+    name: "黛青",
+    swatch: "hsl(187 72% 34%)",
+    light: accentVars(187, 72, 34, 50, 93, 28),
+    dark: accentVars(187, 65, 52, 28, 18, 76, { linkDark: "hsl(187 65% 60%)" }),
+  },
   {
     id: "blue",
     name: "砚蓝",
     swatch: "hsl(204 89% 44%)",
-    light: accentVars(204, 89, 44, 60, 95, 30),
-    dark: accentVars(204, 85, 56, 30, 20, 80),
+    light: accentVars(204, 89, 44, 60, 95, 30, { linkLight: "hsl(204 89% 36%)" }),
+    dark: accentVars(204, 85, 56, 30, 20, 80, { linkDark: "hsl(204 85% 62%)" }),
+  },
+  {
+    id: "slate",
+    name: "雾蓝",
+    swatch: "hsl(215 32% 46%)",
+    light: accentVars(215, 32, 46, 24, 93, 30),
+    dark: accentVars(215, 34, 66, 22, 18, 78, { pFg: "hsl(0 0% 12%)", linkDark: "hsl(215 34% 74%)" }),
+  },
+  {
+    id: "indigo",
+    name: "靛蓝",
+    swatch: "hsl(234 56% 50%)",
+    light: accentVars(234, 56, 50, 40, 94, 34),
+    dark: accentVars(234, 64, 68, 28, 20, 80, { pFg: "hsl(0 0% 12%)", linkDark: "hsl(234 64% 76%)" }),
   },
   {
     id: "violet",
     name: "紫罗兰",
     swatch: "hsl(258 78% 48%)",
     light: accentVars(258, 78, 48, 45, 95, 32),
-    dark: accentVars(258, 74, 62, 30, 20, 80),
+    dark: accentVars(258, 74, 62, 30, 20, 80, { linkDark: "hsl(258 74% 70%)" }),
   },
   {
-    id: "green",
-    name: "苔绿",
-    swatch: "hsl(152 62% 36%)",
-    light: accentVars(152, 62, 36, 45, 94, 28),
-    dark: accentVars(152, 58, 50, 25, 18, 76),
+    id: "plum",
+    name: "梅紫",
+    swatch: "hsl(328 46% 44%)",
+    light: accentVars(328, 46, 44, 38, 94, 30),
+    dark: accentVars(328, 48, 64, 26, 20, 78, { linkDark: "hsl(328 48% 70%)" }),
   },
   {
-    id: "teal",
-    name: "青碧",
-    swatch: "hsl(187 72% 34%)",
-    light: accentVars(187, 72, 34, 50, 93, 28),
-    dark: accentVars(187, 65, 52, 28, 18, 76),
-  },
-  {
-    id: "orange",
-    name: "暖橙",
-    swatch: "hsl(27 92% 46%)",
-    light: accentVars(27, 92, 46, 80, 95, 34),
-    dark: accentVars(27, 88, 58, 35, 22, 78),
+    id: "rose",
+    name: "玫瑰",
+    swatch: "hsl(346 66% 48%)",
+    light: accentVars(346, 66, 48, 55, 95, 36),
+    dark: accentVars(346, 70, 64, 30, 20, 80, { pFg: "hsl(0 0% 12%)", linkDark: "hsl(346 70% 72%)" }),
   },
   {
     id: "red",
     name: "绯红",
     swatch: "hsl(4 78% 48%)",
     light: accentVars(4, 78, 48, 70, 95, 36),
-    dark: accentVars(4, 74, 60, 30, 20, 78),
+    dark: accentVars(4, 74, 60, 30, 20, 78, { linkDark: "hsl(4 74% 66%)" }),
+  },
+  {
+    id: "orange",
+    name: "暖橙",
+    swatch: "hsl(27 92% 46%)",
+    light: accentVars(27, 92, 46, 80, 95, 34),
+    dark: accentVars(27, 88, 58, 35, 22, 78, { linkDark: "hsl(27 88% 64%)" }),
+  },
+  {
+    id: "amber",
+    name: "琥珀",
+    swatch: "hsl(38 86% 42%)",
+    light: accentVars(38, 86, 42, 70, 95, 30),
+    dark: accentVars(38, 90, 60, 40, 22, 76, { pFg: "hsl(0 0% 12%)", linkDark: "hsl(38 90% 66%)" }),
+  },
+  {
+    id: "graphite",
+    name: "石墨",
+    swatch: "hsl(215 12% 32%)",
+    light: accentVars(215, 12, 32, 10, 92, 20),
+    dark: accentVars(215, 12, 72, 10, 18, 70, { pFg: "hsl(0 0% 12%)", linkDark: "hsl(215 12% 78%)" }),
   },
 ];
 
 const ACCENT_IDS = new Set(ACCENT_PRESETS.map((p) => p.id));
-export const DEFAULT_ACCENT = "blue";
+export const DEFAULT_ACCENT = "green";
 
-/** id → 预设(未知 id 回默认,与 parseSettings 同一容错口径) */
+/** id → 预设(未知 id 回默认色,与 parseSettings 同一容错口径) */
 export function accentPresetOf(id: string | undefined): AccentPreset {
-  return ACCENT_PRESETS.find((p) => p.id === id) ?? ACCENT_PRESETS[0];
+  const hit = ACCENT_PRESETS.find((p) => p.id === id) ?? ACCENT_PRESETS.find((p) => p.id === DEFAULT_ACCENT);
+  return hit ?? ACCENT_PRESETS[0];
 }
 
 /** 台面背景预设:workspace/sidebar/hover/editor(平铺)/codeBg,不碰主色 */
@@ -319,6 +387,10 @@ export interface AppSettings {
   codeTheme: CodeThemeId;
   /** 导出 HTML/PDF 的文档标题对齐;默认居左 */
   exportTitleAlign: "left" | "center";
+  /** 导出 HTML/PDF 是否在顶部补文档名标题(正文已有同名 H1 时不重复加) */
+  exportDocTitle: boolean;
+  /** Word 代码块导出配色:无主题 / 跟随当前主题 / 砚知默认 */
+  docxCodeThemeMode: DocxCodeThemeMode;
   /** §8 编辑器:表格单元格悬停显示复制按钮,默认关(账号/口令类表才需要) */
   tableCellCopy: boolean;
   /** §8 编辑器:打字机滚动(专注模式子项),默认关;仅专注模式下生效 */
@@ -388,6 +460,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   cardBorder: true,
   codeTheme: "yanzhi",
   exportTitleAlign: "left",
+  exportDocTitle: true,
+  docxCodeThemeMode: "none",
   tableCellCopy: false,
   typewriterMode: false,
   tabIndentSize: 4,
@@ -459,7 +533,7 @@ const recentDocsMap = (value: unknown): Record<string, string[]> => {
 /** 容错解析:损坏/缺失/未知值逐字段回默认(丢的只是偏好,不阻塞启动) */
 export function parseSettings(raw: string): AppSettings {
   try {
-    const v = JSON.parse(raw) as Partial<AppSettings>;
+    const v = JSON.parse(raw) as Partial<AppSettings> & { docxCodeFollowTheme?: unknown };
     return {
       theme: THEME_MODES.includes(v?.theme as ThemeMode) ? (v.theme as ThemeMode) : "system",
       uiStyle: UI_STYLES.includes(v?.uiStyle as UiStyle) ? (v.uiStyle as UiStyle) : DEFAULT_UI_STYLE,
@@ -485,6 +559,14 @@ export function parseSettings(raw: string): AppSettings {
         ? (v.codeTheme as CodeThemeId)
         : "yanzhi",
       exportTitleAlign: v?.exportTitleAlign === "center" ? "center" : "left",
+      exportDocTitle: typeof v?.exportDocTitle === "boolean" ? v.exportDocTitle : true,
+      docxCodeThemeMode: DOCX_CODE_THEME_MODES.includes(v?.docxCodeThemeMode as DocxCodeThemeMode)
+        ? (v.docxCodeThemeMode as DocxCodeThemeMode)
+        : v?.docxCodeFollowTheme === true
+          ? "current"
+          : v?.docxCodeFollowTheme === false
+            ? "yanzhi"
+            : "none",
       tableCellCopy: typeof v?.tableCellCopy === "boolean" ? v.tableCellCopy : false,
       typewriterMode: typeof v?.typewriterMode === "boolean" ? v.typewriterMode : false,
       tabIndentSize: clampInt(v?.tabIndentSize, 4, 1, 8),

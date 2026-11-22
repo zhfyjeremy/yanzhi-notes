@@ -1,4 +1,5 @@
 import { Extension } from "@tiptap/core";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
 
 /**
  * 标题快捷键:Ctrl+1–6 始终可用;同时保留平台惯例 ⌘+1–6(macOS 上 Mod=⌘,
@@ -9,6 +10,63 @@ const HEADING_LEVELS = [1, 2, 3, 4, 5, 6] as const;
 
 export const HeadingShortcuts = Extension.create({
   name: "headingShortcuts",
+
+  addProseMirrorPlugins() {
+    const editor = this.editor;
+    // WKWebView 偶发把空 heading 上的 IME 提交映射到同级 paragraph:
+    // 用户看到的现象是「刚插入 H1,写完第一个词又变回正文」。
+    // 只在 composition 开始时确认选区位于空标题才兜底,不影响正文输入。
+    let imeHeadingLevel: 1 | 2 | 3 | 4 | 5 | 6 | null = null;
+    let imeHeadingPos: number | null = null;
+
+    return [
+      new Plugin({
+        key: new PluginKey("yzEmptyHeadingImeGuard"),
+        props: {
+          handleDOMEvents: {
+            compositionstart: (view) => {
+              imeHeadingLevel = null;
+              imeHeadingPos = null;
+              const { $from, empty } = view.state.selection;
+              const level = Number($from.parent.attrs.level ?? 0);
+              if (
+                empty &&
+                $from.parent.type.name === "heading" &&
+                $from.parent.content.size === 0 &&
+                level >= 1 &&
+                level <= 6
+              ) {
+                imeHeadingLevel = level as 1 | 2 | 3 | 4 | 5 | 6;
+                imeHeadingPos = $from.before(1);
+              }
+              return false;
+            },
+            compositionend: (view, event) => {
+              const level = imeHeadingLevel;
+              const headingPos = imeHeadingPos;
+              imeHeadingLevel = null;
+              imeHeadingPos = null;
+              if (!level || headingPos == null || !event.data) return false;
+
+              // 等 ProseMirror 消化 compositionend 的 DOM mutation。
+              window.setTimeout(() => {
+                if (view.isDestroyed) return;
+                const { $from } = view.state.selection;
+                if (
+                  $from.parent.type.name === "paragraph" &&
+                  $from.before(1) === headingPos &&
+                  $from.parent.textContent === event.data
+                ) {
+                  editor.commands.setHeading({ level });
+                }
+              }, 0);
+              return false;
+            },
+          },
+        },
+      }),
+    ];
+  },
 
   addKeyboardShortcuts() {
     return {

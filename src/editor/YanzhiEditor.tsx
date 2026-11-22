@@ -34,6 +34,7 @@ import { MoveBlock } from "./extensions/move-block";
 import { TabIndent, setTabIndentSize } from "./extensions/tab-indent";
 import { handleWikiLinkPaste } from "./wiki-link-paste";
 import { handleImageURLPaste } from "./image-url-paste";
+import { clearEditorHistory } from "./clear-history";
 
 const MarkdownSourceEditor = lazy(() => import("./source-mode/MarkdownSourceEditor"));
 type MarkdownSourceOutlineController = import("./source-mode/MarkdownSourceEditor").MarkdownSourceOutlineController;
@@ -143,7 +144,7 @@ interface YanzhiEditorProps {
 }
 
 /**
- * 恢复上次编辑位置:选区按文档大小夹紧(内容变了会越界)。
+ * 恢复上次编辑位置:选区仅在保存点仍有效时恢复,越界时不拉到文末。
  * 滚动先同步写一次,再多帧补写:长文 setContent 后图片/代码块 NodeView 会继续撑高,
  * 只写一帧会被 clamp 到接近顶部,切回就像「没记位置」。
  * isCurrent 与切文档代数对齐,过期的 rAF 不得改写新文档的 scrollTop。
@@ -157,15 +158,19 @@ function restoreCursor(
   onReady?: () => void,
 ): void {
   const max = editor.state.doc.content.size;
-  const pos = Math.max(0, Math.min(restore.pos, max));
-  try {
-    const tr = editor.state.tr.setSelection(
-      TextSelection.near(editor.state.doc.resolve(pos)),
-    );
-    tr.setMeta("addToHistory", false);
-    editor.view.dispatch(tr);
-  } catch {
-    /* 位置解析失败就算了,停在文首 */
+  // 保存点越界(文档被外部改短/元数据滞后)时夹到 doc 末尾会让光标落底,
+  // PM 再把选区滚进视口,把刚恢复的 scrollTop 顶掉 —— 症状就是「打开文档光标在底部」。
+  // 越界直接放弃选区恢复(停在文首),只恢复滚动位置。
+  if (restore.pos < max) {
+    try {
+      const tr = editor.state.tr.setSelection(
+        TextSelection.near(editor.state.doc.resolve(restore.pos)),
+      );
+      tr.setMeta("addToHistory", false);
+      editor.view.dispatch(tr);
+    } catch {
+      /* 位置解析失败就算了,停在文首 */
+    }
   }
   if (!scrollEl) {
     onReady?.();
@@ -175,13 +180,36 @@ function restoreCursor(
   scrollEl.scrollTop = target;
   let tries = 0;
   let readySent = false;
+  let userTookOver = false;
   const notifyReady = () => {
     if (readySent) return;
     readySent = true;
     onReady?.();
   };
+  // PM/浏览器可能在下一轮 selection flush 里把光标滚进视口,晚于一次 rAF 校正;
+  // 补写窗口内持续钉住目标位。用户一旦主动滚动/按键,立即让位,不跟用户抢滚动条。
+  const cancelByUser = () => {
+    userTookOver = true;
+    detachUserGuards();
+    notifyReady();
+  };
+  const detachUserGuards = () => {
+    for (const [event, handler] of userGuards) {
+      scrollEl.removeEventListener(event, handler, true);
+    }
+  };
+  const userGuards: [string, () => void][] = [
+    ["pointerdown", cancelByUser],
+    ["wheel", cancelByUser],
+    ["touchstart", cancelByUser],
+    ["keydown", cancelByUser],
+  ];
+  for (const [event, handler] of userGuards) {
+    scrollEl.addEventListener(event, handler, { capture: true, passive: true });
+  }
   const applyScroll = () => {
-    if (!isCurrent() || !scrollEl.isConnected) {
+    if (!isCurrent() || !scrollEl.isConnected || userTookOver) {
+      detachUserGuards();
       notifyReady();
       return;
     }
@@ -189,9 +217,10 @@ function restoreCursor(
     tries += 1;
     // 先揭开正文(约 2 帧),后续 NodeView 撑高仍静默补滚动
     if (tries >= 2) notifyReady();
-    if (tries < 30 && Math.abs(scrollEl.scrollTop - target) > 1) {
+    if (tries < 90) {
       window.requestAnimationFrame(applyScroll);
     } else {
+      detachUserGuards();
       notifyReady();
     }
   };
@@ -384,6 +413,8 @@ export function YanzhiEditor({
     sourceModeRef.current = false;
     setSourceMode(false);
     ed.commands.setContent(mdToHtml(md), { emitUpdate: false });
+    // 源码态内容来自 CodeMirror history;重进 PM 后旧 PM undo 栈不再有效。
+    clearEditorHistory(ed);
     const pmPos = mdOffsetToPmPos(ed.state.doc, mdCursor);
     try {
       const tr = ed.state.tr
@@ -767,6 +798,9 @@ export function YanzhiEditor({
       const html = mdToHtml(markdown);
       // emitUpdate:false:换文本身不进 onUpdate;选区在下一行手动恢复
       editor.commands.setContent(html, { emitUpdate: false });
+      // 单一 PM 实例跨 tab 复用;setContent 不重置 plugin state,必须切断
+      // 上一篇文档的 undo 栈,否则新文档 Cmd/Ctrl+Z 会回到其他文件内容。
+      clearEditorHistory(editor);
       const scrollEl = scrollElRef.current;
       if (restore) {
         restoreCursor(
@@ -784,16 +818,39 @@ export function YanzhiEditor({
     });
   }, [editor, markdown, contentPath, contentEpoch]);
 
-  // 首篇挂载:useEditor 已带上 content,不会走上面的换文微任务
+  // 首篇挂载:useEditor 已带上 content,不会走上面的换文微任务。
+  // 但应用重启/欢迎页首次打开同样需要恢复 meta 里的位置;不能只依赖「prop 变化」分支。
   const didInitialReadyRef = useRef(false);
   useEffect(() => {
     if (!editor || !contentPath || didInitialReadyRef.current) return;
     didInitialReadyRef.current = true;
-    onContentReadyRef.current?.(contentPath);
-    window.requestAnimationFrame(() => {
+    const seq = ++contentLoadSeqRef.current;
+    const restore = restoreCursorRef.current?.(contentPath) ?? null;
+    const surface = contentSurfaceRef.current;
+    if (surface) surface.style.visibility = "hidden";
+    const revealAndFocus = () => {
+      if (seq !== contentLoadSeqRef.current) return;
+      if (surface?.isConnected) surface.style.visibility = "";
+      onContentReadyRef.current?.(contentPath);
       if (editor.isDestroyed) return;
-      editor.view.focus();
-    });
+      try {
+        editor.view.dom.focus({ preventScroll: true });
+      } catch {
+        editor.view.focus();
+      }
+    };
+    if (restore) {
+      restoreCursor(
+        editor,
+        restore,
+        scrollElRef.current,
+        () => seq === contentLoadSeqRef.current,
+        revealAndFocus,
+      );
+    } else {
+      if (scrollElRef.current) scrollElRef.current.scrollTop = 0;
+      revealAndFocus();
+    }
   }, [editor, contentPath]);
 
   return (

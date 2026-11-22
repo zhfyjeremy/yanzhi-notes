@@ -24,7 +24,11 @@ const badgePlugin = new Plugin({
           break;
         }
       }
-      if (!level || pos < 0) return DecorationSet.empty;
+      // 空标题不在内容起点插 widget:不可编辑节点贴着空 caret 会干扰首字符/IME,
+      // 输入一旦落到标题块外就表现为「插入标题后又变回正文」。
+      if (!level || pos < 0 || $head.node($head.depth).content.size === 0) {
+        return DecorationSet.empty;
+      }
       return DecorationSet.create(state.doc, [
         Decoration.widget(pos, () => {
           const el = document.createElement("span");

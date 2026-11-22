@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ACCENT_PRESETS,
   DEFAULT_SETTINGS,
+  DEFAULT_ACCENT,
   DEFAULT_SIDEBAR_WIDTH,
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
@@ -45,12 +46,13 @@ describe("settings 解析(PRD §8)", () => {
     expect(moon.name).toBe("月白");
     expect(moon.light.workspace).toBe(moon.light.editor);
   });
-  it("主色预设:合法 id 直读,未知/异型回语雀蓝", () => {
-    expect(parseSettings('{"accent":"teal"}').accent).toBe("teal");
-    expect(parseSettings('{"accent":"pink"}').accent).toBe("blue");
-    expect(parseSettings('{"accent":123}').accent).toBe("blue");
-    expect(accentPresetOf("nope").id).toBe("blue");
-    expect(accentPresetOf(undefined).id).toBe("blue");
+  it("主色预设:合法 id 直读,未知/异型回默认苔绿", () => {
+    expect(parseSettings('{"accent":"violet"}').accent).toBe("violet");
+    expect(parseSettings('{"accent":"pink"}').accent).toBe(DEFAULT_ACCENT);
+    expect(parseSettings('{"accent":123}').accent).toBe(DEFAULT_ACCENT);
+    expect(accentPresetOf("nope").id).toBe(DEFAULT_ACCENT);
+    expect(accentPresetOf(undefined).id).toBe(DEFAULT_ACCENT);
+    expect(DEFAULT_ACCENT).toBe("green");
   });
   it("卡片边框/图片压缩:布尔直读,缺失或异型回 true", () => {
     expect(parseSettings('{"cardBorder":false,"imageCompress":false}')).toEqual({
@@ -173,6 +175,14 @@ describe("settings 解析(PRD §8)", () => {
     expect(parseSettings('{"codeTheme":"one-dark-pro"}').codeTheme).toBe("one-dark-pro");
     expect(parseSettings('{"codeTheme":"from-cdn"}').codeTheme).toBe("yanzhi");
   });
+  it("Word 代码块配色:三态直读并兼容旧开关", () => {
+    expect(parseSettings('{"docxCodeThemeMode":"none"}').docxCodeThemeMode).toBe("none");
+    expect(parseSettings('{"docxCodeThemeMode":"yanzhi"}').docxCodeThemeMode).toBe("yanzhi");
+    expect(parseSettings('{"docxCodeFollowTheme":false}').docxCodeThemeMode).toBe("yanzhi");
+    expect(parseSettings('{"docxCodeFollowTheme":true}').docxCodeThemeMode).toBe("current");
+    expect(parseSettings('{}').docxCodeThemeMode).toBe("none");
+    expect(parseSettings('{"docxCodeThemeMode":"invalid"}').docxCodeThemeMode).toBe("none");
+  });
   it("最近文档与代码语言:过滤异型/重复并限量", () => {
     const s = parseSettings(
       JSON.stringify({
@@ -220,7 +230,7 @@ describe("applyTheme 主色覆盖(浅/深两套)", () => {
       deskPresetOf("mist").dark.codeBg,
     );
     for (const p of ACCENT_PRESETS) {
-      for (const key of ["--primary", "--primary-foreground", "--ring", "--accent", "--accent-foreground"]) {
+      for (const key of ["--primary", "--primary-foreground", "--ring", "--accent", "--accent-foreground", "--link"]) {
         expect(p.light[key], `${p.id} light ${key}`).toMatch(/^hsl\(/);
         expect(p.dark[key], `${p.id} dark ${key}`).toMatch(/^hsl\(/);
       }

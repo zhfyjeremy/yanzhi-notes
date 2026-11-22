@@ -196,14 +196,22 @@ export function useKb(settings: AppSettings) {
     }
   }, []);
 
+  const writeMetaNow = useCallback(() => {
+    const root = rootRef.current;
+    if (root) kbBackend.writeMeta(root, serializeMeta(metaRef.current)).catch(() => {});
+  }, []);
+
   /** meta 落盘(去抖;写失败只丢偏好不阻塞,9.1.4) */
   const persistMeta = useCallback(() => {
     window.clearTimeout(metaWriteTimer.current);
-    metaWriteTimer.current = window.setTimeout(() => {
-      const root = rootRef.current;
-      if (root) kbBackend.writeMeta(root, serializeMeta(metaRef.current)).catch(() => {});
-    }, 300);
-  }, []);
+    metaWriteTimer.current = window.setTimeout(writeMetaNow, 300);
+  }, [writeMetaNow]);
+
+  /** 关闭/失焦等边界用:立即写出尚未落盘的 meta 偏好 */
+  const flushMeta = useCallback(() => {
+    window.clearTimeout(metaWriteTimer.current);
+    writeMetaNow();
+  }, [writeMetaNow]);
 
   const syncNav = () => {
     const active = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current);
@@ -1768,6 +1776,7 @@ export function useKb(settings: AppSettings) {
     setTagsMany,
     saveCursor,
     getCursor,
+    flushMeta,
     allTags,
     tagCounts,
     currentTags,

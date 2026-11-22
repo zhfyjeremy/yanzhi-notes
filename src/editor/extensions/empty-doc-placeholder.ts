@@ -1,4 +1,5 @@
 import { Extension, isNodeEmpty } from "@tiptap/core";
+import type { Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
@@ -12,6 +13,18 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
  */
 
 const pluginKey = new PluginKey("yzEmptyDocPlaceholder");
+
+/**
+ * 「整篇为空」必须是单个空段落。isNodeEmpty(doc) 会递归判断;
+ * 一张全是空单元格的新表格也会被判空,导致占位符进入每个 cell。
+ */
+function isEmptyTextDocument(doc: PMNode): boolean {
+  return (
+    doc.childCount === 1 &&
+    doc.firstChild?.type.name === "paragraph" &&
+    isNodeEmpty(doc.firstChild)
+  );
+}
 
 export const EmptyDocPlaceholder = Extension.create({
   name: "emptyDocPlaceholder",
@@ -27,7 +40,7 @@ export const EmptyDocPlaceholder = Extension.create({
         key: pluginKey,
         props: {
           decorations(state) {
-            if (!isNodeEmpty(state.doc)) return DecorationSet.empty;
+            if (!isEmptyTextDocument(state.doc)) return DecorationSet.empty;
             const decos: Decoration[] = [];
             state.doc.descendants((node, pos) => {
               if (!node.isTextblock || !isNodeEmpty(node)) return true;

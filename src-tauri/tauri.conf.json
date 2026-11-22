@@ -34,7 +34,20 @@
       "icons/file-icon.ico": "file-icon.ico",
       "icons/file-icon.icns": "file-icon.icns",
       "resources/yanzhi-reference.docx": "resources/yanzhi-reference.docx",
-      "resources/yanzhi-highlight.theme": "resources/yanzhi-highlight.theme"
+      "resources/yanzhi-plain-reference.docx": "resources/yanzhi-plain-reference.docx",
+      "resources/yanzhi-highlight.theme": "resources/yanzhi-highlight.theme",
+      "resources/github-light-highlight.theme": "resources/github-light-highlight.theme",
+      "resources/github-light-reference.docx": "resources/github-light-reference.docx",
+      "resources/github-dark-reference.docx": "resources/github-dark-reference.docx",
+      "resources/one-dark-pro-reference.docx": "resources/one-dark-pro-reference.docx",
+      "resources/monokai-reference.docx": "resources/monokai-reference.docx",
+      "resources/dracula-reference.docx": "resources/dracula-reference.docx",
+      "resources/night-owl-reference.docx": "resources/night-owl-reference.docx",
+      "resources/github-dark-highlight.theme": "resources/github-dark-highlight.theme",
+      "resources/one-dark-pro-highlight.theme": "resources/one-dark-pro-highlight.theme",
+      "resources/monokai-highlight.theme": "resources/monokai-highlight.theme",
+      "resources/dracula-highlight.theme": "resources/dracula-highlight.theme",
+      "resources/night-owl-highlight.theme": "resources/night-owl-highlight.theme"
     },
     "macOS": {
       "infoPlist": "Info.plist",

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Check,
   Database,
@@ -26,6 +26,7 @@ import { AiSettingsPanel } from "../ai/AiSettingsPanel";
 import type {
   AppSettings,
   CodeThemeId,
+  DocxCodeThemeMode,
   DocxRemoteImageMode,
   EditorWidthMode,
   LaunchMode,
@@ -34,7 +35,8 @@ import type {
   UiStyle,
 } from "../settings";
 import type { PandocStatus } from "./types";
-import { ACCENT_PRESETS, CODE_THEME_OPTIONS, DESK_PRESETS, DEFAULT_DESK, resolvedIsDark } from "../settings";
+import { ACCENT_PRESETS, CODE_THEME_OPTIONS, DEFAULT_ACCENT, DEFAULT_DESK, DESK_PRESETS, resolvedIsDark } from "../settings";
+import { Hint as IconHint } from "@/components/hint";
 import { APP_VERSION } from "../version";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -83,6 +85,7 @@ const PAGE_META: Record<SettingsTab, { title: string; description: string }> = {
   general: { title: "通用", description: "控制启动方式、关闭是否进后台,并查看应用数据的存放边界。" },
   templates: { title: "模板", description: "管理当前知识库的文档模板,模板仍是标准 Markdown 文件。" },
   appearance: { title: "外观", description: "调整界面风格、主题、台面背景、主色与正文排版,所有变化即时预览。" },
+
   editor: { title: "编辑器", description: "控制代码主题、卡片视觉与专注写作相关偏好。" },
   storage: { title: "存储", description: "管理历史快照与冗余资源,保持知识库可备份、可迁移。" },
   image: { title: "图片", description: "控制图片进入知识库时的处理方式。" },
@@ -98,6 +101,14 @@ const PAGE_META: Record<SettingsTab, { title: string; description: string }> = {
   },
   about: { title: "关于", description: "了解砚知的产品原则与本地优先存储方式。" },
 };
+/** 外观页左侧竖导航(滚动跟随高亮,点击滚动到对应分区) */
+const APPEARANCE_SECTIONS = [
+  { id: "ui-style", label: "界面风格" },
+  { id: "theme", label: "主题" },
+  { id: "desk", label: "台面背景" },
+  { id: "accent", label: "主色" },
+  { id: "typography", label: "正文排版" },
+] as const;
 
 const THEME_OPTIONS: {
   value: ThemeMode;
@@ -293,14 +304,17 @@ function SettingsSection({
   hint,
   action,
   children,
+  spyId,
 }: {
   title: string;
   hint?: React.ReactNode;
   action?: React.ReactNode;
   children: React.ReactNode;
+  /** 滚动定位锚点:外观页左侧竖导航用,渲染为 data-spy 属性 */
+  spyId?: string;
 }) {
   return (
-    <section className="space-y-2">
+    <section className="space-y-2" data-spy={spyId}>
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-foreground/80 text-xs font-semibold tracking-[0.03em]">{title}</h3>
         {action}
@@ -388,13 +402,27 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 function SwitchRow({
   label,
+  hint,
   checked,
   onCheckedChange,
 }: {
   label: string;
+  /** 可选的行内补充说明(渲染在标签下方) */
+  hint?: string;
   checked: boolean;
   onCheckedChange: (v: boolean) => void;
 }) {
+  if (hint) {
+    return (
+      <div className="flex items-center justify-between gap-4 px-3 py-2.5 text-sm">
+        <span className="min-w-0">
+          {label}
+          <span className="text-muted-foreground mt-0.5 block text-[11px] leading-4">{hint}</span>
+        </span>
+        <Switch checked={checked} onCheckedChange={onCheckedChange} aria-label={label} />
+      </div>
+    );
+  }
   return (
     <Row label={label}>
       <Switch checked={checked} onCheckedChange={onCheckedChange} aria-label={label} />
@@ -534,7 +562,7 @@ function NumberInput({
   );
 }
 
-/** 主色色板(长方形色块 + 名称,3 列) */
+/** 主色色板:一行方块,悬停显示名称,点击即选中 */
 function AccentPicker({
   value,
   customAccent,
@@ -544,36 +572,45 @@ function AccentPicker({
   customAccent: string | null;
   onChange: (id: string) => void;
 }) {
+  const activeId = customAccent ? null : value;
+  const activePreset = activeId ? ACCENT_PRESETS.find((p) => p.id === activeId) : undefined;
   return (
-    <div className="grid grid-cols-3 gap-2">
-      {ACCENT_PRESETS.map((p) => {
-        const active = !customAccent && value === p.id;
-        return (
-          <button
-            key={p.id}
-            aria-label={`主色:${p.name}`}
-            aria-pressed={active}
-            className={cn(
-              "hover:border-primary/50 cursor-pointer rounded-lg border p-2 text-left transition-colors",
-              active ? "ring-primary border-primary/40 ring-2" : "border-border-subtle hover:border-primary/25",
-            )}
-            onClick={() => onChange(p.id)}
-          >
-            <span
-              className="relative block h-7 w-full rounded-md"
-              style={{ backgroundColor: p.swatch }}
+    <div>
+      <div className="grid grid-cols-6 gap-2" role="group" aria-label="主色预设">
+        {ACCENT_PRESETS.map((p) => {
+          const active = activeId === p.id;
+          return (
+            <IconHint
+              key={p.id}
+              label={p.name}
+              side="top"
+              ariaLabel={`主色:${p.name}${p.id === DEFAULT_ACCENT ? "(默认)" : ""}`}
             >
-              {active && (
-                <Check className="absolute top-1/2 left-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 text-white" strokeWidth={3} />
-              )}
-            </span>
-            <span className="mt-1.5 flex items-center justify-between text-xs">
-              {p.name}
-              {p.id === "blue" && <span className="text-muted-foreground text-[10px]">默认</span>}
-            </span>
-          </button>
-        );
-      })}
+              <button
+                type="button"
+                aria-pressed={active}
+                className={cn(
+                  "relative h-8 w-full cursor-pointer rounded-md border transition-transform",
+                  active
+                    ? "ring-primary border-primary/40 scale-105 ring-2"
+                    : "hover:border-foreground/40 hover:scale-110 border-black/10 dark:border-white/15",
+                )}
+                style={{ backgroundColor: p.swatch }}
+                onClick={() => onChange(p.id)}
+              >
+                {active && (
+                  <Check className="absolute top-1/2 left-1/2 size-4 -translate-x-1/2 -translate-y-1/2 text-white" strokeWidth={3} />
+                )}
+              </button>
+            </IconHint>
+          );
+        })}
+      </div>
+      <p className="text-muted-foreground mt-1.5 text-xs">
+        {customAccent
+          ? "使用自定义主色,点击色块可回到预设"
+          : `当前:${activePreset?.name ?? "—"}${activeId === DEFAULT_ACCENT ? " · 默认" : ""}`}
+      </p>
     </div>
   );
 }
@@ -751,6 +788,35 @@ export function SettingsPage({
   const [pandocStatus, setPandocStatus] = useState<PandocStatus | null>(null);
   const [pandocChecking, setPandocChecking] = useState(false);
   const deskPreviewDark = useResolvedDark(settings.theme);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [appearanceActive, setAppearanceActive] = useState<string>(APPEARANCE_SECTIONS[0].id);
+
+  // 外观页滚动跟随:取视口顶部 96px 内最后一个分区为当前项
+  useEffect(() => {
+    if (tab !== "appearance") return;
+    const container = scrollRef.current;
+    if (!container) return;
+    const onScroll = () => {
+      const cTop = container.getBoundingClientRect().top;
+      let current: string = APPEARANCE_SECTIONS[0].id;
+      for (const { id } of APPEARANCE_SECTIONS) {
+        const el = container.querySelector<HTMLElement>(`[data-spy="${id}"]`);
+        if (el && el.getBoundingClientRect().top - cTop <= 96) current = id;
+      }
+      setAppearanceActive(current);
+    };
+    onScroll();
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => container.removeEventListener("scroll", onScroll);
+  }, [tab]);
+
+  const jumpToAppearanceSection = (id: string) => {
+    const container = scrollRef.current;
+    const el = container?.querySelector<HTMLElement>(`[data-spy="${id}"]`);
+    if (!container || !el) return;
+    const top = container.scrollTop + el.getBoundingClientRect().top - container.getBoundingClientRect().top - 16;
+    container.scrollTo({ top, behavior: "smooth" });
+  };
 
   useEffect(() => {
     setPandocPathInput(settings.pandocPath ?? "");
@@ -823,7 +889,7 @@ export function SettingsPage({
   const snapshotDefault = settings.snapshotKeep === 30 && settings.snapshotIntervalMin === 5;
   return (
     <div className="bg-editor text-foreground flex h-full min-h-0 text-sm">
-      <nav className="bg-sidebar border-border-subtle flex w-44 shrink-0 flex-col gap-3 border-r p-2">
+      <nav className="bg-sidebar border-border-subtle flex w-36 shrink-0 flex-col gap-3 border-r p-2">
         {NAV_GROUPS.map((group) => (
           <div key={group.title} className="space-y-1">
             <p className="text-muted-foreground/60 px-2.5 text-[10px] font-semibold tracking-[0.06em]">
@@ -852,8 +918,8 @@ export function SettingsPage({
         <span className="text-muted-foreground/60 mt-auto px-2.5 pt-2 text-[10px]">砚知 v{APP_VERSION}</span>
       </nav>
 
-      <div className="min-w-0 flex-1 overflow-y-auto">
-        <div className={cn("mx-auto space-y-5 p-6", tab === "templates" ? "max-w-2xl" : "max-w-lg")}>
+      <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto">
+        <div className={cn("mx-auto space-y-5 p-6", tab === "templates" || tab === "appearance" ? "max-w-2xl" : "max-w-lg")}>
           <PageHeader title={PAGE_META[tab].title} description={PAGE_META[tab].description} />
 
           {tab === "general" && (
@@ -921,8 +987,30 @@ export function SettingsPage({
           )}
 
           {tab === "appearance" && (
-            <>
+            <div className="flex gap-5">
+              <nav aria-label="外观分区" className="w-16 shrink-0">
+                <div className="sticky top-6 flex flex-col gap-0.5">
+                  {APPEARANCE_SECTIONS.map(({ id, label }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      aria-current={appearanceActive === id}
+                      className={cn(
+                        "flex h-7 cursor-pointer items-center border-l-2 pl-2.5 text-left text-xs transition-colors",
+                        appearanceActive === id
+                          ? "border-primary text-primary font-medium"
+                          : "text-muted-foreground hover:text-foreground border-transparent",
+                      )}
+                      onClick={() => jumpToAppearanceSection(id)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </nav>
+              <div className="min-w-0 flex-1 space-y-5">
               <SettingsSection
+                spyId="ui-style"
                 title="界面风格"
                 hint="只改工作区面板怎么摆,不写入 Markdown;可随时切换"
               >
@@ -931,7 +1019,7 @@ export function SettingsPage({
                   onChange={(v) => onChange({ uiStyle: v })}
                 />
               </SettingsSection>
-              <SettingsSection title="主题" hint="选择砚知的整体明暗关系;跟随系统会实时响应 OS 切换">
+              <SettingsSection spyId="theme" title="主题" hint="选择砚知的整体明暗关系;跟随系统会实时响应 OS 切换">
                 <OptionCards
                   ariaLabel="主题"
                   options={THEME_OPTIONS}
@@ -941,6 +1029,7 @@ export function SettingsPage({
                 />
               </SettingsSection>
               <SettingsSection
+                spyId="desk"
                 title="台面背景"
                 hint="工作区外壳与侧栏底色;编辑纸面随主题浅/深,不写入 Markdown"
               >
@@ -950,7 +1039,7 @@ export function SettingsPage({
                   onChange={(id) => onChange({ desk: id })}
                 />
               </SettingsSection>
-              <SettingsSection title="主色" hint="自定义颜色会生成匹配的浅色、深色主色与选中底色">
+              <SettingsSection spyId="accent" title="主色" hint="自定义颜色会生成匹配的浅色、深色主色与选中底色">
                 <AccentPicker
                   value={settings.accent}
                   customAccent={settings.customAccent}
@@ -981,6 +1070,7 @@ export function SettingsPage({
                 </Group>
               </SettingsSection>
               <SettingsSection
+                spyId="typography"
                 title="正文排版"
                 hint="只影响阅读观感,不写入 Markdown"
                 action={
@@ -1071,7 +1161,8 @@ export function SettingsPage({
                   />
                 </Group>
               </SettingsSection>
-            </>
+              </div>
+            </div>
           )}
 
           {tab === "editor" && (
@@ -1197,10 +1288,17 @@ export function SettingsPage({
                 hint="只影响导出页顶部补充的文档标题横幅;正文自带同名 H1 时不重复加"
               >
                 <Group>
+                  <SwitchRow
+                    label="附带文件名标题"
+                    hint="关闭后 HTML / PDF 不在顶部补文档名"
+                    checked={settings.exportDocTitle}
+                    onCheckedChange={(v) => onChange({ exportDocTitle: v })}
+                  />
                   <Row label="标题对齐">
                     <select
                       aria-label="导出文档标题对齐"
-                      className="border-border-subtle bg-raised h-8 cursor-pointer rounded-md border px-2 text-xs outline-none"
+                      disabled={!settings.exportDocTitle}
+                      className="border-border-subtle bg-raised h-8 cursor-pointer rounded-md border px-2 text-xs outline-none disabled:cursor-not-allowed disabled:opacity-45"
                       value={settings.exportTitleAlign}
                       onChange={(e) =>
                         onChange({ exportTitleAlign: e.target.value as "left" | "center" })
@@ -1223,6 +1321,20 @@ export function SettingsPage({
                 }
               >
                 <Group>
+                  <Row label="Word 代码块配色">
+                    <select
+                      aria-label="Word 代码块配色"
+                      className="border-border-subtle bg-raised h-8 cursor-pointer rounded-md border px-2 text-xs outline-none"
+                      value={settings.docxCodeThemeMode}
+                      onChange={(e) =>
+                        onChange({ docxCodeThemeMode: e.target.value as DocxCodeThemeMode })
+                      }
+                    >
+                      <option value="none">无主题（默认）</option>
+                      <option value="current">跟随当前主题</option>
+                      <option value="yanzhi">砚知默认</option>
+                    </select>
+                  </Row>
                   <Row label="Pandoc 路径">
                     <span className="flex w-full items-center gap-2">
                       <Input

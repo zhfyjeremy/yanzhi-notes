@@ -289,6 +289,8 @@ function TreeRow({
   onRenameEntry,
   onRemoveEntry,
   onMoveEntry,
+  onBatchTrash,
+  onBatchMove,
   moveFolders,
   onTogglePin,
   selected,
@@ -326,6 +328,10 @@ function TreeRow({
   onRenameEntry: (rel: string, name: string) => void;
   onRemoveEntry: (rel: string) => void;
   onMoveEntry: (srcRel: string, destFolderRel: string) => void;
+  /** 批量模式右键:整组移入回收站 */
+  onBatchTrash: (rels: string[]) => Promise<BatchResult>;
+  /** 批量模式右键:整组移动 */
+  onBatchMove: (rels: string[], destFolder: string) => Promise<BatchResult>;
   moveFolders: { path: string; label: string }[];
   onTogglePin: (rel: string, pinned: boolean) => void;
   selected: boolean;
@@ -636,38 +642,62 @@ function TreeRow({
           <ContextMenuItem onClick={() => onBeginRename(node.path)}>
             <PenLine /> 重命名
           </ContextMenuItem>
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>
-              <ArrowRightLeft /> 移动到
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent className="max-h-72 min-w-40 overflow-y-auto">
-              {moveFolders.map((f) => {
-                const disabled = isInvalidMoveDest(node.path, node.isDir, f.path);
-                return (
-                  <ContextMenuItem
-                    key={f.path || "__root"}
-                    disabled={disabled}
-                    title={disabled ? "已在此位置或不能移入自身子树" : undefined}
-                    onClick={() => onMoveEntry(node.path, f.path)}
-                  >
-                    {f.label}
-                  </ContextMenuItem>
-                );
-              })}
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          <ContextMenuItem
-            variant="destructive"
-            // 有内容的文件夹加原生 title 兜底(空文件夹/文档不加)
-            title={
-              node.isDir && countDocs(node) > 0
-                ? `含 ${countDocs(node)} 篇文档,移入回收站`
-                : undefined
-            }
-            onClick={() => onRemoveEntry(node.path)}
-          >
-            <Trash2 /> 移入回收站
-          </ContextMenuItem>
+          {(() => {
+            // 批量选择有勾选时,这对入口整体切换为批量语义,不再出第二份重复项
+            const batch = selectionMode && selectedPaths.size > 0;
+            return (
+              <>
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>
+                    <ArrowRightLeft /> {batch ? `移动到(${selectedPaths.size} 篇)` : "移动到"}
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent className="max-h-72 min-w-40 overflow-y-auto">
+                    {moveFolders.map((f) => {
+                      if (batch) {
+                        return (
+                          <ContextMenuItem
+                            key={f.path || "__root"}
+                            onClick={() => void onBatchMove([...selectedPaths], f.path)}
+                          >
+                            {f.label}
+                          </ContextMenuItem>
+                        );
+                      }
+                      const disabled = isInvalidMoveDest(node.path, node.isDir, f.path);
+                      return (
+                        <ContextMenuItem
+                          key={f.path || "__root"}
+                          disabled={disabled}
+                          title={disabled ? "已在此位置或不能移入自身子树" : undefined}
+                          onClick={() => onMoveEntry(node.path, f.path)}
+                        >
+                          {f.label}
+                        </ContextMenuItem>
+                      );
+                    })}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+                <ContextMenuItem
+                  variant="destructive"
+                  // 有内容的文件夹加原生 title 兜底(空文件夹/文档不加)
+                  title={
+                    batch
+                      ? `移动所选 ${selectedPaths.size} 项到回收站`
+                      : node.isDir && countDocs(node) > 0
+                        ? `含 ${countDocs(node)} 篇文档,移入回收站`
+                        : undefined
+                  }
+                  onClick={() =>
+                    batch
+                      ? void onBatchTrash([...selectedPaths])
+                      : onRemoveEntry(node.path)
+                  }
+                >
+                  <Trash2 /> {batch ? `移入回收站(${selectedPaths.size} 篇)` : "移入回收站"}
+                </ContextMenuItem>
+              </>
+            );
+          })()}
         </ContextMenuContent>
       </ContextMenu>
       {node.isDir && !isCollapsed && (
@@ -704,6 +734,8 @@ function TreeRow({
               onRenameEntry={onRenameEntry}
               onRemoveEntry={onRemoveEntry}
               onMoveEntry={onMoveEntry}
+              onBatchTrash={onBatchTrash}
+              onBatchMove={onBatchMove}
               moveFolders={moveFolders}
               dragPath={dragPath}
               dropHint={dropHint}
@@ -1127,6 +1159,8 @@ export function DocTree({
                   onRenameEntry={onRenameEntry}
                   onRemoveEntry={onRemoveEntry}
                   onMoveEntry={(src, dest) => onMoveEntry(src, dest)}
+                  onBatchTrash={onBatchTrash}
+                  onBatchMove={onBatchMove}
                   moveFolders={moveFolders}
                   dragPath={dragPath}
                   dropHint={dropHint}
