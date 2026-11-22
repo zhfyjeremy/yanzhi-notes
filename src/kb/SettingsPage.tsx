@@ -855,6 +855,8 @@ export function SettingsPage({
     }
   };
 
+  const isWindowsPandocGuide = navigator.userAgent.includes("Windows");
+
   const pickPandoc = async () => {
     const path = await kbBackend.pickExportPath("pandoc");
     if (!path) return;
@@ -1321,6 +1323,23 @@ export function SettingsPage({
                 }
               >
                 <Group>
+                  {!pandocChecking && pandocStatus && !pandocStatus.installed && (
+                    <div className="border-border-subtle bg-raised grid gap-2 px-3 py-3 text-xs">
+                      <div className="text-foreground text-sm font-medium">Pandoc 未就绪</div>
+                      <p className="text-muted-foreground leading-5">
+                        Word 导出需要 Pandoc 3+。砚知保持本地离线，不会内置或自动下载外部转换器。
+                      </p>
+                      <code className="border-border-subtle bg-background overflow-x-auto rounded-md border px-2 py-1.5 font-mono whitespace-nowrap">
+                        {isWindowsPandocGuide
+                          ? "winget install --id JohnMacFarlane.Pandoc"
+                          : "brew install pandoc"}
+                      </code>
+                      <p className="text-muted-foreground leading-5">
+                        安装后重启砚知，再点击上方「重新检测」。若仍检测不到，请确认 PATH
+                        已生效，或直接点击「选择」指定 pandoc / pandoc.exe。
+                      </p>
+                    </div>
+                  )}
                   <Row label="Word 代码块配色">
                     <select
                       aria-label="Word 代码块配色"

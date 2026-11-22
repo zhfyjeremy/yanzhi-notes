@@ -402,6 +402,18 @@
 
 **验证**:新增 `src/editor/__tests__/autolink.test.ts`(5 例:逗号截断/普通 URL/句尾标点/行内代码排除/粘贴语义)与 `markdown/__tests__/autolink.test.ts` 自愈 3 例(半角/全角/不误伤)、编辑器实时成链 9 例(含删除回退 3 例:删破回退/改名链接保护/历史自引用链接回退);autolink fixture 增逗号截断与句尾裸 URL 两行;全量 roundtrip fixtures 26/26、`tsc --noEmit` 通过;全量 vitest 仅 `pandoc-ast.test.ts` 1 例既有失败(改动前即可复现,与本修复无关)。
 
+## 大文档切换 Loading(2026-11-22)✅
+
+切换文档时编辑器先隐藏正文并在正文区域中央显示一个无遮挡的简约 spinner,再延迟两帧执行 md→DOMParser 与 `setContent`。这保证 loading 状态先完成一次绘制,大文档解析/NodeView 挂载占用主线程时界面不再像无响应;滚动连续稳定后才关闭 loading,并停止后续补写,避免 loading 消失后滚动条再“滚动一下”。空文档不进入该状态;短文档仍静默完成切换但不显示 spinner,只有约 20k 字符以上的正文才显示 loading,减少无意义闪动。新增切换 loading 回归于 `restore-cursor.test.tsx`。
+
+## Pandoc 安装引导与导出诊断(2026-11-22)✅
+
+**安装引导**:触发 Word 导出但未检测到 Pandoc 3+ 时,不再用短 toast + 直接跳设置;先弹安装引导,说明砚知不内置/不自动下载、给出 Windows winget / macOS brew 命令、官方安装页与 PATH 未生效时手动选择可执行文件的做法。设置 → 导出的 Pandoc 区在未就绪时也显示同样步骤。安装后可重启应用或在设置点击重新检测。
+
+**导出失败诊断**:DOCX 失败改为对话框展示完整 Pandoc 诊断并支持复制。Rust 侧合并 Pandoc stdout/stderr(不同平台诊断输出不一致);保存/选择文件路径改用 Tauri FilePath 的 `into_path()` 而不是字符串化,减少 Windows 路径形态损失;保存路径必须有文件名且父目录存在。`withBinaryFile: invalid argument` 会被补充为可操作提示,列出 UNC 网络路径/云同步盘、路径过长/非法字符、自定义模板所在盘不可访问等常见原因。导出期间 Pandoc 不再直接读写用户选择的位置与模板:reference/theme/本地图片会先复制到应用本地缓存,DOCX 也在本地缓存生成后再由 Rust 复制到目标路径,规避 Haskell/Windows 对 `\\?\`、UNC 等路径形态的处理差异。
+
+**验证**:`pnpm build`、`cargo check --tests`、`cargo test --manifest-path src-tauri/Cargo.toml pandoc_invalid_argument_gets_path_guidance -- --nocapture`、`cargo test --manifest-path src-tauri/Cargo.toml local_images_are_staged_for_pandoc -- --nocapture` 通过。
+
 ## 滚动记忆与 DOCX 主题跟随修复(2026-11-22)✅
 
 **滚动记忆**:①首篇挂载原先不执行恢复逻辑,只依赖 `markdown/contentEpoch` 变化分支,应用重启或欢迎页首次打开必然落顶;②补写循环原来写入一次后因“当前值等于目标值”立刻停止,PM selection flush 可能晚于它把光标滚进视口,最终又被顶走;③只靠 blur 落盘,最后一次滚动在直接关窗时可能只留在内存。修复:首篇挂载走同一 `restoreCursor`;90 帧窗口内持续钉住目标位(用户 pointer/wheel/touch/key 输入立即让位);滚动停止 600ms 去抖写 meta;`pagehide/blur` 除保存 cursor 外还会触发 `flushMeta` 立即写出,不等原 300ms 去抖。新增 `src/editor/__tests__/restore-cursor.test.tsx` 锁首次挂载恢复。

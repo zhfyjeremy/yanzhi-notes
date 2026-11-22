@@ -5993,6 +5993,7 @@ name = "yanzhi-notes"
 version = "0.1.0"
 dependencies = [
  "block2",
+ "dunce",
  "keyring",
  "lopdf 0.47.0",
  "notify",

@@ -114,6 +114,49 @@ fn pandoc_major(version: &str) -> u32 {
         .unwrap_or(0)
 }
 
+/// Pandoc/Haskell 的 IO 错误对用户过于底层;补上下一步而非只透出异常文本。
+fn friendly_pandoc_error(
+    detail: &str,
+    output: &Path,
+    resource_path: Option<&str>,
+    reference_doc: Option<&Path>,
+) -> String {
+    let lower = detail.to_ascii_lowercase();
+    if lower.contains("withbinaryfile") && lower.contains("invalid argument") {
+        let resource = resource_path
+            .map(|p| format!("\n- 文档资源目录:{p}"))
+            .unwrap_or_default();
+        let reference = reference_doc
+            .map(|p| format!("\n- Word 模板:{}", p.display()))
+            .unwrap_or_default();
+        return format!(
+            "{detail}\n\nPandoc 无法打开某个文件路径。错误里只有反斜杠/UNC 前缀(如 \\\\)时,通常是路径被规范成了 Pandoc 不接受的形式。常见原因:\n- 保存位置、知识库/assets 资源目录或 Word 模板在 UNC 网络路径、映射盘、云同步盘或移动盘上,或该盘当前不可访问;\n- 保存路径/模板路径过长、含系统不允许的字符,或被安全软件拦截;\n- 自定义 Word 模板所在的盘不可访问。\n可先改为本机磁盘目录(如桌面或文档)重试;若配置了自定义模板,可先暂时改回砚知内置模板。相关路径:\n- 当前输出路径:{}{}{}",
+            output.display(),
+            resource,
+            reference
+        );
+    }
+    detail.to_string()
+}
+
+fn simplify_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        dunce::simplified(&path).to_path_buf()
+    }
+    #[cfg(not(windows))]
+    {
+        path
+    }
+}
+
+fn copy_pandoc_input_to_job(path: &Path, job_dir: &Path, name: &str) -> Result<PathBuf, String> {
+    let target = job_dir.join(name);
+    std::fs::copy(path, &target)
+        .map_err(|e| format!("读取导出依赖失败:{}({e})", path.display()))?;
+    Ok(target)
+}
+
 fn run_pandoc_version(path: &Path) -> Result<String, String> {
     let output = pandoc_command(path)
         .arg("--version")
@@ -180,18 +223,26 @@ pub async fn pick_docx_output_path(
 pub async fn pick_export_path(app: AppHandle, kind: String) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let dialog = app.dialog().file();
-        if kind == "reference-docx" {
+        let picked = if kind == "reference-docx" {
             dialog
                 .add_filter("Word 模板", &["docx"])
                 .blocking_pick_file()
-                .map(|p| p.to_string())
         } else {
-            dialog.blocking_pick_file().map(|p| p.to_string())
-        }
+            dialog.blocking_pick_file()
+        };
+        let Some(path) = picked else {
+            return Ok(None);
+        };
+        let path = path
+            .simplified()
+            .into_path()
+            .map_err(|e| format!("选择的文件路径无效:{e}"))?;
+        Ok(Some(path.to_string_lossy().into_owned()))
     })
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?
 }
+
 
 fn locate_export_resource(app: &AppHandle, name: &str) -> Option<PathBuf> {
     let mut candidates = Vec::new();
@@ -210,21 +261,33 @@ fn locate_export_resource(app: &AppHandle, name: &str) -> Option<PathBuf> {
             .join("resources")
             .join(name),
     );
-    candidates.into_iter().find(|p| p.is_file())
+    candidates
+        .into_iter()
+        .find(|p| p.is_file())
+        .map(simplify_path)
 }
 
 async fn save_docx_dialog(app: AppHandle, default_name: String) -> Result<Option<PathBuf>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        app.dialog()
+        let Some(path) = app
+            .dialog()
             .file()
             .set_file_name(default_name)
             .add_filter("Word 文档", &["docx"])
             .blocking_save_file()
-            .map(|f| PathBuf::from(f.to_string()))
+        else {
+            return Ok(None);
+        };
+        let path = path
+            .simplified()
+            .into_path()
+            .map_err(|e| format!("选择的保存路径无效:{e}"))?;
+        Ok(Some(path))
     })
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?
 }
+
 
 fn ip_is_private(ip: IpAddr) -> bool {
     let ip = match ip {
@@ -1325,19 +1388,26 @@ fn run_pandoc(
     let _ = writer.join();
     let output_result = output_result?;
     write_result?;
+    // Pandoc 在不同平台会把诊断写到 stdout 或 stderr;两边都合并，失败信息才不会只剩错误码。
+    let stdout = String::from_utf8_lossy(&output_result.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output_result.stderr).into_owned();
+    let diagnostics = [stdout.trim(), stderr.trim()]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
     if !output_result.status.success() {
-        let message = if stderr.trim().is_empty() {
+        let detail = if diagnostics.is_empty() {
             format!(
                 "Pandoc 返回错误码 {}",
                 output_result.status.code().unwrap_or(-1)
             )
         } else {
-            stderr
+            diagnostics
         };
-        return Err(message);
+        return Err(friendly_pandoc_error(&detail, output, resource_path, reference_doc));
     }
-    Ok(stderr)
+    Ok(diagnostics)
 }
 
 #[tauri::command]
@@ -1351,9 +1421,19 @@ pub async fn export_docx(
         return Err("砚知 DOCX 导出需要 Pandoc 3 或更新版本".into());
     }
 
-    let target = PathBuf::from(request.output_path.trim());
+    let target = simplify_path(PathBuf::from(request.output_path.trim()));
     if target.as_os_str().is_empty() {
         return Err("未选择 DOCX 保存位置".into());
+    }
+    // 拦截“只有盘符/根目录、没有文件名”的异常路径；这类路径交给 Pandoc 只会得到
+    // withBinaryFile/Invalid argument 一类难以理解的底层错误。
+    let has_filename = target.file_name().is_some_and(|name| !name.is_empty());
+    let parent_is_dir = target.parent().is_some_and(Path::is_dir);
+    if !has_filename || !parent_is_dir {
+        return Err(format!(
+            "DOCX 保存路径无效:{}。请选择一个已有目录下的具体 .docx 文件名。",
+            target.display()
+        ));
     }
 
     let mut warnings: Vec<String> = Vec::new();
@@ -1372,14 +1452,15 @@ pub async fn export_docx(
             .as_millis(),
         std::process::id()
     );
-    let download_dir = cache_dir.join(unique);
+    let job_dir = cache_dir.join(unique);
+    tokio::fs::create_dir_all(&job_dir)
+        .await
+        .map_err(|e| format!("创建 DOCX 导出缓存目录失败:{e}"))?;
+    let download_dir = job_dir.clone();
     let mut ast = request.ast;
 
     if !request.remote_images.is_empty() {
         if request.download_remote_images {
-            tokio::fs::create_dir_all(&download_dir)
-                .await
-                .map_err(|e| format!("创建图片缓存目录失败:{e}"))?;
             let mut replacements = std::collections::HashMap::new();
             let mut total = 0u64;
             for url in &request.remote_images {
@@ -1402,6 +1483,10 @@ pub async fn export_docx(
             downgrade_failed_images(&mut ast, &request.remote_images, &replacements);
         }
     }
+
+    // 本地图片也复制到应用缓存。这样 Pandoc 只处理短的本机路径,
+    // 不直接接触知识库所在的 UNC/网络路径。
+    stage_local_image_targets(&mut ast, request.resource_path.as_deref(), &job_dir)?;
 
     let highlight_mode = request.code_highlight_mode.as_deref().unwrap_or("none");
     let no_highlight = highlight_mode == "none";
@@ -1439,6 +1524,17 @@ pub async fn export_docx(
             return Err(format!("Word 模板不存在:{}", path.display()));
         }
     }
+    // Pandoc/Haskell 对 Windows 扩展路径、UNC 路径和网络盘的处理不如 Rust 稳定。
+    // 把 reference/theme 全部复制到应用本地缓存，并让 Pandoc 只写本地缓存；
+    // 最终再由 Rust 把成品复制到用户选择的位置。
+    let local_reference_doc = reference_doc
+        .as_deref()
+        .map(|path| copy_pandoc_input_to_job(path, &job_dir, "reference.docx"))
+        .transpose()?;
+    let local_highlight_theme = highlight_theme
+        .as_deref()
+        .map(|path| copy_pandoc_input_to_job(path, &job_dir, "highlight.theme"))
+        .transpose()?;
     let version_parts: Vec<u32> = version
         .split_whitespace()
         .nth(1)
@@ -1447,13 +1543,13 @@ pub async fn export_docx(
     let modern_highlight_flag = version_parts.first().is_some_and(|major| *major > 3)
         || (version_parts.first() == Some(&3)
             && version_parts.get(1).is_some_and(|minor| *minor >= 10));
-    let temp_output = target.with_extension("docx.yanzhi-tmp");
+    let temp_output = job_dir.join("output.docx.yanzhi-tmp");
     let pandoc_for_job = pandoc.clone();
     let ast_for_job = ast.clone();
-    let resource_for_job = request.resource_path.clone();
+    let resource_for_job = Some(job_dir.to_string_lossy().into_owned());
     let temp_output_for_job = temp_output.clone();
-    let reference_for_job = reference_doc.clone();
-    let theme_for_job = highlight_theme.clone();
+    let reference_for_job = local_reference_doc.clone();
+    let theme_for_job = local_highlight_theme.clone();
     let pandoc_result = tauri::async_runtime::spawn_blocking(move || {
         run_pandoc(
             &pandoc_for_job,
@@ -1477,7 +1573,7 @@ pub async fn export_docx(
             if target.exists() {
                 std::fs::remove_file(&target).map_err(|e| format!("替换既有 DOCX 失败:{e}"))?;
             }
-            std::fs::rename(&temp_output, &target).map_err(|e| format!("写入 DOCX 失败:{e}"))?;
+            std::fs::copy(&temp_output, &target).map_err(|e| format!("写入 DOCX 失败:{e}"))?;
             let _ = tokio::fs::remove_dir_all(&download_dir).await;
             Ok(DocxExportResult {
                 path: target.to_string_lossy().into_owned(),
@@ -1492,6 +1588,80 @@ pub async fn export_docx(
             Err(err)
         }
     }
+}
+
+fn stage_local_image_targets(
+    value: &mut Value,
+    resource_path: Option<&str>,
+    job_dir: &Path,
+) -> Result<(), String> {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                stage_local_image_targets(item, resource_path, job_dir)?;
+            }
+        }
+        Value::Object(map) => {
+            for (_key, item) in map.iter_mut() {
+                stage_local_image_targets(item, resource_path, job_dir)?;
+            }
+            if map.get("t").and_then(Value::as_str) == Some("Image") {
+                let Some(target) = map
+                    .get("c")
+                    .and_then(|c| c.get(2))
+                    .and_then(|c| c.get(0))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                else {
+                    return Ok(());
+                };
+                // 只处理本机路径；data/http(s) 交给 Pandoc 原有逻辑。
+                if target.starts_with("data:")
+                    || target.starts_with("http://")
+                    || target.starts_with("https://")
+                {
+                    return Ok(());
+                }
+                let mut source = PathBuf::from(&target);
+                if source.is_relative() {
+                    let Some(root) = resource_path else {
+                        return Ok(());
+                    };
+                    source = PathBuf::from(root).join(source);
+                }
+                // 后端也保留防线:只复制资源目录或砚知导出缓存内的文件。
+                let resource_allowed = resource_path
+                    .map(|root| source.starts_with(Path::new(root)))
+                    .unwrap_or(false);
+                if !resource_allowed && !source.starts_with(job_dir) || !source.is_file() {
+                    return Ok(());
+                }
+                let extension = source
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .filter(|e| e.len() <= 12)
+                    .unwrap_or("png");
+                let local = job_dir.join(format!(
+                    "asset-{:016x}.{extension}",
+                    fnv1a(target.as_bytes())
+                ));
+                if !local.exists() {
+                    std::fs::copy(&source, &local).map_err(|e| {
+                        format!("读取导出图片失败:{}({e})", source.display())
+                    })?;
+                }
+                if let Some(value) = map
+                    .get_mut("c")
+                    .and_then(|c| c.get_mut(2))
+                    .and_then(|c| c.get_mut(0))
+                {
+                    *value = Value::String(local.to_string_lossy().into_owned());
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 fn downgrade_failed_images(
@@ -1831,6 +2001,48 @@ mod tests {
         );
         assert_eq!(extension_for_content_type("text/html"), None);
     }
+    #[test]
+    fn pandoc_invalid_argument_gets_path_guidance() {
+        let message = friendly_pandoc_error(
+            "pandoc: \\\\\\\\: withBinaryFile: invalid argument (Invalid argument)",
+            Path::new(r"\\server\notes\demo.docx"),
+            Some(r"\\server\knowledge-base\docs"),
+            Some(Path::new(r"\\server\templates\ref.docx")),
+        );
+        assert!(message.contains("错误里只有反斜杠/UNC 前缀"));
+        assert!(message.contains(r"\\server\notes\demo.docx"));
+        assert!(message.contains(r"\\server\knowledge-base\docs"));
+        assert!(message.contains(r"\\server\templates\ref.docx"));
+    }
+
+    #[test]
+    fn local_images_are_staged_for_pandoc() {
+        let root = std::env::temp_dir().join("yanzhi-stage-source");
+        let job = std::env::temp_dir().join("yanzhi-stage-job");
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&job);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&job).unwrap();
+        let source = root.join("picture.png");
+        std::fs::write(&source, b"fake-image").unwrap();
+        let mut ast = serde_json::json!({
+            "t": "Image",
+            "c": [["", [], []], [], [source.to_string_lossy(), ""]]
+        });
+        stage_local_image_targets(
+            &mut ast,
+            Some(&root.to_string_lossy()),
+            &job,
+        )
+        .unwrap();
+        let target = ast["c"][2][0].as_str().unwrap();
+        assert!(target.contains("asset-"), "{target}");
+        let staged = PathBuf::from(target);
+        assert_eq!(std::fs::read(&staged).unwrap(), b"fake-image");
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(job);
+    }
+
     #[test]
     fn pandoc_ast_remote_images_replace_and_downgrade() {
         let mut ast = serde_json::json!({

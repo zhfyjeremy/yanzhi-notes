@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
 import { EditorContent, useEditor } from "@tiptap/react";
+import { Loader2 } from "lucide-react";
 import { baseExtensions } from "./extensions";
 import { mdToHtml } from "./markdown/md-instance";
 import { docToMarkdown } from "./markdown/serialize";
@@ -57,6 +58,19 @@ import "./editor.css";
  */
 
 const CHANGE_DEBOUNCE_MS = 300;
+/**
+ * 只有明显偏大的正文才显示切换 loading。空文档/短文档解析通常在一两帧内完成,
+ * 显示 spinner 反而会制造闪烁;正文仍在隐藏状态下完成切换,避免旧文闪现。
+ */
+const CONTENT_LOADING_THRESHOLD = 20_000;
+
+function shouldShowContentLoading(markdown: string): boolean {
+  return markdown.trim().length >= CONTENT_LOADING_THRESHOLD;
+}
+
+function isEmptyMarkdown(markdown: string): boolean {
+  return markdown.trim().length === 0;
+}
 
 /** 粘贴/拖拽进来的图片文件(剪贴板含 files 时优先于 HTML 清洗路径) */
 const imageFilesOf = (list: FileList | null | undefined): File[] =>
@@ -148,13 +162,14 @@ interface YanzhiEditorProps {
  * 滚动先同步写一次,再多帧补写:长文 setContent 后图片/代码块 NodeView 会继续撑高,
  * 只写一帧会被 clamp 到接近顶部,切回就像「没记位置」。
  * isCurrent 与切文档代数对齐,过期的 rAF 不得改写新文档的 scrollTop。
- * onReady:前几帧滚动稳定后回调(切文档时用来揭开被藏住的正文,避免闪旧文/跳滚动)。
+ * onReady:滚动连续稳定后回调(切文档时用来揭开被藏住的正文,避免闪旧文/跳滚动)。
  */
 function restoreCursor(
   editor: Editor,
   restore: { pos: number; scrollTop: number },
   scrollEl: HTMLElement | null,
   isCurrent: () => boolean,
+  onPrimeFocus?: () => void,
   onReady?: () => void,
 ): void {
   const max = editor.state.doc.content.size;
@@ -173,14 +188,21 @@ function restoreCursor(
     }
   }
   if (!scrollEl) {
+    onPrimeFocus?.();
     onReady?.();
     return;
   }
   const target = Math.max(0, restore.scrollTop);
   scrollEl.scrollTop = target;
   let tries = 0;
+  let stableFrames = 0;
+  let primedFocus = false;
   let readySent = false;
   let userTookOver = false;
+  // 先等滚动初步稳定,再在正文隐藏状态下聚焦并等 PM selection flush 二次稳定;
+  // 避免 loading 先消失、随后补写 scrollTop 造成用户看到滚动条再“滚动一下”。
+  const MIN_SETTLE_FRAMES = 6;
+  const REQUIRED_STABLE_FRAMES = 3;
   const notifyReady = () => {
     if (readySent) return;
     readySent = true;
@@ -213,16 +235,37 @@ function restoreCursor(
       notifyReady();
       return;
     }
+    const before = scrollEl.scrollTop;
+    const layoutMax = scrollEl.scrollHeight - scrollEl.clientHeight;
+    // jsdom 无布局时保留目标值;真实浏览器里目标超过可滚动范围则接受 clamp 后的最大值。
+    const expected =
+      layoutMax > 0 ? Math.min(target, layoutMax) : target;
+    const heldAtFrameStart = Math.abs(before - expected) <= 1;
     scrollEl.scrollTop = target;
+    const after = scrollEl.scrollTop;
     tries += 1;
-    // 先揭开正文(约 2 帧),后续 NodeView 撑高仍静默补滚动
-    if (tries >= 2) notifyReady();
-    if (tries < 90) {
+    stableFrames =
+      heldAtFrameStart && Math.abs(after - expected) <= 1
+        ? stableFrames + 1
+        : 0;
+
+    const settled =
+      tries >= MIN_SETTLE_FRAMES && stableFrames >= REQUIRED_STABLE_FRAMES;
+    if (settled && !primedFocus) {
+      // 先在正文仍隐藏时聚焦,让 PM/浏览器处理 selection flush;
+      // 若它挪动滚动条,继续钉回目标位。等二次稳定后才揭开正文。
+      primedFocus = true;
+      stableFrames = 0;
+      onPrimeFocus?.();
       window.requestAnimationFrame(applyScroll);
-    } else {
+      return;
+    }
+    if ((settled && primedFocus) || tries >= 90) {
       detachUserGuards();
       notifyReady();
+      return;
     }
+    window.requestAnimationFrame(applyScroll);
   };
   window.requestAnimationFrame(applyScroll);
 }
@@ -473,6 +516,8 @@ export function YanzhiEditor({
 
   const [findBar, setFindBar] = useState(false);
   const [replaceRow, setReplaceRow] = useState(false);
+  /** 换文期短暂 loading:大文档解析和 NodeView 挂载可能明显占用主线程。 */
+  const [contentLoading, setContentLoading] = useState(false);
 
   // ⌘F 查找 / ⌥⌘F 查找并替换;preventDefault 拦下 webview 原生查找。
   // 用 e.code 判断:macOS Option+F 的 e.key 是特殊字符(ƒ),code 不受影响
@@ -507,6 +552,7 @@ export function YanzhiEditor({
     () => () => {
       window.clearTimeout(sourceTimerRef.current);
       cancelPendingScrollRestore();
+      setContentLoading(false);
     },
     [],
   );
@@ -760,7 +806,10 @@ export function YanzhiEditor({
   const lastLoadedPathRef = useRef<string | null | undefined>(contentPath);
   const lastLoadedEpochRef = useRef(contentEpoch);
   useEffect(() => {
-    if (!editor) return;
+    if (!editor) {
+      setContentLoading(false);
+      return;
+    }
     // 空文档互切时 markdown 字面量相同,用装载代次区分真正换文;
     // 同文档改名只改 path、不改代次,不能把编辑器里的未回调去抖稿重载掉。
     if (markdown === lastLoadedRef.current && contentEpoch === lastLoadedEpochRef.current) return;
@@ -771,16 +820,17 @@ export function YanzhiEditor({
     lastLoadedPathRef.current = path;
     lastLoadedEpochRef.current = contentEpoch;
     // 按即将呈现的 path 取恢复点(不要用「调用瞬间的 currentPath」闭包)
-    const restore = path ? (restoreCursorRef.current?.(path) ?? null) : null;
+    const rawRestore = path ? (restoreCursorRef.current?.(path) ?? null) : null;
+    // 空文档不可能有可恢复的滚动空间;忽略过期 meta,避免为了一个空正文等待滚动稳定。
+    const restore = isEmptyMarkdown(markdown) ? null : rawRestore;
     const seq = ++contentLoadSeqRef.current;
     sourceDraftRef.current = markdown;
     setSourceDraft(markdown);
     const surface = contentSurfaceRef.current;
     if (surface) surface.style.visibility = "hidden";
-    const revealAndFocus = () => {
-      if (seq !== contentLoadSeqRef.current) return;
-      if (surface?.isConnected) surface.style.visibility = "";
-      if (editor.isDestroyed) return;
+    setContentLoading(shouldShowContentLoading(markdown));
+    const primeFocus = () => {
+      if (seq !== contentLoadSeqRef.current || editor.isDestroyed) return;
       if (sourceModeRef.current) {
         sourceCursorApiRef.current?.focus();
         return;
@@ -791,31 +841,47 @@ export function YanzhiEditor({
         editor.view.focus();
       }
     };
-    queueMicrotask(() => {
-      if (editor.isDestroyed || seq !== contentLoadSeqRef.current) return;
-      setFindBar(false);
-      closeFind(editor);
-      const html = mdToHtml(markdown);
-      // emitUpdate:false:换文本身不进 onUpdate;选区在下一行手动恢复
-      editor.commands.setContent(html, { emitUpdate: false });
-      // 单一 PM 实例跨 tab 复用;setContent 不重置 plugin state,必须切断
-      // 上一篇文档的 undo 栈,否则新文档 Cmd/Ctrl+Z 会回到其他文件内容。
-      clearEditorHistory(editor);
-      const scrollEl = scrollElRef.current;
-      if (restore) {
-        restoreCursor(
-          editor,
-          restore,
-          scrollEl,
-          () => seq === contentLoadSeqRef.current,
-          revealAndFocus,
-        );
-      } else {
-        if (scrollEl) scrollEl.scrollTop = 0;
-        revealAndFocus();
-      }
+    const revealContent = () => {
+      if (seq !== contentLoadSeqRef.current) return;
+      if (surface?.isConnected) surface.style.visibility = "";
+      setContentLoading(false);
       if (path) onContentReadyRef.current?.(path);
+    };
+    // 先让 loading 状态绘制一帧,再进入可能长时间占用主线程的解析/挂载。
+    // 两帧比 microtask 稳:第一帧提交 loading,第二帧开始重载正文。
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        if (editor.isDestroyed || seq !== contentLoadSeqRef.current) return;
+        setFindBar(false);
+        closeFind(editor);
+        const html = mdToHtml(markdown);
+        // emitUpdate:false:换文本身不进 onUpdate;选区在下一行手动恢复
+        editor.commands.setContent(html, { emitUpdate: false });
+        // 单一 PM 实例跨 tab 复用;setContent 不重置 plugin state,必须切断
+        // 上一篇文档的 undo 栈,否则新文档 Cmd/Ctrl+Z 会回到其他文件内容。
+        clearEditorHistory(editor);
+        const scrollEl = scrollElRef.current;
+        if (restore) {
+          restoreCursor(
+            editor,
+            restore,
+            scrollEl,
+            () => seq === contentLoadSeqRef.current,
+            primeFocus,
+            revealContent,
+          );
+        } else {
+          if (scrollEl) scrollEl.scrollTop = 0;
+          primeFocus();
+          revealContent();
+        }
+      });
     });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+    };
   }, [editor, markdown, contentPath, contentEpoch]);
 
   // 首篇挂载:useEditor 已带上 content,不会走上面的换文微任务。
@@ -825,19 +891,25 @@ export function YanzhiEditor({
     if (!editor || !contentPath || didInitialReadyRef.current) return;
     didInitialReadyRef.current = true;
     const seq = ++contentLoadSeqRef.current;
-    const restore = restoreCursorRef.current?.(contentPath) ?? null;
+    const rawRestore = restoreCursorRef.current?.(contentPath) ?? null;
+    // 首次挂载同样不给空文档制造 loading/滚动等待。
+    const restore = isEmptyMarkdown(markdown) ? null : rawRestore;
     const surface = contentSurfaceRef.current;
     if (surface) surface.style.visibility = "hidden";
-    const revealAndFocus = () => {
-      if (seq !== contentLoadSeqRef.current) return;
-      if (surface?.isConnected) surface.style.visibility = "";
-      onContentReadyRef.current?.(contentPath);
-      if (editor.isDestroyed) return;
+    setContentLoading(shouldShowContentLoading(markdown));
+    const primeFocus = () => {
+      if (seq !== contentLoadSeqRef.current || editor.isDestroyed) return;
       try {
         editor.view.dom.focus({ preventScroll: true });
       } catch {
         editor.view.focus();
       }
+    };
+    const revealContent = () => {
+      if (seq !== contentLoadSeqRef.current) return;
+      if (surface?.isConnected) surface.style.visibility = "";
+      setContentLoading(false);
+      onContentReadyRef.current?.(contentPath);
     };
     if (restore) {
       restoreCursor(
@@ -845,11 +917,13 @@ export function YanzhiEditor({
         restore,
         scrollElRef.current,
         () => seq === contentLoadSeqRef.current,
-        revealAndFocus,
+        primeFocus,
+        revealContent,
       );
     } else {
       if (scrollElRef.current) scrollElRef.current.scrollTop = 0;
-      revealAndFocus();
+      primeFocus();
+      revealContent();
     }
   }, [editor, contentPath]);
 
@@ -866,6 +940,15 @@ export function YanzhiEditor({
           onToggleReplace={() => setReplaceRow((v) => !v)}
           onClose={() => setFindBar(false)}
         />
+      )}
+      {contentLoading && (
+        <div
+          role="status"
+          aria-label="正在打开文档"
+          className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center"
+        >
+          <Loader2 className="text-muted-foreground/75 size-6 animate-spin" aria-hidden />
+        </div>
       )}
       <div
         ref={bindScrollRef}

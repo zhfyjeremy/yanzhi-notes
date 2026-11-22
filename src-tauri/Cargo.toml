@@ -31,6 +31,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 tokio = { version = "1", features = ["sync", "macros", "rt", "fs"] }
 keyring = "3"
 url = "2"
+dunce = "1"
 lopdf = "0.47.0"
 pdf-extract = "0.12.1"
 

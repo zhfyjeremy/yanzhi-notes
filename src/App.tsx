@@ -47,7 +47,7 @@ import { withMdTitle } from "./export/doc-title";
 import { copyPlainText } from "./editor/clipboard";
 import { prepareSingleMarkdownForKb } from "./kb/assets";
 import { flattenDocs, resolveWikiTarget, wikiLinkTextFor, wikiTargetFor } from "./kb/wiki-refs";
-import type { HistoryEntry } from "./kb/types";
+import type { HistoryEntry, PandocStatus } from "./kb/types";
 import { shortcutMatches } from "./shortcuts";
 import { focusGlobalSearch } from "./kb/search-focus";
 import type { BatchRenameItem, BatchResult } from "./kb/batch";
@@ -150,6 +150,128 @@ function DocxRemoteConfirmDialog({
           </Button>
           <Button size="sm" onClick={() => onChoose(true)}>
             下载并嵌入
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function pandocInstallCommand(): string {
+  const isWindows = navigator.userAgent.includes("Windows");
+  return isWindows
+    ? "winget install --id JohnMacFarlane.Pandoc"
+    : "brew install pandoc";
+}
+
+function PandocSetupDialog({
+  status,
+  onClose,
+  onOpenSettings,
+}: {
+  status: PandocStatus;
+  onClose: () => void;
+  onOpenSettings: () => void;
+}) {
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>导出 Word 前需要安装 Pandoc</DialogTitle>
+          <DialogDescription>
+            砚知保持本地离线，不内置、也不自动下载 Pandoc。安装 Pandoc 3
+            或更新版本后，即可完成 DOCX 语义导出。
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <section className="border-border-subtle bg-raised rounded-lg border p-3">
+            <p className="text-xs font-medium">推荐安装方式</p>
+            <code className="border-border-subtle bg-background mt-2 block overflow-x-auto rounded-md border px-2 py-1.5 font-mono text-xs whitespace-nowrap">
+              {pandocInstallCommand()}
+            </code>
+            <p className="text-muted-foreground mt-2 text-xs leading-5">
+              安装完成后重启砚知，或在设置里点击「重新检测」。如果安装成功仍检测不到，
+              通常是 PATH 尚未生效；可在设置中手动选择 pandoc / pandoc.exe。
+            </p>
+          </section>
+          <section className="text-muted-foreground text-xs leading-5">
+            <p>也可以下载官方安装包：</p>
+            <a
+              className="text-primary underline underline-offset-2"
+              href="https://pandoc.org/installing.html"
+              target="_blank"
+              rel="noreferrer"
+            >
+              https://pandoc.org/installing.html
+            </a>
+          </section>
+          {status.error && (
+            <section className="border-border-subtle rounded-lg border p-3">
+              <p className="text-xs font-medium">本次检测结果</p>
+              <p className="text-muted-foreground mt-1 font-mono text-xs break-all">
+                {status.version ? `${status.version} · ` : ""}
+                {status.error}
+              </p>
+            </section>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            稍后再说
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            asChild
+          >
+            <a href="https://pandoc.org/installing.html" target="_blank" rel="noreferrer">
+              打开官方安装页
+            </a>
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              onClose();
+              onOpenSettings();
+            }}
+          >
+            去设置检测
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DocxExportErrorDialog({
+  message,
+  onClose,
+}: {
+  message: string;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>DOCX 导出失败</DialogTitle>
+          <DialogDescription>
+            以下是 Pandoc 返回的完整诊断。若提示文件路径或权限问题，可先改选本机磁盘目录再导出。
+          </DialogDescription>
+        </DialogHeader>
+        <pre className="border-border-subtle bg-raised max-h-56 overflow-auto rounded-lg border p-3 font-mono text-xs whitespace-pre-wrap">
+          {message}
+        </pre>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void navigator.clipboard?.writeText(message)}
+          >
+            复制诊断
+          </Button>
+          <Button size="sm" onClick={onClose}>
+            知道了
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -729,6 +851,8 @@ function App() {
   const [docxLoadingVisible, setDocxLoadingVisible] = useState(false);
   const [pendingDocxExport, setPendingDocxExport] = useState<PendingDocxExport | null>(null);
   const [docxReport, setDocxReport] = useState<DocxReport | null>(null);
+  const [pandocSetup, setPandocSetup] = useState<PandocStatus | null>(null);
+  const [docxExportError, setDocxExportError] = useState<string | null>(null);
 
   const runDocxExport = useCallback(
     async (
@@ -808,14 +932,14 @@ function App() {
       } catch (e) {
         console.error("[export-docx]", e);
         await waitMinimumLoading();
-        showToast(`DOCX 导出失败:${e instanceof Error ? e.message : String(e)}`);
+        setDocxExportError(e instanceof Error ? e.message : String(e));
       } finally {
         setDocxLoadingVisible(false);
         setDocxExportBusy(false);
         setPendingDocxExport(null);
       }
     },
-    [showToast],
+    [],
   );
 
   const beginDocxExport = useCallback(
@@ -839,8 +963,7 @@ function App() {
     try {
       const pandoc = await kbBackend.detectPandoc(settings.pandocPath);
       if (!pandoc.installed) {
-        showToast(pandoc.error ?? "未检测到 Pandoc 3+");
-        openSettings("export");
+        setPandocSetup(pandoc);
         return;
       }
     } catch (e) {
@@ -2700,6 +2823,19 @@ function App() {
           report={docxReport}
           onClose={() => setDocxReport(null)}
           onReveal={revealExportedFile}
+        />
+      )}
+      {pandocSetup && (
+        <PandocSetupDialog
+          status={pandocSetup}
+          onClose={() => setPandocSetup(null)}
+          onOpenSettings={() => openSettings("export")}
+        />
+      )}
+      {docxExportError && (
+        <DocxExportErrorDialog
+          message={docxExportError}
+          onClose={() => setDocxExportError(null)}
         />
       )}
       <IconPickerDialog

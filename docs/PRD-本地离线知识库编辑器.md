@@ -303,7 +303,7 @@
 - 导出：纯 Markdown、离线 HTML（样式打包，打开即可阅读）、Word DOCX（可选外部 Pandoc，语义导出）
 - DOCX 导出口径（2026-11-09）：
   1. 转换链路固定为 **PM doc → Pandoc JSON AST → DOCX**；不得把 Markdown 交给 Pandoc 二次解析，也不得改变既有 Markdown 序列化路径
-  2. Pandoc 由用户自行安装并可在设置中配置路径，砚知不内置、不自动下载、不执行用户文档提供的 filter / template / 命令行参数
+  2. Pandoc 由用户自行安装并可在设置中配置路径，砚知不内置、不自动下载、不执行用户文档提供的 filter / template / 命令行参数；未检测到 Pandoc 3+ 时先展示安装引导（平台安装命令、官方安装页、PATH/手动选择说明），确认后再进入设置检测
   3. 目标为**编辑器语义保真**，不是 Word 版式像素级还原：公式转 Word OMML，表格保留对齐/列宽，图片嵌入，Callout / Details 导出为命名样式并明示降级；Mermaid 优先渲染后嵌入，失败保留源码；Raw HTML 保留源码；任务状态显式保留
   4. 编辑器显示外链图片时按原 URL 由 WebView 常规加载;导出时按用户设置受控请求并嵌入：默认每次询问，可选总是嵌入 / 不嵌入；请求仅限文档中的图片 URL，带超时、大小、Content-Type、重定向与内网地址防护，失败降级为普通链接；不发送遥测、不带 Cookie
   5. 内置砚知 Word reference doc 与代码高亮主题，并允许用户选择本地自定义 reference doc；设置「Word 代码块配色」提供三态（默认无主题）：跟随当前主题时，高亮配色（Pandoc syntax-highlighting 主题文件）与代码块底色、行内代码色（按主题内置的 reference doc 变体）跟随所选代码块主题；砚知默认使用内置砚知配色；无主题使用 Pandoc 无高亮模式(3.10+ 为 `--syntax-highlighting=none`,旧 3.x 回 `--no-highlight`)与无底色 reference doc，不输出 token 颜色；导出完成后展示资源嵌入与降级摘要
