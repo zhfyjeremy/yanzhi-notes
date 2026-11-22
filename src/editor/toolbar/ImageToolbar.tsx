@@ -73,9 +73,9 @@ export function ImageToolbar({ editor, onPreview, onReplaceImage }: ImageToolbar
     }
     const r = imgEl.getBoundingClientRect();
     const h = host.getBoundingClientRect();
-    // 锚在图片下方左侧
+    // 锚在图片上方左侧:不遮图片内容,也不占正文文档流高度。
     setPos({
-      top: Math.min(h.height - TOOLBAR_HEIGHT, r.bottom - h.top + 8),
+      top: Math.max(0, r.top - h.top - TOOLBAR_HEIGHT - 8),
       left: Math.max(0, r.left - h.left),
     });
   }, [editor, state.active, state.pos, state.width, state.align, layoutTick]);

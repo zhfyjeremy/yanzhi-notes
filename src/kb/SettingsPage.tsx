@@ -1287,7 +1287,7 @@ export function SettingsPage({
             <>
               <SettingsSection
                 title="HTML / PDF 排版"
-                hint="只影响导出页顶部补充的文档标题横幅;正文自带同名 H1 时不重复加"
+                hint="控制文档标题横幅与导出后的阅读大纲;正文自带同名 H1 时不重复加"
               >
                 <Group>
                   <SwitchRow
@@ -1295,6 +1295,12 @@ export function SettingsPage({
                     hint="关闭后 HTML / PDF 不在顶部补文档名"
                     checked={settings.exportDocTitle}
                     onCheckedChange={(v) => onChange({ exportDocTitle: v })}
+                  />
+                  <SwitchRow
+                    label="保留左侧大纲"
+                    hint="HTML 显示左侧阅读大纲;PDF 保留阅读器大纲书签"
+                    checked={settings.exportOutline}
+                    onCheckedChange={(v) => onChange({ exportOutline: v })}
                   />
                   <Row label="标题对齐">
                     <select

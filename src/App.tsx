@@ -84,6 +84,7 @@ interface PdfExportSource {
   codeTheme: CodeThemeId;
   titleAlign: "left" | "center";
   includeDocTitle: boolean;
+  includeOutline: boolean;
 }
 
 interface PendingDocxExport {
@@ -764,12 +765,13 @@ function App() {
       codeTheme: settings.codeTheme,
       titleAlign: settings.exportTitleAlign,
       includeDocTitle: settings.exportDocTitle,
+      includeOutline: settings.exportOutline,
     }).then((html) =>
       kb.exportText(`${title || "未命名文档"}.html`, "html", html).then((p) => {
         if (p) setExportSuccess({ title: "HTML 导出完成", path: p });
       }),
     );
-  }, [kb, title, settings.codeTheme, settings.exportTitleAlign, settings.exportDocTitle]);
+  }, [kb, title, settings.codeTheme, settings.exportTitleAlign, settings.exportDocTitle, settings.exportOutline]);
 
   const [pdfExportBusy, setPdfExportBusy] = useState(false);
   const [exportSuccess, setExportSuccess] = useState<{ title: string; path: string } | null>(null);
@@ -782,7 +784,10 @@ function App() {
       if (!outputPath) return;
       setPdfExportBusy(true);
       try {
-        const html = await buildExportHtml({ ...source, pdfBookmarks: true });
+        const html = await buildExportHtml({
+        ...source,
+        pdfBookmarks: source.includeOutline !== false,
+      });
         const result = await kbBackend.exportPdf({ outputPath, html });
         setExportSuccess({ title: "PDF 导出完成", path: result.path });
       } catch (e) {
@@ -803,8 +808,9 @@ function App() {
       codeTheme: settings.codeTheme,
       titleAlign: settings.exportTitleAlign,
       includeDocTitle: settings.exportDocTitle,
+      includeOutline: settings.exportOutline,
     });
-  }, [kb, runPdfExport, title, settings.codeTheme, settings.exportTitleAlign, settings.exportDocTitle]);
+  }, [kb, runPdfExport, title, settings.codeTheme, settings.exportTitleAlign, settings.exportDocTitle, settings.exportOutline]);
   const exportSingleMd = useCallback(() => {
     const docTitle = single.fileStem || "未命名文档";
     void kbBackend
@@ -828,12 +834,13 @@ function App() {
       codeTheme: settings.codeTheme,
       titleAlign: settings.exportTitleAlign,
       includeDocTitle: settings.exportDocTitle,
+      includeOutline: settings.exportOutline,
     }).then((html) =>
       kbBackend.exportText(`${single.fileStem || "未命名文档"}.html`, "html", html).then((p) => {
         if (p) setExportSuccess({ title: "HTML 导出完成", path: p });
       }),
     );
-  }, [single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64, settings.codeTheme, settings.exportTitleAlign, settings.exportDocTitle]);
+  }, [single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64, settings.codeTheme, settings.exportTitleAlign, settings.exportDocTitle, settings.exportOutline]);
 
   const exportSinglePdf = useCallback(() => {
     void runPdfExport({
@@ -844,8 +851,9 @@ function App() {
       codeTheme: settings.codeTheme,
       titleAlign: settings.exportTitleAlign,
       includeDocTitle: settings.exportDocTitle,
+      includeOutline: settings.exportOutline,
     });
-  }, [runPdfExport, single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64, settings.codeTheme, settings.exportTitleAlign, settings.exportDocTitle]);
+  }, [runPdfExport, single.fileStem, single.fileName, single.getMarkdownNow, single.readAssetBase64, settings.codeTheme, settings.exportTitleAlign, settings.exportDocTitle, settings.exportOutline]);
   /* ---- DOCX 语义导出(5.6):PM doc → Pandoc AST,不让 Pandoc 重解析 Markdown ---- */
   const [docxExportBusy, setDocxExportBusy] = useState(false);
   const [docxLoadingVisible, setDocxLoadingVisible] = useState(false);

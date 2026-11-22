@@ -28,6 +28,8 @@ export interface ExportHtmlOptions {
   titleAlign?: "left" | "center";
   /** 是否在顶部补文档名标题;默认 true。正文已有同名 H1 时本就不重复加 */
   includeDocTitle?: boolean;
+  /** 是否保留 HTML 左侧大纲;PDF 导出同开关控制阅读器大纲书签。默认 true */
+  includeOutline?: boolean;
   /** 导出 PDF 时注入大纲书签标记(HTML 导出不注入,保持成品干净) */
   pdfBookmarks?: boolean;
 }
@@ -809,11 +811,13 @@ export async function buildExportHtml(opts: ExportHtmlOptions): Promise<string> 
   await embedLocalImages(doc.body, opts);
   // 大纲要在取 innerHTML 之前算:锚点 id 是写进标题元素上的。
   // 标题横幅在大纲之后加 —— 标题是文档名,不算章节,不该出现在大纲里。
-  const toc = buildToc(doc.body);
+  // 关闭导出大纲时同时跳过 PDF 书签:两者都是“导出后的阅读导航”。
+  const includeOutline = opts.includeOutline !== false;
+  const toc = includeOutline ? buildToc(doc.body) : { count: 0, html: "" };
   if (opts.includeDocTitle !== false) {
     buildDocTitle(doc.body, opts.title);
   }
-  if (opts.pdfBookmarks) injectPdfBookmarkMarkers(doc.body);
+  if (opts.pdfBookmarks && includeOutline) injectPdfBookmarkMarkers(doc.body);
   const codeTheme = codeThemeOf(opts.codeTheme ?? "yanzhi");
   const content = inlineStyles(doc.body.innerHTML, { codeBackground: codeTheme.background });
   const titleAlignCss = opts.titleAlign === "center" ? "\n.yz-doc-title { text-align: center; }" : "";

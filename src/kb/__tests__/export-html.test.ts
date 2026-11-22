@@ -163,6 +163,23 @@ describe("HTML export", () => {
     expect(html).not.toContain("<script>");
   });
 
+  it("can omit the export outline and PDF bookmarks", async () => {
+    const html = await buildExportHtml({
+      md: "# 章节甲\n\n正文\n\n## 小节乙\n\n内容",
+      title: "NoOutline",
+      docRel: "notes/no-outline.md",
+      readAssetBase64: async () => null,
+      includeOutline: false,
+      pdfBookmarks: true,
+    });
+
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    expect(doc.querySelector("nav.yz-toc")).toBeNull();
+    expect(doc.querySelector(".yz-layout.yz-layout-solo article.yz-content")).not.toBeNull();
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("YZ-PDF-BM");
+  });
+
   it("hides the outline in the print stylesheet", async () => {
     const html = await buildExportHtml({
       md: "# 标题\n\n正文",

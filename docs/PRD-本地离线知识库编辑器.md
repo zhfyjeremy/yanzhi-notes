@@ -300,7 +300,7 @@
 ### 5.6 导入导出
 
 - 导入：外部 Markdown 导入，按 9.3 迁移图片到对应 assets
-- 导出：纯 Markdown、离线 HTML（样式打包，打开即可阅读）、Word DOCX（可选外部 Pandoc，语义导出）
+- 导出：纯 Markdown、离线 HTML（样式打包，打开即可阅读）、Word DOCX（可选外部 Pandoc，语义导出）；设置「保留左侧大纲」默认开启，控制 HTML 左侧阅读大纲与 PDF 阅读器大纲书签，可关闭
 - DOCX 导出口径（2026-11-09）：
   1. 转换链路固定为 **PM doc → Pandoc JSON AST → DOCX**；不得把 Markdown 交给 Pandoc 二次解析，也不得改变既有 Markdown 序列化路径
   2. Pandoc 由用户自行安装并可在设置中配置路径，砚知不内置、不自动下载、不执行用户文档提供的 filter / template / 命令行参数；未检测到 Pandoc 3+ 时先展示安装引导（平台安装命令、官方安装页、PATH/手动选择说明），确认后再进入设置检测
@@ -476,7 +476,7 @@
 ☑ 表格单元格悬停显示复制（默认关闭；设置页与表格浮条复制图标同源；开启后悬停 td/th 右上角出现复制按钮，复制该格纯文本，不写入 Markdown）
 ☑ 打字机滚动（默认关闭；专注模式子项，仅专注态生效）
 代码块主题：跟随砚知（默认）/ GitHub Light / GitHub Dark / One Dark Pro / Monokai / Dracula / Night Owl ← 全部离线内置,只影响 fenced 代码块/Raw HTML 源码态与 HTML/PDF/Word 导出观感(2026-11-22:Word DOCX 高亮/代码底色/行内代码色跟随所选主题,按主题内置 syntax-highlighting 与 reference doc 变体;可关回砚知默认);行内 code、`` 标记与 Mermaid 图表预览跟随应用主题,不写入 Markdown
-导出附带标题：☑ HTML / PDF 顶部补文档名标题（默认开启；正文已有同名 H1 时不重复加，可关）＋ Word 代码块配色三态（默认跟随当前主题；可选砚知默认 / 无主题）← 2026-11-22 新增
+导出附带标题：☑ HTML / PDF 顶部补文档名标题（默认开启；正文已有同名 H1 时不重复加，可关）＋ ☑ 保留左侧大纲（HTML 左侧阅读大纲 / PDF 阅读器大纲书签，默认开启，可关）＋ Word 代码块配色三态（默认跟随当前主题；可选砚知默认 / 无主题）← 2026-11-22 新增
 
 【外观设置】
 界面风格：平铺（默认，贴边线框）/ 卡片（浮起圆角面板）← 只改壳层布局，不写入 Markdown

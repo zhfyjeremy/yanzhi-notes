@@ -175,6 +175,12 @@ describe("settings 解析(PRD §8)", () => {
     expect(parseSettings('{"codeTheme":"one-dark-pro"}').codeTheme).toBe("one-dark-pro");
     expect(parseSettings('{"codeTheme":"from-cdn"}').codeTheme).toBe("yanzhi");
   });
+  it("导出大纲:布尔直读,缺失/异型回默认开启", () => {
+    expect(parseSettings('{"exportOutline":false}').exportOutline).toBe(false);
+    expect(parseSettings('{}').exportOutline).toBe(true);
+    expect(parseSettings('{"exportOutline":"off"}').exportOutline).toBe(true);
+  });
+
   it("Word 代码块配色:三态直读并兼容旧开关", () => {
     expect(parseSettings('{"docxCodeThemeMode":"none"}').docxCodeThemeMode).toBe("none");
     expect(parseSettings('{"docxCodeThemeMode":"yanzhi"}').docxCodeThemeMode).toBe("yanzhi");

@@ -389,6 +389,8 @@ export interface AppSettings {
   exportTitleAlign: "left" | "center";
   /** 导出 HTML/PDF 是否在顶部补文档名标题(正文已有同名 H1 时不重复加) */
   exportDocTitle: boolean;
+  /** 导出 HTML 是否保留左侧大纲;PDF 同开关控制阅读器大纲书签 */
+  exportOutline: boolean;
   /** Word 代码块导出配色:无主题 / 跟随当前主题 / 砚知默认 */
   docxCodeThemeMode: DocxCodeThemeMode;
   /** §8 编辑器:表格单元格悬停显示复制按钮,默认关(账号/口令类表才需要) */
@@ -461,6 +463,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   codeTheme: "yanzhi",
   exportTitleAlign: "left",
   exportDocTitle: true,
+  exportOutline: true,
   docxCodeThemeMode: "none",
   tableCellCopy: false,
   typewriterMode: false,
@@ -560,6 +563,7 @@ export function parseSettings(raw: string): AppSettings {
         : "yanzhi",
       exportTitleAlign: v?.exportTitleAlign === "center" ? "center" : "left",
       exportDocTitle: typeof v?.exportDocTitle === "boolean" ? v.exportDocTitle : true,
+      exportOutline: typeof v?.exportOutline === "boolean" ? v.exportOutline : true,
       docxCodeThemeMode: DOCX_CODE_THEME_MODES.includes(v?.docxCodeThemeMode as DocxCodeThemeMode)
         ? (v.docxCodeThemeMode as DocxCodeThemeMode)
         : v?.docxCodeFollowTheme === true
