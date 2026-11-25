@@ -103,6 +103,50 @@ const DeleteEmptyFirstBlock = Extension.create({
   },
 });
 
+/**
+ * 删除处于列表中间的空列表项。
+ *
+ * ProseMirror 默认行为是把空列表项 lift 成段落:列表被切成两截,
+ * 有序列表下半截的编号会重置为 1(删掉空行「17.」后,后面几条从
+ * 1. 重新编号)。列表首/尾的空项保留默认 lift 行为(退出列表的常
+ * 规操作);仅中间空项改为整项删除,前后仍是同一个列表,序号自动
+ * 续排。无序列表同理,避免中间被插进一个空段落。
+ */
+const DeleteEmptyMiddleListItem = Extension.create({
+  name: "yzDeleteEmptyMiddleListItem",
+  // 抢在 StarterKit/ListItem 的默认 Backspace(拆分列表)之前处理
+  priority: 1000,
+
+  addKeyboardShortcuts() {
+    return {
+      Backspace: () => {
+        const { state, view } = this.editor;
+        const { selection } = state;
+        if (!selection.empty) return false;
+        const { $from } = selection;
+        if (!$from.parent.isTextblock || $from.parent.content.size > 0) return false;
+        if ($from.depth < 3) return false;
+        const listItem = $from.node($from.depth - 1);
+        if (listItem.type.name !== "listItem") return false;
+        const list = $from.node($from.depth - 2);
+        if (list.type.name !== "bulletList" && list.type.name !== "orderedList") {
+          return false;
+        }
+        const index = $from.index($from.depth - 2);
+        if (index === 0 || index === list.childCount - 1) return false;
+
+        const from = $from.before($from.depth - 1);
+        const to = $from.after($from.depth - 1);
+        const tr = state.tr.delete(from, to);
+        // 光标落到上一条列表项末尾(而非下一条开头)
+        const nextSelection = TextSelection.near(tr.doc.resolve(from - 1), -1);
+        view.dispatch(tr.setSelection(nextSelection).scrollIntoView());
+        return true;
+      },
+    };
+  },
+});
+
 const TableHeaderAligned = TableHeader.extend({
   addAttributes() {
     return { ...withoutBuiltinAlign(this.parent?.()), ...textAlignAttr };
@@ -126,6 +170,7 @@ export const baseExtensions = [
   ItalicAsteriskOnly,
   HeadingShortcuts,
   DeleteEmptyFirstBlock,
+  DeleteEmptyMiddleListItem,
   TableImeCaret,
   Link.extend({
     addAttributes() {

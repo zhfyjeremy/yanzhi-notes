@@ -501,6 +501,49 @@ pub async fn save_single_file_as(
     Ok(Some(abs.to_string_lossy().to_string()))
 }
 
+/// 拖入 md 兜底:WKWebView/WebView2 沙盒不给拖入文件的绝对路径,
+/// 前端读出文本内容交到这里,落成应用缓存目录的独立 md(文件名前缀毫秒时间戳),
+/// 返回路径后仍走单文件打开链路(open-path)。缓存目录由系统清理策略接管。
+#[tauri::command]
+pub fn import_dropped_markdown(
+    app: tauri::AppHandle,
+    name: String,
+    content: String,
+) -> Result<String, String> {
+    let base = Path::new(&name)
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .filter(|s| !s.trim().is_empty())
+        .ok_or("文件名无效")?;
+    // 去路径分隔符之外的非法字符(Windows 保留字符/控制字符),首尾空白收掉
+    let mut file_name: String = base
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    file_name = file_name.trim().trim_end_matches('.').to_string();
+    if !is_markdown_path(Path::new(&file_name)) {
+        file_name.push_str(".md");
+    }
+    let dir = app.path().app_cache_dir().map_err(err)?;
+    let dir = dir.join("dropped-md");
+    fs::create_dir_all(&dir).map_err(err)?;
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(err)?
+        .as_millis();
+    let abs = dir.join(format!("{ts}-{file_name}"));
+    let tmp = dir.join(format!("{ts}-{file_name}.tmp"));
+    fs::write(&tmp, content).map_err(err)?;
+    fs::rename(&tmp, &abs).map_err(err)?;
+    Ok(abs.to_string_lossy().to_string())
+}
+
 /// 监听文件所在目录(非递归):原子替换/删除/移动都能收到事件,只发射目标文件
 #[tauri::command]
 pub fn watch_single_file(app: tauri::AppHandle, path: &str) -> Result<(), String> {

@@ -2333,8 +2333,19 @@ function App() {
       const md = files.find((f) => /\.(md|markdown)$/i.test(f.name));
       if (md) {
         const path = (md as File & { path?: string }).path;
-        if (path) requestSingleAction({ kind: "open-path", path });
-        else showToast("无法获取拖入文件的原始路径,请使用「打开 Markdown 文件」");
+        if (path) {
+          requestSingleAction({ kind: "open-path", path });
+        } else if (isTauriEnv()) {
+          // WKWebView/WebView2 沙盒不给拖入文件的绝对路径:
+          // 读出文本交 Rust 落缓存文件,再按路径走单文件打开。
+          void md
+            .text()
+            .then((text) => kbBackend.importDroppedMarkdown(md.name, text))
+            .then((imported) => requestSingleAction({ kind: "open-path", path: imported }))
+            .catch(() => showToast("无法读取拖入的 Markdown 文件"));
+        } else {
+          showToast("无法获取拖入文件的原始路径,请使用「打开 Markdown 文件」");
+        }
         return;
       }
       const imgs = files.filter(isImageFile);

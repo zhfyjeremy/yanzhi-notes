@@ -432,6 +432,38 @@
 
 **验证**:`pnpm vitest run src/editor/__tests__/restore-cursor.test.tsx src/kb/__tests__/useKb.test.ts` 与 `pnpm vitest run src/__tests__/settings.test.ts` 通过;`pnpm build`、`cargo check --tests` 通过;已用 Pandoc 3.10 实测无主题产物无 token style、SourceCode 无底色。未改 Markdown 解析/序列化。
 
+## 删除列表中间空项不再拆分列表(2026-11-25)✅
+
+**问题**:有序列表中间有一个空列表项(如「17.」)时按 Backspace,PM 默认把空项 lift 成段落,列表被切成两截,下半截从 1. 重新编号(用户实测截图)。
+
+**修复**:新增 `yzDeleteEmptyMiddleListItem` 扩展(priority 1000 抢在默认处理前):光标位于 bulletList/orderedList 的**中间**空列表项(父级空 textblock、listItem 有前后兄弟)时,Backspace 改为整项删除——前后仍是同一个列表,`start` 不动、序号自动续排,光标落到上一条列表项末尾。列表首/尾空项保留默认 lift 行为(退出列表的常规操作);TaskItem 不受影响。文档以列表结尾时 TrailingNode 补的空段落是 StarterKit 全局既有行为,序列化规范化会剥掉,不入 md。
+
+**验证**:新增 `src/editor/__tests__/empty-middle-list-item-backspace.test.ts`(真实 keydown 路径:中间有序/无序空项删除+续排+md 序列化对拍、末尾空项保留默认 lift);`pnpm vitest run src/editor/__tests__` 除既有失败 `title-rename.test.ts`(干净基线同样失败,与本改动无关)外全过;`pnpm build` 过。未改解析/序列化路径,无需全量 fixtures。
+
+## title-rename 测试时序修复(2026-11-25)✅
+
+**现象**:`title-rename.test.ts` 自换文重载改为「rAF 两帧后再 setContent」(2026-11-15 Windows 防闪烁)后一直挂:epoch 变化的重载 effect 是 passive effect,在 `act()` 退出时才 flush,测试在 act 内等两帧时重载 rAF 还没调度,断言时正文尚未重载。
+
+**修复**:测试改为 act 外 `await twoFrames()`(与 `restore-cursor.test.tsx` 同款 rAF 等待);产品逻辑无改动。
+
+**验证**:`pnpm vitest run src/editor/__tests__` 36 文件 / 197 测试全过。
+
+## 单文件模式标题并入正文滚动列(2026-11-25)✅
+
+**需求**:单文件模式布局对齐知识库编辑区(语雀式)——文件名标题与正文放同一滚动列、一起滚动;不需要知识库标题左侧的文档图标。
+
+**改动**(`SingleFileWorkspace.tsx`):①固定 header 两行收成一行(左:单文件下拉 + 文件路径 + 源码切换;右:大纲/保存/更多),标题 h1 移除;②新增 `singleDocHeader`(纯展示 h1,无图标、不可编辑——单文件标题此前也不是输入框,重命名仍走「另存为」),经 `docHeader` 传入 `YanzhiEditor`,渲染在滚动列内正文上方;③专注模式 header 隐藏后标题仍随正文显示(与知识库专注模式一致)。若后续要单文件内联改名,需新增任意路径重命的 Rust 命令(`rename_entry` 依赖 kb root,不可直接复用)。
+
+**验证**:`pnpm build` 过;组件无既有单测覆盖,待真机抽检单文件/专注模式两态。
+
+## 拖入 md 打开兜底(2026-11-25)✅ 代码完成,真机待验
+
+**现象**:Mac 拖 md 进窗口只弹「无法获取拖入文件的原始路径」toast——WKWebView 沙盒不给 `File.path`,原窗口级兜底的路径分支在 macOS 永远落空(Windows WebView2 同样不给)。
+
+**修复**:保持 `dragDropEnabled: false`(编辑器内部拖拽/图片落盘依赖 DOM 拖放事件,不能开原生拦截);拖入 md 且拿不到路径时,前端 `File.text()` 读出内容 → 新增 Rust 命令 `import_dropped_markdown` 落成应用缓存目录 `dropped-md/<毫秒时间戳>-<文件名>` 的独立 md(文件名做非法字符/路径分量清洗,缺 .md 自动补,原子写)→ 返回路径走既有 `open-path` 单文件打开链路。浏览器 mock 后端同名方法走内存 store。**语义注意**:打开的是缓存副本,⌘S 只写副本,要持久化需「另存为」;拖入路径可得的平台仍直开原文件。
+
+**验证**:`cargo check`(Rust 改动)、`pnpm build`、`pnpm vitest run src/kb/__tests__`(21 文件/149 测试)过;真实拖放待真机验证。
+
 ## 提交记录(近期)
 
 - M3 全量(fs 命令层/树/双链/搜索/assets/监听/回收站/排序/导入导出/设置)随 kb 系列提交;设置窗口化+关于页+菜单全量中文化 = a905c86

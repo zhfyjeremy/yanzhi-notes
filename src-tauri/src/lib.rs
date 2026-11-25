@@ -1108,6 +1108,7 @@ pub fn run() {
             kb::read_single_file,
             kb::write_single_file,
             kb::save_single_file_as,
+            kb::import_dropped_markdown,
             kb::watch_single_file,
             kb::close_single_file,
             kb::save_single_to_kb,

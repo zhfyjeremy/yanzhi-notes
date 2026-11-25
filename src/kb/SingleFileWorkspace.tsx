@@ -115,6 +115,12 @@ interface SingleFileWorkspaceProps {
 
 export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
   const { single } = props;
+  // 标题与正文同滚动列(语雀式);单文件无文档图标,重命名仍走「另存为」
+  const singleDocHeader = (
+    <h1 className="min-w-0 truncate text-3xl leading-snug font-semibold tracking-[-0.03em]">
+      {single.fileStem || "未命名文档"}
+    </h1>
+  );
   const saveLabel =
     single.saveState === "saving"
       ? "保存中…"
@@ -144,10 +150,11 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
 
           <section className="shell-panel border-border-subtle bg-editor flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-[0_14px_40px_-22px_color-mix(in_oklab,var(--foreground)_32%,transparent)]">
             {!props.focusMode && (
-              <header className="w-full shrink-0 px-6 pt-6 pb-3">
-                {/* 两行即可:身份条 + 标题/主操作;低频动作收进「更多」 */}
-                <div className={`mx-auto flex w-full ${EDITOR_COLUMN_CLASS} flex-col gap-2.5 px-16`}>
-                  <div className="flex min-w-0 items-center gap-2 text-[11px]">
+              <header className="w-full shrink-0 px-6 pt-4 pb-3">
+                {/* 单行:身份条/源码切换 + 主操作;低频动作收进「更多」。
+                    标题已移入正文同一滚动列(docHeader),与知识库编辑区同布局。 */}
+                <div className={`mx-auto flex w-full ${EDITOR_COLUMN_CLASS} items-center gap-3 px-16`}>
+                  <div className="flex min-w-0 flex-1 items-center gap-2 text-[11px]">
                     {/* 工作区切换唯一入口:含最近库直开(原右上「打开知识库 ▾」并入此处) */}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -212,11 +219,7 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
                     <SourceModeToggle active={props.sourceMode} onToggle={props.onToggleSource} />
                   </div>
 
-                  <div className="flex items-end gap-3">
-                    <h1 className="min-w-0 flex-1 truncate text-3xl leading-snug font-semibold tracking-[-0.03em]">
-                      {single.fileStem || "未命名文档"}
-                    </h1>
-                    <div className="mb-1 flex shrink-0 items-center gap-1">
+                  <div className="flex shrink-0 items-center gap-1">
                       <Hint label={props.outlineOpen ? "隐藏大纲" : "显示大纲"}>
                         <Button
                           variant="ghost"
@@ -267,7 +270,6 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
-                    </div>
                   </div>
                 </div>
               </header>
@@ -278,6 +280,7 @@ export function SingleFileWorkspace(props: SingleFileWorkspaceProps) {
               onMarkdownChange={single.onMarkdownChange}
               onReady={props.onReady}
               scrollContainerRef={props.scrollRef}
+              docHeader={singleDocHeader}
               onImageFiles={props.onImageFiles}
               onPickImage={props.onPickImage}
               onPickAttachment={props.onPickAttachment}

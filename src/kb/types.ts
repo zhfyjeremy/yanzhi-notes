@@ -146,6 +146,8 @@ export interface KbBackend {
   readSingleFile(path: string): Promise<string>;
   writeSingleFile(path: string, content: string): Promise<void>;
   saveSingleFileAs(defaultName: string, content: string): Promise<string | null>;
+  /** 拖入 md 兜底:WebView 拿不到原始路径时,内容落缓存文件返回路径(tauri)/内存文件(mock) */
+  importDroppedMarkdown(name: string, content: string): Promise<string>;
   watchSingleFile(path: string): Promise<void>;
   closeSingleFile(path: string): Promise<void>;
   getRecentFiles(): Promise<RecentFilesState>;

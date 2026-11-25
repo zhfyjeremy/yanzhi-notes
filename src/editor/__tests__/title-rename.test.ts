@@ -5,6 +5,11 @@ import { createRoot, type Root } from "react-dom/client";
 import type { Editor } from "@tiptap/react";
 import { YanzhiEditor } from "../YanzhiEditor";
 
+/** 换文重载走 requestAnimationFrame 两帧后才 setContent,断言前必须等满两帧。 */
+async function twoFrames(): Promise<void> {
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
 /** 标题改名是同文档 path 变化,不能用旧 markdown prop 把未去抖正文重载掉。 */
 describe("编辑器同文档改名", () => {
   let root: Root | null = null;
@@ -49,6 +54,7 @@ describe("编辑器同文档改名", () => {
     });
 
     // 用户立刻在标题按 Enter:App 收去抖稿并改名,contentPath 变但正文代次不变。
+    // passive effect 在 act 退出时才 flush,换文的 rAF 要在 act 外等满两帧。
     await act(async () => {
       root!.render(
         createElement(YanzhiEditor, {
@@ -58,6 +64,7 @@ describe("编辑器同文档改名", () => {
       );
       await Promise.resolve();
     });
+    await twoFrames();
     expect(editor.state.doc.textContent).toContain("刚输入的内容");
 
     // 对照:真正切换到另一篇同字面量文档时,epoch 变化必须重载。
@@ -71,6 +78,7 @@ describe("编辑器同文档改名", () => {
       );
       await Promise.resolve();
     });
+    await twoFrames();
     expect(editor.state.doc.textContent).not.toContain("刚输入的内容");
   });
 });

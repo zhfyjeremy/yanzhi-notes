@@ -159,6 +159,9 @@ const tauriBackend: KbBackend = {
       )) ?? null
     );
   },
+  async importDroppedMarkdown(name, content) {
+    return invoke<string>("import_dropped_markdown", { name, content });
+  },
   async watchSingleFile(path) {
     await invoke("watch_single_file", { path });
   },
@@ -880,6 +883,18 @@ const browserBackend: KbBackend = {
     while (path in all) {
       const dot = defaultName.lastIndexOf(".");
       path = `/mock-single/${dot > 0 ? `${defaultName.slice(0, dot)} (${n++})${defaultName.slice(dot)}` : `${defaultName} (${n++})`}`;
+    }
+    all[path] = content;
+    saveSingleFiles(all);
+    return path;
+  },
+  async importDroppedMarkdown(name, content) {
+    const all = loadSingleFiles();
+    let path = `/mock-single/${name}`;
+    let n = 2;
+    while (path in all) {
+      const dot = name.lastIndexOf(".");
+      path = `/mock-single/${dot > 0 ? `${name.slice(0, dot)} (${n++})${name.slice(dot)}` : `${name} (${n++})`}`;
     }
     all[path] = content;
     saveSingleFiles(all);
