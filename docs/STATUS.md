@@ -421,6 +421,10 @@ Windows WebView2 生成的 PDF 此前所有 outline 目标都指向第一页顶�
 
 HTML/PDF/Word 导出成功提示的“打开所在位置”按平台显示:Windows 仍用“在文件管理器中显示”,macOS 用“在 Finder 中显示”;点击后自动关闭当前提示。DOCX 导出报告里的同入口同步处理。
 
+## 关于页更新(2026-11-26)✅
+
+设置 → 「关于」不再使用占位 Vault 图标,改用生成的应用 logo;新增产品联网边界与核心能力概览。文案修正为“AI 仅 BYOK,未开启/未使用不发起 AI 请求;外链图片按用户内容显式加载”,避免把外链图片加载误写成完全无网络请求。页面宽度对齐模板/外观页;按反馈不展示运行平台、技术栈、软件信息和仓库链接。
+
 ## 应用 Logo 更新(2026-11-26)✅
 
 确认版「MD + 墨盘」logo 已替换为 `src-tauri/icons/icon-source.png`(1024×1024、RGBA、四角透明)。已用 `pnpm tauri icon` 重新生成桌面 PNG、macOS `.icns`、Windows `.ico` 与 Store 图标;欢迎页品牌区继续复用生成的 `icon.png`,因此同步更新。`.md` 文件关联仍使用独立的 `file-icon.ico/icns`,避免把应用 logo 和文件类型图标混用;Tauri 顺带产出的 iOS/Android 图标改动已还原,维持 PRD 的 Windows/macOS 范围。

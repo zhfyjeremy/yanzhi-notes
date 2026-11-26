@@ -16,9 +16,9 @@ import {
   Sparkles,
   Sun,
   Trash2,
-  Vault,
 } from "lucide-react";
 import { Minus, RotateCcw } from "lucide-react";
+import appIcon from "../../src-tauri/icons/icon.png";
 import { kbBackend } from "./backend";
 import { TemplateWorkbench } from "./TemplateManager";
 import { AssetCleanupDialog } from "./AssetCleanupDialog";
@@ -99,7 +99,7 @@ const PAGE_META: Record<SettingsTab, { title: string; description: string }> = {
     description:
       "自备钥匙(BYOK)。默认关闭;开启后在选区浮动条、右键、⌘/Ctrl+Shift+A 与 /ai 中使用。",
   },
-  about: { title: "关于", description: "了解砚知的产品原则与本地优先存储方式。" },
+  about: { title: "关于", description: "查看版本、产品边界与当前能力范围。" },
 };
 /** 外观页左侧竖导航(滚动跟随高亮,点击滚动到对应分区) */
 const APPEARANCE_SECTIONS = [
@@ -727,37 +727,76 @@ function RangeRow({
   );
 }
 
-/** 关于砚知:品牌块 + slogan + 简介与三条产品事实 */
+/** 关于砚知:真实 logo、产品边界与当前能力概览 */
 function AboutPane() {
+  const productRules = [
+    { label: "本地优先", value: "默认离线;文档与资产保存在本机文件夹" },
+    { label: "开放格式", value: "标准 Markdown + assets 相对路径" },
+    { label: "数据自持", value: "无账号、不上云;复制文件夹即完成备份" },
+    {
+      label: "联网边界",
+      value: "AI 仅 BYOK,未开启/未使用不发起 AI 请求;外链图片按用户内容显式加载",
+    },
+  ];
+
+  const capabilities = [
+    { title: "Markdown 编辑", detail: "GFM、代码块、任务列表与高亮语法" },
+    { title: "知识网络", detail: "Wiki 双链、反向链接与全文检索" },
+    { title: "富内容", detail: "表格、公式、Mermaid 与 Raw HTML" },
+    { title: "资源管理", detail: "本地图片、附件与冗余资源清理" },
+    { title: "版本安全", detail: "自动快照、历史对比与回收站" },
+    { title: "多格式导出", detail: "Markdown、离线 HTML、PDF 与 Word" },
+    { title: "效率工具", detail: "模板、标签、批量操作与目录树管理" },
+    { title: "可选 AI", detail: "BYOK 配置与写作辅助,默认关闭" },
+  ];
+
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-4">
-        <div className="bg-primary text-primary-foreground flex size-16 shrink-0 items-center justify-center rounded-2xl shadow-sm">
-          <Vault className="size-8" />
-        </div>
-        <div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-lg font-semibold">砚知</span>
-            <span className="text-muted-foreground text-xs">v{APP_VERSION}</span>
+      <div className="border-border-subtle bg-background flex items-center gap-4 rounded-xl border p-4">
+        <img
+          src={appIcon}
+          alt="砚知图标"
+          className="size-16 shrink-0 drop-shadow-sm"
+          width={64}
+          height={64}
+        />
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="text-lg leading-none font-semibold">砚知</span>
+            <span className="bg-hover text-muted-foreground rounded-full px-2 py-0.5 text-[11px] tabular-nums">
+              v{APP_VERSION}
+            </span>
           </div>
-          <p className="text-muted-foreground text-xs">本地离线知识库编辑器 · Windows / macOS</p>
+          <p className="text-muted-foreground mt-2 text-sm">一方砚,存所知。</p>
         </div>
-      </div>
-
-      <div className="bg-hover rounded-lg p-4">
-        <p className="text-center text-base font-medium tracking-wide">一方砚,存所知</p>
       </div>
 
       <p className="text-muted-foreground text-sm leading-6">
         「砚」为落笔之器,「知」为所积之识。砚知把笔记存进你电脑上的文件夹:文档是标准
-        Markdown,双链串联所思,复制整个文件夹即完成备份。不上云、无账号,数据始终在你手里。
+        Markdown,双链串联所思,复制整个文件夹即完成备份。
       </p>
 
-      <Group>
-        <ValueRow label="本地优先" value="未开启 AI 时无任何网络请求" />
-        <ValueRow label="开放格式" value="标准 Markdown + assets 相对路径" />
-        <ValueRow label="数据自持" value="复制文件夹即备份,随时带走" />
-      </Group>
+      <SettingsSection title="产品边界" hint="本地优先不是封闭:联网能力都由你的配置和内容显式触发">
+        <Group>
+          {productRules.map((rule) => (
+            <ValueRow key={rule.label} label={rule.label} value={rule.value} />
+          ))}
+        </Group>
+      </SettingsSection>
+
+      <SettingsSection title="能力概览" hint="当前版本已包含的核心能力">
+        <div className="grid grid-cols-2 gap-2">
+          {capabilities.map((item) => (
+            <div
+              key={item.title}
+              className="border-border-subtle bg-background rounded-lg border p-3"
+            >
+              <div className="text-foreground text-xs font-medium">{item.title}</div>
+              <p className="text-muted-foreground mt-1 text-[11px] leading-4">{item.detail}</p>
+            </div>
+          ))}
+        </div>
+      </SettingsSection>
 
       <p className="text-muted-foreground/70 text-center text-[11px]">© 2026 砚知</p>
     </div>
@@ -921,7 +960,7 @@ export function SettingsPage({
       </nav>
 
       <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto">
-        <div className={cn("mx-auto space-y-5 p-6", tab === "templates" || tab === "appearance" ? "max-w-2xl" : "max-w-lg")}>
+        <div className={cn("mx-auto space-y-5 p-6", ["templates", "appearance", "about"].includes(tab) ? "max-w-2xl" : "max-w-lg")}>
           <PageHeader title={PAGE_META[tab].title} description={PAGE_META[tab].description} />
 
           {tab === "general" && (

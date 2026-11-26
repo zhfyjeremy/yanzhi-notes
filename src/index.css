@@ -422,7 +422,7 @@ body {
   border-left: none !important;
   border-right: none !important;
   border-bottom: none !important;
-  background: color-mix(in oklab, var(--sidebar) 92%, var(--foreground) 8%);
+  background: var(--workspace);
 }
 
 /* ---- 平铺:红框级 chrome(搜索 / 树选中 / 回收站 / 格式工具栏) ---- */
