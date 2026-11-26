@@ -165,6 +165,13 @@ function pandocInstallCommand(): string {
     : "brew install pandoc";
 }
 
+/** 导出成功提示里的“打开所在位置”按平台使用系统文件管理器名称。 */
+function fileManagerRevealLabel(): string {
+  const platform = `${navigator.platform} ${navigator.userAgent}`;
+  if (/Mac|iPhone|iPad/.test(platform)) return "在 Finder 中显示";
+  return "在文件管理器中显示";
+}
+
 function PandocSetupDialog({
   status,
   onClose,
@@ -326,9 +333,17 @@ function ExportSuccessToast({
           {path}
         </div>
       </div>
-      <Button variant="outline" size="xs" className="shrink-0" onClick={() => onReveal(path)}>
+      <Button
+        variant="outline"
+        size="xs"
+        className="shrink-0"
+        onClick={() => {
+          onReveal(path);
+          onClose();
+        }}
+      >
         <Folder className="size-3.5" aria-hidden />
-        在文件管理器中显示
+        {fileManagerRevealLabel()}
       </Button>
       <Button
         variant="ghost"
@@ -416,9 +431,16 @@ function DocxReportDialog({
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => onReveal(report.path)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              onReveal(report.path);
+              onClose();
+            }}
+          >
             <Folder className="size-3.5" aria-hidden />
-            在文件管理器中显示
+            {fileManagerRevealLabel()}
           </Button>
           <Button size="sm" onClick={onClose}>
             知道了

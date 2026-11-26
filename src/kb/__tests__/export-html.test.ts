@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 beforeEach(() => {
   (SVGElement.prototype as unknown as { getBBox: () => DOMRect }).getBBox = () => ({ x: 0, y: 0, width: 100, height: 30 }) as DOMRect;
@@ -256,6 +256,42 @@ describe("HTML export", () => {
 
     const htmlExport = await buildExportHtml({ ...base, md });
     expect(htmlExport).not.toContain("YZ-PDF-BM");
+  });
+
+  it("标题在未挂载文档里也必须成为书签标记的定位容器", async () => {
+    // Chromium 对 DOMParser 生成的未挂载元素调用 getComputedStyle 时,
+    // position 返回空串而不是 "static"。旧实现据此跳过 position:relative,
+    // Windows PrintToPdf 会把所有绝对定位标记落到第一页左上角。
+    const original = window.getComputedStyle;
+    const spy = vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element) => {
+      const style = original(el);
+      if (el instanceof HTMLElement && /^H[1-6]$/.test(el.tagName)) {
+        return new Proxy(style, {
+          get(target, prop, _receiver) {
+            return prop === "position" ? "" : Reflect.get(target, prop, target);
+          },
+        });
+      }
+      return style;
+    });
+
+    try {
+      const html = await buildExportHtml({
+        md: "# 章节甲\n\n正文",
+        title: "测试文档",
+        docRel: "notes/bookmark-detached.md",
+        readAssetBase64: async () => null,
+        pdfBookmarks: true,
+      });
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const markers = doc.querySelectorAll<HTMLElement>(".yz-bm-marker");
+      expect(markers.length).toBeGreaterThan(0);
+      for (const marker of markers) {
+        expect(marker.parentElement?.style.position).toBe("relative");
+      }
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("标题横幅不进大纲(它是文档名,不是章节)", async () => {

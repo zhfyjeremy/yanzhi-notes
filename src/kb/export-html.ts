@@ -790,7 +790,12 @@ function injectPdfBookmarkMarkers(body: HTMLElement): void {
     // 不能用 overflow:hidden 裁掉标记:Chrome/WebView 打印文本层会连同被裁文字一起
     // 丢弃,PDF 书签就提取不到。让标题作为定位容器,标记绝对定位且透明、2px,
     // 不裁剪、不换行,视觉零占位的同时保留完整可提取文本。
-    if (getComputedStyle(heading).position === "static") heading.style.position = "relative";
+    // 注意:这里解析的是 DOMParser 生成的未挂载文档,Chromium 的
+    // getComputedStyle(heading).position 返回空串而不是 "static"。不能靠
+    // "static" 判断,否则标题不会成为定位容器,Windows 打印时所有绝对定位标记
+    // 都会落到第一页左上角,书签全部指向第一页顶部。导出标题来自 markdown,
+    // 统一设为 relative 不改变视觉布局,却能保证它是标记的定位容器。
+    heading.style.position = "relative";
     marker.style.cssText =
       "position:absolute;left:0;top:0;color:transparent;font-size:2px;line-height:1;white-space:nowrap;pointer-events:none";
     marker.textContent = `[[YZ-PDF-BM:${level}:${seq}|${title}]]`;

@@ -10,6 +10,7 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::Manager;
+#[cfg(target_os = "macos")]
 use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::{
     AppHandle, LogicalPosition, LogicalSize, WebviewUrl,
@@ -862,9 +863,10 @@ fn print_webview_to_pdf(
 /// PDF 大纲书签:导出 HTML 里由前端注入隐形标记
 /// `[[YZ-PDF-BM:{level}:{seq}|{title}]]`;
 /// macOS 生成 PDF 前还会按连续画布分页结果改写为
-/// `[[YZ-PDF-BM:{level}:{seq}:{page}:{top}|{title}]]`。
-/// Rust 提取标记与目标页后,用 lopdf 写入 /Outlines。带 page 字段的标记优先,
-/// 用于规避 macOS A4 重绘时“整页内容被裁剪但文本层仍重复”的定位歧义。
+/// `[[YZ-PDF-BM:{level}:{seq}:{page}:{top}|{title}]]`;Windows 标记保持两字段,
+/// 由 Rust 从最终 PDF 的文本矩阵反查 y 坐标。Rust 提取标记与目标位置后,
+/// 用 lopdf 写入 /Outlines。带 page/top 的标记优先,用于规避 macOS A4 重绘时
+/// “整页内容被裁剪但文本层仍重复”的定位歧义。
 const PDF_BM_PREFIX: &str = "[[YZ-PDF-BM:";
 
 /// 单个书签命中:seq 是前端注入时的全局序号,用于跨页/跨轮去重。
@@ -938,6 +940,168 @@ fn collect_pdf_bm_markers(text: &str, page: usize, push: &mut dyn FnMut(BmHit)) 
     }
 }
 
+/// 逐字符记录 PDF 文本矩阵中的 y 坐标，用于把隐形标记定位成 /XYZ 目标。
+#[cfg(windows)]
+#[derive(Clone, Copy)]
+struct PdfBookmarkCharLocation {
+    byte_index: usize,
+    y: f64,
+    font_size: f64,
+}
+
+/// `pdf_extract::PlainTextOutput` 只能返回文本，不能返回字符坐标；
+/// 这里实现 OutputDev，在解码每个字符时同步记录它在当前页面中的位置。
+/// Windows WebView2 生成的 PDF 没有预埋 page/top，只有页级 /Fit 时，
+/// 同页下方的标题点击后会显得“没有跳转”；这里补齐标题标记的 y 坐标。
+#[cfg(windows)]
+#[derive(Default)]
+struct PdfBookmarkLocationOutput {
+    text: String,
+    char_locations: Vec<PdfBookmarkCharLocation>,
+    scanned: usize,
+    hits: Vec<BmHit>,
+    page: usize,
+    page_lower: f64,
+    page_upper: f64,
+}
+
+#[cfg(windows)]
+impl PdfBookmarkLocationOutput {
+    fn flush(&mut self) {
+        loop {
+            let Some(offset) = self.text[self.scanned..].find(PDF_BM_PREFIX) else {
+                return;
+            };
+            let start = self.scanned + offset;
+            let Some(end_offset) = self.text[start..].find("]]") else {
+                // 前缀已经开始但结尾还没解码出来，保留当前位置等下一个字符。
+                self.scanned = start;
+                return;
+            };
+            let end = start + end_offset + 2;
+            let marker = self.text[start..end].to_string();
+            let Ok(index) = self
+                .char_locations
+                .binary_search_by_key(&start, |loc| loc.byte_index)
+            else {
+                self.scanned = end;
+                continue;
+            };
+            let location = self.char_locations[index];
+            let page = self.page;
+            let lower = self.page_lower;
+            let upper = self.page_upper;
+            collect_pdf_bm_markers(&marker, page, &mut |mut hit| {
+                if hit.destination_top.is_none() {
+                    let top = location.y + location.font_size;
+                    if top.is_finite() {
+                        hit.destination_top = Some(top.clamp(lower, upper));
+                    }
+                }
+                self.hits.push(hit);
+            });
+            self.scanned = end;
+        }
+    }
+
+    fn take_hits(&mut self) -> Vec<BmHit> {
+        self.flush();
+        std::mem::take(&mut self.hits)
+    }
+}
+
+#[cfg(windows)]
+impl pdf_extract::OutputDev for PdfBookmarkLocationOutput {
+    fn begin_page(
+        &mut self,
+        page_num: u32,
+        media_box: &pdf_extract::MediaBox,
+        _art_box: Option<(f64, f64, f64, f64)>,
+    ) -> Result<(), pdf_extract::OutputError> {
+        self.page = page_num as usize;
+        self.page_lower = media_box.lly;
+        self.page_upper = media_box.ury;
+        self.text.clear();
+        self.char_locations.clear();
+        self.scanned = 0;
+        Ok(())
+    }
+
+    fn end_page(&mut self) -> Result<(), pdf_extract::OutputError> {
+        self.flush();
+        Ok(())
+    }
+
+    fn output_character(
+        &mut self,
+        transform: &pdf_extract::Transform,
+        _width: f64,
+        _spacing: f64,
+        font_size: f64,
+        character: &str,
+    ) -> Result<(), pdf_extract::OutputError> {
+        let byte_index = self.text.len();
+        self.char_locations.push(PdfBookmarkCharLocation {
+            byte_index,
+            y: transform.m32,
+            font_size,
+        });
+        self.text.push_str(character);
+        self.flush();
+        Ok(())
+    }
+
+    fn begin_word(&mut self) -> Result<(), pdf_extract::OutputError> {
+        Ok(())
+    }
+
+    fn end_word(&mut self) -> Result<(), pdf_extract::OutputError> {
+        Ok(())
+    }
+
+    fn end_line(&mut self) -> Result<(), pdf_extract::OutputError> {
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn collect_pdf_bm_hits_with_locations(path: &Path) -> Result<Vec<BmHit>, String> {
+    // pdf-extract 内部仍使用 lopdf 0.42；这里通过它的 re-export 加载，
+    // 避免与本项目直接依赖的 lopdf 0.47 Document 类型混用。
+    let document = pdf_extract::Document::load(path).map_err(|e| format!("PDF 解析失败:{e}"))?;
+    let mut output = PdfBookmarkLocationOutput::default();
+    pdf_extract::output_doc(&document, &mut output).map_err(|e| format!("PDF 文本定位失败:{e}"))?;
+    Ok(output.take_hits())
+}
+
+/// 从纯文本层提取书签标记。macOS 标记已内嵌 page/top;Windows 在坐标
+/// 解码器失败时也用它兜底,至少保留页级书签。
+fn collect_pdf_bm_hits_from_text(path: &Path) -> Result<Vec<BmHit>, String> {
+    let pages_text =
+        pdf_extract::extract_text_by_pages(path).map_err(|e| format!("PDF 文本提取失败:{e}"))?;
+    let mut hits = Vec::new();
+    for (page_index, text) in pages_text.iter().enumerate() {
+        let page = page_index + 1;
+        collect_pdf_bm_markers(text, page, &mut |hit| hits.push(hit));
+    }
+    Ok(hits)
+}
+
+/// Windows 标记没有内嵌 page/top,需要从最终 PDF 的字符坐标反查标题位置;
+/// macOS 的分页脚本已经写入 page/top,继续走纯文本提取,保持原有链路不变。
+#[cfg(windows)]
+fn collect_pdf_bm_hits(path: &Path) -> Result<Vec<BmHit>, String> {
+    match collect_pdf_bm_hits_with_locations(path) {
+        Ok(hits) if !hits.is_empty() => Ok(hits),
+        _ => collect_pdf_bm_hits_from_text(path),
+    }
+}
+
+#[cfg(not(windows))]
+fn collect_pdf_bm_hits(path: &Path) -> Result<Vec<BmHit>, String> {
+    collect_pdf_bm_hits_from_text(path)
+}
+
 fn utf16_be(s: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(2 + s.len() * 2);
     out.extend_from_slice(&[0xFE, 0xFF]);
@@ -953,14 +1117,7 @@ fn apply_pdf_outline(path: &Path) -> Result<(), String> {
 
     use lopdf::{Dictionary, Document, Object, ObjectId};
 
-    let pages_text =
-        pdf_extract::extract_text_by_pages(path).map_err(|e| format!("PDF 文本提取失败:{e}"))?;
-    let mut hits: Vec<BmHit> = Vec::new();
-    for (page_index, text) in pages_text.iter().enumerate() {
-        let page = page_index + 1;
-        let mut push = |hit: BmHit| hits.push(hit);
-        collect_pdf_bm_markers(text, page, &mut push);
-    }
+    let hits = collect_pdf_bm_hits(path).unwrap_or_default();
     // 按 seq 去重:同一 seq 保留页码最小的一份(分块边界复制时第一份在正确页)。
     // BTreeMap 同时保证输出按文档顺序排列。
     let mut by_seq: BTreeMap<u32, (u8, String, usize, Option<f64>)> = BTreeMap::new();
@@ -1075,7 +1232,7 @@ fn apply_pdf_outline(path: &Path) -> Result<(), String> {
                 Object::Real(top as f32),
                 Object::Null,
             ]),
-            // Windows 标记没有预计算 y 坐标,保留页级 Fit 兜底。
+            // 坐标解码异常时的兜底:至少保留页级 Fit。
             None => Object::Array(vec![
                 Object::Reference(page_ref(node.page)),
                 Object::Name(b"Fit".to_vec()),
@@ -1958,6 +2115,18 @@ mod pdf_bookmark_tests {
         assert_eq!(destination[2], Object::Null);
         assert_eq!(destination[3], Object::Real(650.0));
         assert_eq!(destination[4], Object::Null);
+        // Windows 分支没有预埋 page/top：apply_pdf_outline 需要从标记文本的
+        // PDF y 坐标推导 /XYZ，避免只有页级 /Fit 时同页标题点击不动。
+        // macOS 标记由分页脚本写入 page/top,不走这条坐标反推路径。
+        #[cfg(windows)]
+        {
+            let Object::Array(first_destination) = first.get(b"Dest").unwrap() else {
+                panic!("first bookmark should have a destination array");
+            };
+            assert_eq!(first_destination[1], Object::Name(b"XYZ".to_vec()));
+            assert_eq!(first_destination[3], Object::Real(732.0));
+        }
+
         let Object::String(bytes, _) = first.get(b"Title").unwrap() else {
             panic!("title should be a string");
         };
