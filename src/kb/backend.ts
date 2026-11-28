@@ -59,6 +59,27 @@ const invoke = async <T>(cmd: string, args?: Record<string, unknown>): Promise<T
   return invoke<T>(cmd, args);
 };
 
+/** 单文件资源目录:与文件同名「<文件名>.assets」,每篇自带,不和同目录其它笔记混用 */
+const singleAssetsDir = (path: string): string =>
+  `${singleBase(path).replace(/\.(md|markdown)$/i, "")}.assets`;
+
+/** 可读资源名清洗(与 Rust sanitize_asset_name 同式):去扩展名/非法字符、折叠空白、去尾部短哈希、限长 40 */
+function readableAssetStem(raw: string): string | null {
+  const dot = raw.lastIndexOf(".");
+  let stem = dot > 0 ? raw.slice(0, dot) : raw;
+  stem = stem
+    .split("")
+    .filter((c) => !/[\/:*?"<>|]/.test(c) && c.charCodeAt(0) >= 32)
+    .join("")
+    .split(/\s+/)
+    .join(" ")
+    .trim()
+    .replace(/\.+$/, "");
+  stem = stem.replace(/-[0-9a-f]{8}$/, "").trimEnd();
+  stem = [...stem].slice(0, 40).join("").trim().replace(/\.+$/, "");
+  return stem || null;
+}
+
 const singleParent = (path: string): string =>
   path.includes("/") || path.includes("\\") ? path.replace(/[\\/][^\\/]+$/, "") : "";
 const singleBase = (path: string): string => path.split(/[\\/]/).pop() ?? path;
@@ -333,10 +354,12 @@ const tauriBackend: KbBackend = {
     const un = await listen<string>("yz-single-file-event", (e) => cb(e.payload));
     return un;
   },
-  async saveSingleAsset(path, ext, bytes) {
+  async saveSingleAsset(path, ext, bytes, nameHint) {
     const r = await invoke<{ src: string }>("save_asset", {
       root: singleParent(path),
       docRel: singleBase(path),
+      assetsDir: singleAssetsDir(path),
+      nameHint: nameHint ?? null,
       ext,
       bytes,
     });
@@ -352,6 +375,8 @@ const tauriBackend: KbBackend = {
         root: singleParent(path),
         docRel: singleBase(path),
         srcAbs: p,
+        assetsDir: singleAssetsDir(path),
+        nameHint: singleBase(p),
       });
       out.push(r.src);
     }
@@ -366,10 +391,29 @@ const tauriBackend: KbBackend = {
         root: singleParent(path),
         docRel: singleBase(path),
         srcAbs: p,
+        assetsDir: singleAssetsDir(path),
+        nameHint: singleBase(p),
       });
       out.push({ name: singleBase(p), src: r.src });
     }
     return out;
+  },
+  async importSingleAssetFromPath(toPath, srcAbs) {
+    const r = await invoke<{ src: string }>("import_asset", {
+      root: singleParent(toPath),
+      docRel: singleBase(toPath),
+      srcAbs,
+      assetsDir: singleAssetsDir(toPath),
+      // 源文件已是纯哈希名(旧 assets/ 约定)时不加提示:迁移后同名,只是换了目录
+      nameHint: /^[0-9a-f]{16}\./i.test(singleBase(srcAbs)) ? null : singleBase(srcAbs),
+    });
+    return r.src;
+  },
+  async listSingleAssets(path) {
+    return invoke<string[]>("list_single_assets", { path, assetsDir: singleAssetsDir(path) });
+  },
+  async deleteSingleAssets(path, names) {
+    return invoke<number>("delete_single_assets", { path, assetsDir: singleAssetsDir(path), names });
   },
   async openSingleAttachment(path, src) {
     const rel = assetRelPosix(singleBase(path), src);
@@ -890,7 +934,8 @@ const browserBackend: KbBackend = {
   },
   async importDroppedMarkdown(name, content) {
     const all = loadSingleFiles();
-    let path = `/mock-single/${name}`;
+    // 与真机一致:落缓存目录而非单文件目录,未命名缓冲区的空壳不会与保存目标撞名
+    let path = `/mock-cache/dropped-md/${name}`;
     let n = 2;
     while (path in all) {
       const dot = name.lastIndexOf(".");
@@ -1204,8 +1249,11 @@ const browserBackend: KbBackend = {
   async listenSingleFileEvent() {
     return () => {}; // mock 无外部改动
   },
-  async saveSingleAsset(path, ext, bytes) {
-    const name = `${fnv1aHex(bytes)}.${ext || "png"}`;
+  async saveSingleAsset(path, ext, bytes, nameHint) {
+    const hash = fnv1aHex(bytes);
+    // 与 Rust asset_file_name 同式:有可读名 → 「<原始名>-<短哈希>」,否则纯哈希(知识库模式)
+    const hint = nameHint ? readableAssetStem(nameHint) : null;
+    const name = hint ? `${hint}-${hash.slice(0, 8)}.${ext || "png"}` : `${hash}.${ext || "png"}`;
     const e = (ext || "png").toLowerCase();
     const mime = /^png|jpe?g|gif|webp|bmp|avif$/.test(e)
       ? `image/${e}`
@@ -1213,9 +1261,10 @@ const browserBackend: KbBackend = {
         ? "image/svg+xml"
         : "application/octet-stream";
     const assets = loadSingleAssets();
-    assets[`${singleParent(path)}/assets/${name}`] = `data:${mime};base64,${bytesToBase64(bytes)}`;
+    const dir = singleAssetsDir(path);
+    assets[`${singleParent(path)}/${dir}/${name}`] = `data:${mime};base64,${bytesToBase64(bytes)}`;
     saveSingleAssets(assets);
-    return `./assets/${name}`;
+    return `./${dir}/${name}`;
   },
   async importSingleImagesFromPicker(path) {
     let files: File[];
@@ -1245,6 +1294,44 @@ const browserBackend: KbBackend = {
       out.push({ name: file.name, src });
     }
     return out.length ? out : null;
+  },
+  async importSingleAssetFromPath(toPath, srcAbs) {
+    const rawName = srcAbs.split(/[\\/]/).pop() ?? "";
+    if (!rawName) return null;
+    // 与 Rust 同式:可读名「<原始名>-<短哈希>」迁移后保持同名(短哈希=内容哈希,已带在名字里);
+    // 纯哈希名(旧 assets/ 约定)原样保留,只换目录
+    const suffix = /-([0-9a-f]{8})\.[^.]+$/.exec(rawName);
+    const hint = readableAssetStem(rawName);
+    const ext = rawName.slice(rawName.lastIndexOf(".") + 1);
+    const name = hint && suffix ? `${hint}-${suffix[1]}.${ext}` : rawName;
+    const assets = loadSingleAssets();
+    const dst = `${singleParent(toPath)}/${singleAssetsDir(toPath)}/${name}`;
+    if (assets[srcAbs] && !(dst in assets)) {
+      assets[dst] = assets[srcAbs];
+      saveSingleAssets(assets);
+    }
+    return `./${singleAssetsDir(toPath)}/${name}`;
+  },
+  async listSingleAssets(path) {
+    const prefix = `${singleParent(path)}/${singleAssetsDir(path)}/`;
+    return Object.keys(loadSingleAssets())
+      .filter((k) => k.startsWith(prefix))
+      .map((k) => k.slice(prefix.length))
+      .sort();
+  },
+  async deleteSingleAssets(path, names) {
+    const prefix = `${singleParent(path)}/${singleAssetsDir(path)}/`;
+    const assets = loadSingleAssets();
+    let removed = 0;
+    for (const name of names) {
+      const key = prefix + name;
+      if (key in assets) {
+        delete assets[key];
+        removed += 1;
+      }
+    }
+    saveSingleAssets(assets);
+    return removed;
   },
   async openSingleAttachment() {
     return "unsupported" as const;

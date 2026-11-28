@@ -89,8 +89,11 @@ describe("settings 解析(PRD §8)", () => {
     expect(parseSettings('{"aiBaseUrl":"https://open.bigmodel.cn/api/paas/v4"}').aiProvider).toBe(
       "zhipu",
     );
+    expect(parseSettings('{"aiBaseUrl":"https://open.bigmodel.cn/api/paas/v4"}').aiBaseUrl).toBe(
+      "https://open.bigmodel.cn/api/v1",
+    );
     expect(parseSettings('{"aiBaseUrl":"https://open.bigmodel.cn/api/v1"}').aiBaseUrl).toBe(
-      "https://open.bigmodel.cn/api/paas/v4",
+      "https://open.bigmodel.cn/api/v1",
     );
     expect(parseSettings('{"aiTemperature":9}').aiTemperature).toBe(2);
     expect(parseSettings('{"aiMaxTokens":-1}').aiMaxTokens).toBe(0);

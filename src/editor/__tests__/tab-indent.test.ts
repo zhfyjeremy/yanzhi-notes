@@ -123,7 +123,7 @@ describe("排版视图 Tab 缩进", () => {
     editor.commands.setTextSelection(afterFoo!);
 
     pressTab(editor);
-    expect(codeText(editor)).toBe("foo    \n");
+    expect(codeText(editor)).toBe("foo    ");
     editor.destroy();
   });
 

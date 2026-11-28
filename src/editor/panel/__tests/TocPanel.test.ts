@@ -53,6 +53,7 @@ describe("右侧大纲", () => {
         located.push(pos);
         return pos === 16 ? sourceLine : null;
       },
+      subscribe: () => () => undefined,
     };
 
     const container = document.createElement("div");

@@ -295,39 +295,43 @@ export function DocTabsEmptyState({
   onCreateDoc: () => void;
   onOpenDoc: (rel: string) => void;
 }) {
+  // 过渡态而非落地页:用户最可能「接着写最近那篇」,最近文档升为主内容,
+  // 去掉图标方块 + 居中英雄段的通用空状态壳子,只留「新建文档」一处主色。
+  const recents = recentDocs.slice(0, 5);
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center p-8">
-      <div className="w-full max-w-sm text-center">
-        <div className="bg-hover text-muted-foreground mx-auto mb-4 flex size-12 items-center justify-center rounded-2xl">
-          <FileText className="size-6" />
-        </div>
-        <p className="text-foreground font-medium">没有打开的文档</p>
-        <p className="text-muted-foreground mt-1 text-xs">
-          标签页已全部关闭;可以新建文档,或从最近浏览中恢复。
+    <div className="flex min-h-0 flex-1 overflow-y-auto p-8">
+      <div className="m-auto w-full max-w-md">
+        <h2 className="text-foreground text-xl font-medium">没有打开的文档</h2>
+        <p className="text-muted-foreground mt-1 text-[13px] leading-5">
+          新建一篇,或从最近打开的文档继续。
         </p>
-        <div className="mt-5 flex justify-center gap-2">
-          <Button size="sm" onClick={onCreateDoc}>
-            <FilePlus2 className="size-4" />
-            新建文档
-          </Button>
-        </div>
-        {recentDocs.length > 0 && (
-          <div className="border-border-subtle mt-6 overflow-hidden rounded-lg border text-left">
-            {recentDocs.slice(0, 5).map((doc) => (
-              <button
-                key={doc.path}
-                type="button"
-                className="hover:bg-hover flex w-full cursor-pointer items-center gap-2 border-border-subtle border-b px-3 py-2 text-left text-xs last:border-b-0"
-                onClick={() => onOpenDoc(doc.path)}
-              >
-                <FileText className="text-muted-foreground size-3.5 shrink-0" />
-                <span className="min-w-0 flex-1 truncate">{doc.name}</span>
-                <span className="text-muted-foreground/70 max-w-24 truncate text-[10px]">
-                  {doc.dir || "根目录"}
-                </span>
-              </button>
+        <Button size="sm" className="mt-4" onClick={onCreateDoc}>
+          <FilePlus2 className="size-4" />
+          新建文档
+        </Button>
+
+        {recents.length > 0 && (
+          <ul
+            aria-label="最近打开的文档"
+            className="divide-border-subtle border-border-subtle -mx-2 mt-6 divide-y border-t"
+          >
+            {recents.map((doc) => (
+              <li key={doc.path}>
+                <button
+                  type="button"
+                  title={doc.name}
+                  className="hover:bg-hover focus-visible:bg-hover flex w-full cursor-pointer items-center gap-2.5 px-2 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  onClick={() => onOpenDoc(doc.path)}
+                >
+                  <FileText className="text-muted-foreground/80 size-3.5 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{doc.name}</span>
+                  <span className="text-muted-foreground/70 max-w-[38%] shrink-0 truncate text-[11px]">
+                    {doc.dir || "根目录"}
+                  </span>
+                </button>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </div>
     </div>

@@ -602,9 +602,9 @@ export function parseSettings(raw: string): AppSettings {
           typeof v?.aiBaseUrl === "string" && v.aiBaseUrl.trim()
             ? v.aiBaseUrl.trim()
             : DEFAULT_SETTINGS.aiBaseUrl;
-        // 误用 Responses 基址 /api/v1 → 对话补全 paas/v4(本应用只支持 chat/completions)
-        if (/^https:\/\/open\.bigmodel\.cn\/api\/v1\/?$/i.test(raw)) {
-          return "https://open.bigmodel.cn/api/paas/v4";
+        // 智谱旧版对话补全地址迁移到新版 OpenAI 兼容 /api/v1
+        if (/^https:\/\/open\.bigmodel\.cn\/api\/paas\/v4\/?$/i.test(raw)) {
+          return "https://open.bigmodel.cn/api/v1";
         }
         return raw;
       })(),

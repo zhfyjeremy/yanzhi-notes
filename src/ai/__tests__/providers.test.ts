@@ -4,7 +4,7 @@ import { aiChatUrl, aiModelsUrl, aiProviderById, inferAiProvider } from "../prov
 describe("ai providers", () => {
   it("预设含 kimi coding / 智谱 / deepseek / 自定义", () => {
     expect(aiProviderById("kimi_coding").baseUrl).toBe("https://api.kimi.com/coding");
-    expect(aiProviderById("zhipu").baseUrl).toContain("bigmodel.cn");
+    expect(aiProviderById("zhipu").baseUrl).toBe("https://open.bigmodel.cn/api/v1");
     expect(aiProviderById("deepseek").baseUrl).toContain("deepseek.com");
     expect(aiProviderById("custom").id).toBe("custom");
     expect(aiProviderById("nope").id).toBe("custom");
@@ -19,8 +19,8 @@ describe("ai providers", () => {
     expect(inferAiProvider("http://127.0.0.1:11434/v1")).toBe("custom");
   });
 
-  it("chat URL: /v1 与智谱 /v4 都拼 chat/completions", () => {
-    expect(aiChatUrl("https://open.bigmodel.cn/api/paas/v4")).toBe(
+  it("chat URL: 版本后缀直接拼 chat/completions", () => {
+    expect(aiChatUrl("https://open.bigmodel.cn/api/v1")).toBe(
       "https://open.bigmodel.cn/api/paas/v4/chat/completions",
     );
     expect(aiChatUrl("https://api.deepseek.com/v1")).toBe(
@@ -34,8 +34,8 @@ describe("ai providers", () => {
 
 describe("aiModelsUrl", () => {
   it("builds model-list URLs for versioned OpenAI-compatible bases", () => {
-    expect(aiModelsUrl("https://open.bigmodel.cn/api/paas/v4/")).toBe(
-      "https://open.bigmodel.cn/api/paas/v4/models",
+    expect(aiModelsUrl("https://open.bigmodel.cn/api/v1/")).toBe(
+      "https://open.bigmodel.cn/api/v1/models",
     );
   });
 });

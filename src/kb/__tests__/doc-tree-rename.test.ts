@@ -51,6 +51,7 @@ function treeProps(collapsed: Set<string>, iconMap = new Map<string, string>()) 
         onBackHome: () => undefined,
         onOpenOtherKb: () => undefined,
         onCreateKb: () => undefined,
+        onCopyRootPath: () => undefined,
         trashCount: 0,
         orphanCount: 0,
         onOpenOrphans: () => undefined,

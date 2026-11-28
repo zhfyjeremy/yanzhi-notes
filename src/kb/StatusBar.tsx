@@ -11,12 +11,11 @@ import { countDocStats, countWords } from "../editor/word-count";
 const STATS_DEBOUNCE_MS = 120;
 
 /**
- * 状态栏(PRD §3):自动保存状态、当前文档名、库路径、字数统计(全文/选区)、专注模式入口。
+ * 状态栏(PRD §3):自动保存状态、当前文档名、字数统计(全文/选区)、专注模式入口。
  */
 
 interface StatusBarProps {
   editor: Editor | null;
-  kbRoot: string;
   saveLabel: string;
   focusMode: boolean;
   onToggleFocus: () => void;
@@ -155,7 +154,6 @@ function WordCount({ editor }: { editor: Editor }) {
 
 export function StatusBar({
   editor,
-  kbRoot,
   saveLabel,
   focusMode,
   onToggleFocus,
@@ -173,7 +171,7 @@ export function StatusBar({
       <div className="flex min-w-0 items-center gap-3">
         {orphanCount > 0 && onOpenOrphans && (
           <Hint label="外部改动产生了失联的偏好记录,点击整理">
-            <button className="text-primary hover:bg-selection flex items-center gap-1 rounded-md px-1.5 py-1" onClick={onOpenOrphans}>
+            <button className="text-primary hover:bg-selection flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1" onClick={onOpenOrphans}>
               <CircleAlert className="size-3.5" />
               {orphanCount} 条未识别
             </button>
@@ -183,7 +181,7 @@ export function StatusBar({
           <Popover>
             <PopoverTrigger asChild>
               <button
-                className="text-foreground/65 hover:text-foreground hover:bg-hover rounded-md px-1 py-0.5"
+                className="text-foreground/65 hover:text-foreground hover:bg-hover cursor-pointer rounded-md px-1 py-0.5"
                 title="点击查看文档统计"
               >
                 <WordCount editor={editor} />
@@ -202,7 +200,7 @@ export function StatusBar({
           )}
           <Hint label="专注模式 (⌘/Ctrl+Shift+F)">
             <button
-              className="hover:text-foreground hover:bg-hover flex items-center gap-1 rounded-md px-1.5 py-1"
+              className="hover:text-foreground hover:bg-hover flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1"
               onClick={onToggleFocus}
             >
               {focusMode ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
@@ -212,7 +210,7 @@ export function StatusBar({
           {focusMode && onToggleTypewriter && (
             <Hint label="打字机滚动：输入时保持光标在视口中线附近">
               <button
-                className={`hover:bg-hover flex items-center gap-1 rounded-md px-1.5 py-1 ${
+                className={`hover:bg-hover flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 ${
                   typewriterMode ? "text-primary" : "hover:text-foreground"
                 }`}
                 onClick={onToggleTypewriter}
@@ -227,7 +225,7 @@ export function StatusBar({
           <span className="text-primary flex items-center gap-1.5">
             正在请求：{aiHost}
             {onCancelAi && (
-              <button type="button" className="hover:bg-hover rounded px-1 text-[11px]" onClick={onCancelAi}>
+              <button type="button" className="hover:bg-hover cursor-pointer rounded px-1 text-[11px]" onClick={onCancelAi}>
                 取消
               </button>
             )}
@@ -238,10 +236,6 @@ export function StatusBar({
         <span className="text-foreground/60 flex shrink-0 items-center gap-1.5 tabular-nums">
           <span className="bg-primary/70 size-1.5 rounded-full" />
           {saveLabel}
-        </span>
-        <span className="bg-border-subtle h-3 w-px shrink-0" />
-        <span className="text-muted-foreground/60 max-w-56 truncate" title={kbRoot}>
-          {kbRoot}
         </span>
       </div>
     </footer>

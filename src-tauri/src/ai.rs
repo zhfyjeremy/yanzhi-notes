@@ -37,9 +37,19 @@ fn write_key_cache(app: &AppHandle, key: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn is_url_like(value: &str) -> bool {
+    let v = value.trim().to_ascii_lowercase();
+    v.starts_with("http://") || v.starts_with("https://")
+}
+
 fn read_key_cache(app: &AppHandle) -> Result<Option<String>, String> {
     let path = key_cache_path(app)?;
     match std::fs::read_to_string(&path) {
+        Ok(key) if is_url_like(&key) => {
+            // 误把 Base URL 粘进 Key 栏时会写入缓存;它不是凭证,清掉并回退到钥匙串
+            let _ = remove_key_cache(app);
+            Ok(None)
+        }
         Ok(key) => Ok(Some(key)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("读取本机 Key 缓存失败: {e}")),
@@ -73,6 +83,9 @@ pub fn set_ai_key(key: String, app: AppHandle) -> Result<(), String> {
     let key = key.trim();
     if key.is_empty() {
         return clear_ai_key(app);
+    }
+    if is_url_like(key) {
+        return Err("API Key 不能是 URL,请填写服务商提供的 Key".into());
     }
 
     let keyring_result = key_entry().and_then(|entry| {
@@ -193,6 +206,11 @@ fn chat_url(base: &str) -> String {
     if is_anthropic_base(b) {
         return format!("{b}/v1/messages");
     }
+    // 智谱 /api/v1 是 Responses API 基址;本应用只支持 Chat Completions,
+    // 因此对话补全仍走智谱 OpenAI 兼容的 paas/v4 端点(模型列表仍可用 /api/v1/models)。
+    if is_zhipu_api_v1(b) {
+        return "https://open.bigmodel.cn/api/paas/v4/chat/completions".to_string();
+    }
     if b.ends_with("/chat/completions") {
         return b.to_string();
     }
@@ -211,6 +229,12 @@ fn is_anthropic_base(base: &str) -> bool {
         .trim_end_matches('/')
         .to_ascii_lowercase()
         .starts_with("https://api.kimi.com/coding")
+}
+
+fn is_zhipu_api_v1(base: &str) -> bool {
+    let b = base.trim().trim_end_matches('/').to_ascii_lowercase();
+    b == "https://open.bigmodel.cn/api/v1"
+        || b == "https://open.bigmodel.cn/api/v1/chat/completions"
 }
 
 fn models_url(base: &str) -> String {
@@ -258,11 +282,23 @@ struct ChatResponse {
 #[derive(serde::Deserialize)]
 struct ModelsResponse {
     data: Option<Vec<ModelItem>>,
+    /// 智谱 /api/v1/models 返回的是 models[].slug,不是 OpenAI 的 data[].id
+    models: Option<Vec<ZhipuModelItem>>,
     error: Option<ApiError>,
+    #[serde(default)]
+    msg: Option<String>,
+    #[serde(default)]
+    success: Option<bool>,
 }
 
 #[derive(serde::Deserialize)]
 struct ModelItem {
+    id: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct ZhipuModelItem {
+    slug: Option<String>,
     id: Option<String>,
 }
 
@@ -512,11 +548,20 @@ pub async fn ai_list_models(
         .map_err(|e| format!("读取响应失败: {e}"))?;
     let parsed: ModelsResponse = serde_json::from_str(&text).unwrap_or(ModelsResponse {
         data: None,
+        models: None,
         error: None,
+        msg: None,
+        success: None,
     });
     if let Some(err) = parsed.error {
         return Err(err
             .message
+            .unwrap_or_else(|| format!("接口错误 HTTP {status}")));
+    }
+    // 智谱 /api/v1 的错误是 HTTP 200 + {code,msg,success:false};不能误报成“没有模型”
+    if parsed.success == Some(false) {
+        return Err(parsed
+            .msg
             .unwrap_or_else(|| format!("接口错误 HTTP {status}")));
     }
     if !status.is_success() {
@@ -528,6 +573,9 @@ pub async fn ai_list_models(
         .unwrap_or_default()
         .into_iter()
         .filter_map(|m| m.id)
+        .chain(parsed.models.unwrap_or_default().into_iter().filter_map(|m| {
+            m.slug.filter(|s| !s.trim().is_empty()).or(m.id)
+        }))
         .map(|id| id.trim().to_string())
         .filter(|id| !id.is_empty())
         .collect();
@@ -633,13 +681,28 @@ mod tests {
             "https://api.moonshot.cn/v1/models"
         );
         assert_eq!(
-            models_url("https://open.bigmodel.cn/api/paas/v4/"),
-            "https://open.bigmodel.cn/api/paas/v4/models"
+            models_url("https://open.bigmodel.cn/api/v1/"),
+            "https://open.bigmodel.cn/api/v1/models"
         );
         assert_eq!(
             models_url("https://api.deepseek.com/v1/chat/completions"),
             "https://api.deepseek.com/v1/models"
         );
+    }
+
+    #[test]
+    fn zhipu_v1_models_shape() {
+        let parsed: super::ModelsResponse = serde_json::from_str(
+            r#"{"models":[{"slug":"glm-5.4","display_name":"GLM-5.4"},{"id":"glm-5.3"}]}"#,
+        )
+        .unwrap();
+        let ids: Vec<_> = parsed
+            .models
+            .unwrap()
+            .into_iter()
+            .filter_map(|m| m.slug.or(m.id))
+            .collect();
+        assert_eq!(ids, vec!["glm-5.4", "glm-5.3"]);
     }
 
     #[test]
@@ -653,7 +716,7 @@ mod tests {
             "https://api.moonshot.cn/v1/chat/completions"
         );
         assert_eq!(
-            chat_url("https://open.bigmodel.cn/api/paas/v4"),
+            chat_url("https://open.bigmodel.cn/api/v1"),
             "https://open.bigmodel.cn/api/paas/v4/chat/completions"
         );
         assert_eq!(

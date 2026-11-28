@@ -197,6 +197,7 @@ struct ViewMenuHandles {
     source: Option<CheckItem>,
     focus: Option<CheckItem>,
     /// 单文件专用项:随 single_file 变灰
+    new_single: Option<IconItem>,
     save_single_as: Option<PlainItem>,
     close_single: Option<PlainItem>,
     save_single_to_kb: Option<IconItem>,
@@ -327,6 +328,9 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         Some(NativeIcon::Folder),
         None::<&str>,
     )?;
+    // 另存为/关闭/存入知识库 = 单文件专用;知识库页灰掉避免「点了没反应」
+    let flags = *app.state::<ViewFlags>().0.lock().unwrap();
+    let single = flags.single_file;
     let open_single = IconMenuItem::with_id_and_native_icon(
         app,
         "yz_open_single",
@@ -335,9 +339,20 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         Some(NativeIcon::MultipleDocuments),
         Some("CmdOrCtrl+O"),
     )?;
+    let new_single = IconMenuItem::with_id_and_native_icon(
+        app,
+        "yz_new_single",
+        "新建 Markdown 文件…",
+        single,
+        Some(NativeIcon::Add),
+        None::<&str>,
+    )?;
     let file = SubmenuBuilder::new(app, "文件")
         .item(&new_kb)
         .item(&open_kb)
+        .separator()
+        .item(&open_single)
+        .item(&new_single)
         .separator();
     // 最近打开收进子菜单(macOS 惯例「Open Recent ▸」):顶级只占一行,列表 hover 展开。
     // 列表内容后续会变(打开新库/新文件),但子菜单本身留着就地改 ——
@@ -350,9 +365,6 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .submenu_native_icon(NativeIcon::MultipleDocuments)
         .build()?;
     refresh_recent_files(app, &recent_file_menu)?;
-    // 另存为/关闭/存入知识库 = 单文件专用;知识库页灰掉避免「点了没反应」
-    let flags = *app.state::<ViewFlags>().0.lock().unwrap();
-    let single = flags.single_file;
     // 保存 = 两种模式都可用:单文件写回原文件;知识库立即冲刷自动保存的待写内容
     // (自动保存 2s 去抖,⌘S 给「立刻落盘」的确定感;原先知识库态灰掉是因为点了没反应)
     let save_label = if single { "保存" } else { "立即保存" };
@@ -679,6 +691,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
             toolbar: Some(view_toolbar),
             source: Some(view_source),
             focus: Some(view_focus),
+            new_single: Some(new_single),
             save_single_as: Some(save_single_as),
             close_single: Some(close_single),
             save_single_to_kb: Some(save_single_to_kb),
@@ -892,6 +905,9 @@ fn apply_view_flags_to_menu(app: &tauri::AppHandle, flags: ViewFlagsInner) {
     if let Some(i) = &h.save_doc {
         let _ = i.set_text(if single { "保存" } else { "立即保存" });
     }
+    if let Some(i) = &h.new_single {
+        let _ = i.set_enabled(single);
+    }
     if let Some(i) = &h.save_single_as {
         let _ = i.set_enabled(single);
     }
@@ -991,6 +1007,8 @@ pub fn run() {
                 serde_json::json!({ "action": "open" })
             } else if id == "yz_open_single" {
                 serde_json::json!({ "action": "open-single" })
+            } else if id == "yz_new_single" {
+                serde_json::json!({ "action": "new-single" })
             } else if id == "yz_close_tab" {
                 serde_json::json!({ "action": "close-tab" })
             } else if id == "yz_save_doc" {
@@ -1131,6 +1149,8 @@ pub fn run() {
             kb::read_asset_base64,
             kb::list_assets,
             kb::delete_assets,
+            kb::list_single_assets,
+            kb::delete_single_assets,
             kb::list_trash,
             kb::restore_trash,
             kb::purge_trash,

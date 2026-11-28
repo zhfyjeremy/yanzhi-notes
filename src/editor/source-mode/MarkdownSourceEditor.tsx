@@ -290,6 +290,8 @@ export interface MarkdownSourceOutlineController {
   headings(): MarkdownSourceHeading[];
   headingElement(pos: number): HTMLElement | null;
   locateHeading(pos: number): HTMLElement | null;
+  /** 源码变化时通知(大纲列表即时刷新);返回退订函数 */
+  subscribe(listener: () => void): () => void;
 }
 
 /** 排版↔源码切换读写光标;由 YanzhiEditor 持有 ref。 */
@@ -331,6 +333,7 @@ export function MarkdownSourceEditor({
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
+    const listeners = new Set<() => void>();
 
     const view = new EditorView({
       state: EditorState.create({
@@ -379,6 +382,7 @@ export function MarkdownSourceEditor({
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               onChangeRef.current(update.state.doc.toString());
+              for (const listener of listeners) listener();
             }
           }),
         ],
@@ -427,6 +431,12 @@ export function MarkdownSourceEditor({
         }
         view.focus();
         return element;
+      },
+      subscribe(listener) {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
       },
     };
     onOutlineControllerRef.current?.(outlineController);

@@ -18,7 +18,7 @@ export function SourceModeToggle({
         type="button"
         aria-pressed={active}
         className={cn(
-          "hover:text-foreground hover:bg-hover flex h-5 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px]",
+          "hover:text-foreground hover:bg-hover flex h-5 shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 text-[11px]",
           active ? "text-primary" : "text-muted-foreground",
           className,
         )}

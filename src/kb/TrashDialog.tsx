@@ -237,11 +237,7 @@ export function TrashDialog({
       <DialogContent className="sm:max-w-[560px]">
         <DialogHeader>
           <DialogTitle>回收站</DialogTitle>
-          <DialogDescription>
-            {entries.length === 0
-              ? "删除的文档与文件夹会保留在这里,直至恢复或彻底删除。"
-              : `${roots.length} 个顶层条目 · 批量恢复时同名冲突会自动使用新名称`}
-          </DialogDescription>
+          <DialogDescription>删除的文档与文件夹会保留在这里,直到你恢复或彻底删除。</DialogDescription>
         </DialogHeader>
 
         {conflict !== null && (
@@ -261,16 +257,17 @@ export function TrashDialog({
           </div>
         )}
 
-        <div className="space-y-2">
-          <div className="flex gap-2">
-            <div className="border-border-subtle bg-raised focus-within:border-ring flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border px-2.5">
-              <Search className="text-muted-foreground size-3.5 shrink-0" />
+        <div className="space-y-3">
+          {/* 工具条:填充式搜索框(不再加一层边框)+ 安静的全选 */}
+          <div className="flex items-center gap-2">
+            <div className="bg-hover/60 focus-within:bg-hover flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 transition-colors focus-within:ring-1 focus-within:ring-ring/40">
+              <Search className="text-muted-foreground/70 size-3.5 shrink-0" />
               <input
                 value={query}
                 aria-label="搜索回收站"
                 placeholder="搜索名称或路径…"
                 onChange={(e) => setQuery(e.target.value)}
-                className="placeholder:text-muted-foreground/60 h-full min-w-0 flex-1 bg-transparent text-xs outline-none"
+                className="placeholder:text-muted-foreground/60 h-full min-w-0 flex-1 bg-transparent text-[13px] outline-none"
               />
               {query && (
                 <button
@@ -284,7 +281,9 @@ export function TrashDialog({
               )}
             </div>
             <Button
-              variant="outline"
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground hover:text-foreground shrink-0"
               disabled={actionDisabled || visibleEntries.length === 0}
               onClick={() =>
                 setSelected(() =>
@@ -294,15 +293,18 @@ export function TrashDialog({
                 )
               }
             >
-              {allVisibleSelected ? "取消全选" : "全选"}
+              {allVisibleSelected
+                ? "取消全选"
+                : `全选${visibleEntries.length ? ` ${visibleEntries.length} 项` : ""}`}
             </Button>
           </div>
 
-          <div className="border-border-subtle bg-sidebar max-h-[min(24rem,52vh)] min-h-40 overflow-y-auto rounded-lg border p-2">
+          {/* 列表贴边铺满:发丝分隔 + 选中左色条,不再「盒子套卡片」 */}
+          <div className="-mx-5 max-h-[min(24rem,52vh)] min-h-40 overflow-y-auto border-y border-border-subtle">
             {confirming === CONFIRM_ALL && (
-              <div className="border-destructive/30 bg-destructive/5 mb-2 rounded-lg border p-3 text-xs">
+              <div className="border-destructive/15 bg-destructive/5 border-b px-5 py-3 text-xs">
                 <p className="text-destructive font-medium">
-                  彻底清空回收站?共 {roots.length} 个顶层条目,不可恢复。
+                  彻底清空回收站?共 {roots.length} 项,无法恢复。
                 </p>
                 <div className="mt-2 flex justify-end gap-2">
                   <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
@@ -316,14 +318,24 @@ export function TrashDialog({
             )}
 
             {entries.length === 0 ? (
-              <div className="text-muted-foreground flex min-h-32 flex-col items-center justify-center rounded-lg border border-dashed border-border-subtle p-4 text-center">
-                <Trash2 className="mb-1.5 size-4 opacity-55" />
+              <div className="text-muted-foreground flex min-h-40 flex-col items-center justify-center gap-1.5 px-6 py-8 text-center">
+                <Trash2 className="size-5 opacity-40" />
                 <p className="text-xs">回收站是空的</p>
+                <p className="text-[11px] opacity-70">删除的文档会在这里保留,可随时恢复。</p>
               </div>
             ) : visibleEntries.length === 0 ? (
-              <p className="text-muted-foreground py-8 text-center text-xs">没有匹配的条目</p>
+              <div className="text-muted-foreground flex min-h-32 flex-col items-center justify-center gap-2 px-6 py-8 text-center">
+                <p className="text-xs">没有找到「{query.trim()}」</p>
+                <button
+                  type="button"
+                  className="text-primary text-[11px] hover:underline"
+                  onClick={() => setQuery("")}
+                >
+                  清除搜索
+                </button>
+              </div>
             ) : (
-              <ul className="space-y-1">
+              <ul className="divide-border-subtle divide-y" aria-label="回收站条目">
                 {visibleEntries.map((entry) => {
                   const isSelected = selected.has(entry.path);
                   return (
@@ -347,17 +359,27 @@ export function TrashDialog({
                           }
                         }}
                         className={cn(
-                          "group border-border-subtle bg-raised/55 hover:border-primary/25 flex cursor-pointer items-center gap-2.5 rounded-lg border p-2 transition-colors",
-                          isSelected && "bg-selection border-primary/25 ring-primary/10 ring-1",
-                          confirming === entry.path && "border-destructive/35 bg-destructive/5",
-                          actionDisabled && "opacity-65",
+                          "group relative flex h-11 cursor-pointer items-center gap-3 px-5 outline-none transition-colors",
+                          "focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset",
+                          confirming === entry.path
+                            ? "bg-destructive/5"
+                            : isSelected
+                              ? "bg-selection"
+                              : "hover:bg-hover/70 focus-visible:bg-hover/70",
+                          actionDisabled && "opacity-60",
                         )}
                       >
+                        {isSelected && (
+                          <span aria-hidden className="bg-primary absolute inset-y-0 left-0 w-0.5" />
+                        )}
                         <button
                           type="button"
                           aria-label={isSelected ? `取消选择「${entry.path}」` : `选择「${entry.path}」`}
                           aria-pressed={isSelected}
-                          className="text-muted-foreground hover:text-primary flex size-5 shrink-0 cursor-pointer items-center justify-center"
+                          className={cn(
+                            "flex size-5 shrink-0 cursor-pointer items-center justify-center",
+                            isSelected ? "text-primary" : "text-muted-foreground/60 hover:text-primary",
+                          )}
                           disabled={actionDisabled}
                           onClick={(event) => {
                             event.stopPropagation();
@@ -365,28 +387,35 @@ export function TrashDialog({
                           }}
                         >
                           {isSelected ? (
-                            <CheckSquare2 className="text-primary size-4" />
+                            <CheckSquare2 className="size-4" strokeWidth={2} />
                           ) : (
-                            <Square className="size-4" />
+                            <Square className="size-4" strokeWidth={1.75} />
                           )}
                         </button>
 
                         <span
                           className={cn(
-                            "flex size-7 shrink-0 items-center justify-center rounded-md",
-                            entry.isDir ? "bg-selection text-primary" : "bg-hover text-muted-foreground",
+                            "flex size-4 shrink-0 items-center justify-center",
+                            entry.isDir ? "text-primary" : "text-muted-foreground",
                           )}
                         >
                           {entry.isDir ? <FolderOpen className="size-4" /> : <FileText className="size-4" />}
                         </span>
 
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-xs font-medium">{basenameOf(entry.path)}</span>
-                          <span className="text-muted-foreground block truncate text-[10px]">
+                          <span className="block truncate text-[13px] leading-5 font-medium">
+                            {basenameOf(entry.path)}
+                          </span>
+                          <span className="text-muted-foreground block truncate text-[11px] leading-4">
                             {parentOf(entry.path) || "根目录"}
-                            {entry.isDir ? ` · 含 ${entry.docs} 篇文档` : ""}
                           </span>
                         </span>
+
+                        {entry.isDir && (
+                          <span className="text-muted-foreground/70 shrink-0 text-[11px] tabular-nums">
+                            {entry.docs} 篇
+                          </span>
+                        )}
 
                         <DropdownMenu>
                           <Hint label="条目操作">
@@ -394,7 +423,7 @@ export function TrashDialog({
                               <button
                                 type="button"
                                 aria-label={`操作「${entry.path}」`}
-                                className="text-muted-foreground/60 group-hover:text-foreground hover:bg-hover flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md"
+                                className="text-muted-foreground/50 hover:bg-hover hover:text-foreground flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md"
                                 onClick={(event) => event.stopPropagation()}
                               >
                                 <MoreHorizontal className="size-4" />
@@ -426,11 +455,11 @@ export function TrashDialog({
                       </div>
 
                       {confirming === entry.path && (
-                        <div className="border-destructive/30 bg-destructive/5 mt-1 rounded-lg border p-3 text-xs">
-                          <p className="text-destructive font-medium">
+                        <div className="bg-destructive/5 px-5 py-3 text-xs">
+                          <p className="text-destructive">
                             彻底删除「{basenameOf(entry.path)}」?
-                            {entry.isDir ? ` 将同时删除其中 ${entry.docs} 篇文档。` : " "}
-                            不可恢复。
+                            {entry.isDir ? ` 其中 ${entry.docs} 篇文档也会一并删除。` : " "}
+                            此操作无法撤销。
                           </p>
                           <div className="mt-2 flex justify-end gap-2">
                             <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
@@ -470,7 +499,7 @@ export function TrashDialog({
             </Button>
             <Button disabled={busy || selected.size === 0} onClick={() => void restoreSelected()}>
               <Undo2 className="size-3.5" />
-              恢复所选{selected.size > 0 ? `(${selected.size})` : ""}
+              {selected.size > 0 ? `恢复 ${selected.size} 项` : "恢复所选"}
             </Button>
           </div>
         </DialogFooter>

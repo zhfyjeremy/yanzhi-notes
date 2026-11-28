@@ -1186,6 +1186,11 @@ export function useKb(settings: AppSettings) {
         void kbBackend.writeMeta(root, serializeMeta(metaRef.current)).catch(() => {});
         rewriteSnapKeys(rel, newPath); // 快照节流状态跟随新路径
         rewriteDocCache(rel, newPath);
+        // 引用被改写的其它文档可能正开在别的 tab 里:缓存仍是旧正文,
+        // 下次切过去必须从磁盘重读,否则会看到旧的 [[链接]]。
+        for (const updatedRel of resultNorm.updatedFiles) {
+          docCacheRef.current.delete(updatedRel);
+        }
         // 索引 key 迁移:旧路径条目挪到新路径(内容从索引外重读太贵,直接重建该条)
         const affected = flattenDocs(treeRef.current)
           .map((d) => d.path)
@@ -1256,6 +1261,10 @@ export function useKb(settings: AppSettings) {
         metaRef.current = renameMetaKeys(metaRef.current, srcRel, result.newPath, isDir);
         rewriteSnapKeys(srcRel, result.newPath); // 快照节流状态跟随新路径
         rewriteDocCache(srcRel, result.newPath);
+        // 移动也会改写其它文档里的路径双链;这些文档可能开在别的 tab,缓存必须失效。
+        for (const updatedRel of result.updatedFiles) {
+          docCacheRef.current.delete(updatedRel);
+        }
         // 跨组 before/after 带 orderedPaths → 按落位;into → 目标组落尾
         metaRef.current =
           orderedPaths && orderedPaths.length
@@ -1303,6 +1312,7 @@ export function useKb(settings: AppSettings) {
             dirtyRef.current = null;
             setMarkdown(content);
             savedMdRef.current = content;
+            docCacheRef.current.set(newCur, content);
             setSaveState("saved");
           }
         }

@@ -29,7 +29,7 @@ const ARTICLES: {
   {
     id: "quick-start",
     title: "快速上手",
-    description: "本地知识库、常用排版、可选 AI 助手与继续探索入口",
+    description: "3 步上手、自动保存、双链与常用操作速查",
     content: STARTER_MD,
   },
   {

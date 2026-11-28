@@ -83,17 +83,26 @@ export async function listAiModels(baseUrl: string, keyDraft?: string): Promise<
   }
   const res = await fetch(aiModelsUrl(base), { headers });
   const text = await res.text();
-  let json: { data?: { id?: string }[]; error?: { message?: string } };
+  let json: {
+    data?: { id?: string }[];
+    models?: { slug?: string; id?: string }[];
+    error?: { message?: string };
+    code?: number | string;
+    msg?: string;
+    success?: boolean;
+  };
   try {
     json = JSON.parse(text);
   } catch {
     throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
   }
   if (json.error?.message) throw new Error(json.error.message);
+  if (json.success === false) throw new Error(json.msg || `接口错误 HTTP ${res.status}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
-  const models = (json.data ?? [])
-    .map((m) => m.id?.trim())
-    .filter((m): m is string => Boolean(m));
+  const models = [
+    ...(json.data ?? []).map((m) => m.id?.trim()),
+    ...(json.models ?? []).map((m) => m.slug?.trim() || m.id?.trim()),
+  ].filter((m): m is string => Boolean(m));
   if (!models.length) throw new Error("接口未返回可用模型");
   return [...new Set(models)].sort((a, b) => a.localeCompare(b));
 }

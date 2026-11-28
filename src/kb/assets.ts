@@ -1,4 +1,4 @@
-import { assetRelPosix } from "./asset-src";
+import { assetRelPosix, isExternalSrc } from "./asset-src";
 import type { DocContent } from "./types";
 
 const MD_TARGET =
@@ -83,6 +83,59 @@ export function prepareSingleMarkdownForKb(filePath: string, content: string): S
     return `${pre}${rewrite(target)}${post}`;
   });
   return { content: next, assetSrcs: [...assetSrcs] };
+}
+
+export interface SingleAssetTarget {
+  /** 正文里的原始写法(如 `./assets/a.png`、`<./x.assets/a.png>`) */
+  target: string;
+  /** 按文件位置解析出的绝对路径 */
+  abs: string;
+}
+
+/** 单文件正文里指向本地资源的引用(原始写法 + 绝对路径):资源目录迁移时逐个改写用。 */
+export function collectSingleAssetTargets(filePath: string, content: string): SingleAssetTarget[] {
+  const docDir = filePath.includes("/") || filePath.includes("\\")
+    ? filePath.replace(/[\\/][^\\/]+$/, "")
+    : "";
+  const out: SingleAssetTarget[] = [];
+  const seen = new Set<string>();
+  const visit = (target: string | undefined) => {
+    if (!target || seen.has(target)) return;
+    const raw = target.trim().split("#")[0].split("?")[0];
+    if (!raw || isExternalSrc(raw)) return;
+    let clean = raw;
+    try {
+      clean = decodeURIComponent(raw);
+    } catch {
+      /* 保留原样 */
+    }
+    if (/\.(md|markdown)$/i.test(clean)) return;
+    const segs = [...docDir.split(/[\\/]/), ...clean.split(/[\\/]/)].filter(Boolean);
+    const parts: string[] = [];
+    for (const seg of segs) {
+      if (seg === ".") continue;
+      if (seg === "..") parts.pop();
+      else parts.push(seg);
+    }
+    if (!parts.length) return;
+    seen.add(target);
+    out.push({ target, abs: `${filePath.startsWith("/") ? "/" : ""}${parts.join("/")}` });
+  };
+  for (const m of content.matchAll(MD_TARGET)) visit(m[1] ?? m[2]);
+  for (const m of content.matchAll(HTML_TARGET)) visit(m[1]);
+  return out;
+}
+
+/** 按映射改写正文里的资源引用(Markdown 图片/链接 + HTML src/href);未命中的原样保留。 */
+export function rewriteSingleAssetTargets(content: string, map: Map<string, string>): string {
+  if (!map.size) return content;
+  const pick = (target: string): string => map.get(target) ?? target;
+  let next = content.replace(MD_RICH, (_m, pre: string, angle?: string, plain?: string, post = "") => {
+    const to = pick(angle ?? plain ?? "");
+    return `${pre}${angle ? `<${to}>` : to}${post}`;
+  });
+  next = next.replace(HTML_RICH, (_m, pre: string, target: string, post: string) => `${pre}${pick(target)}${post}`);
+  return next;
 }
 
 /**

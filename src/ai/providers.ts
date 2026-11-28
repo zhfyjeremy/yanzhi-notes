@@ -29,9 +29,9 @@ export const AI_PROVIDERS: readonly AiProviderPreset[] = [
   {
     id: "zhipu",
     label: "智谱",
-    // 对话补全用 paas/v4;/api/v1 是 Responses(Codex/CCSwitch),本应用不走该协议
-    hint: "智谱 GLM 对话补全(OpenAI 兼容 /api/paas/v4)",
-    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    // 智谱新版 OpenAI 兼容地址:/api/v1 下拼 chat/completions
+    hint: "智谱 GLM(模型列表 /api/v1,对话补全 /api/paas/v4)",
+    baseUrl: "https://open.bigmodel.cn/api/v1",
     model: "glm-4-flash",
     models: ["glm-4-flash", "glm-5.3", "glm-5-turbo", "glm-4.7-flash", "glm-4.6"],
   },
@@ -66,10 +66,17 @@ export function inferAiProvider(baseUrl: string): AiProviderId {
   return "custom";
 }
 
+/** 智谱 /api/v1 是 Responses API 基址;本应用只支持 Chat Completions */
+function isZhipuApiV1(base: string): boolean {
+  const b = base.trim().replace(/\/$/, "").toLowerCase();
+  return b === "https://open.bigmodel.cn/api/v1" || b === "https://open.bigmodel.cn/api/v1/chat/completions";
+}
+
 /** 拼 Chat Completions 完整 URL(与 Rust ai::chat_url 对齐) */
 export function aiChatUrl(base: string): string {
   const b = base.trim().replace(/\/$/, "");
   if (isAnthropicBase(b)) return `${b}/v1/messages`;
+  if (isZhipuApiV1(b)) return "https://open.bigmodel.cn/api/paas/v4/chat/completions";
   if (b.endsWith("/chat/completions")) return b;
   // /v1、/v4 等版本后缀
   if (/\/v\d+$/i.test(b)) return `${b}/chat/completions`;

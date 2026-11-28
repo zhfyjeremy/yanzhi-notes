@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRightLeft,
   ChevronDown,
@@ -109,6 +109,8 @@ interface DocTreeProps {
   onBackHome: () => void;
   onOpenOtherKb: () => void;
   onCreateKb: () => void;
+  /** 复制当前知识库完整路径(路径展示从状态栏收敛到左上角菜单) */
+  onCopyRootPath: () => void;
   trashCount: number;
   /** 失联 meta 条数(5.2.1);>0 才渲染底部入口 */
   orphanCount: number;
@@ -136,7 +138,7 @@ interface DocTreeProps {
   resizing?: boolean;
 }
 
-type DropZone = "before" | "after" | "into";
+export type DropZone = "before" | "after" | "into";
 
 /** 图标先用本地覆盖立即可见;随后 meta/entryIcons revision 再同步标签页等 App 级消费者。 */
 interface IconOverrideState {
@@ -254,6 +256,100 @@ function listAt(nodes: TreeNode[], parentRel: string): TreeNode[] {
   return [];
 }
 
+/** 拖拽预占位槽的哨兵路径(不与真实条目冲突;不落盘) */
+const DROP_SLOT_PATH = "__yz-drop-slot__";
+/** 预占位槽节点:携带被拖条目路径,槽按它的真实图标/标题渲染 */
+type DropSlotNode = TreeNode & { slotFor: string };
+function isDropSlot(node: TreeNode): node is DropSlotNode {
+  return node.path === DROP_SLOT_PATH;
+}
+/** 拖拽期间的行几何快照(导航内容坐标,与滚动无关):落点判定只看它 */
+export interface DragRowRect {
+  path: string;
+  top: number;
+  height: number;
+  isDir: boolean;
+}
+
+/**
+ * 指针 y(导航内容坐标)→ 落点。rows 是拖起时的快照(调用方已排除被拖行及其子树),
+ * 与当前预览布局无关 —— 这是拖拽不抖的关键:预览插入/移除的行都不参与判定。
+ */
+export function dropHintAt(
+  rows: DragRowRect[],
+  y: number,
+): { path: string; zone: DropZone } | null {
+  if (!rows.length) return null;
+  let target = rows[rows.length - 1];
+  for (const row of rows) {
+    if (y < row.top + row.height) {
+      target = row;
+      break;
+    }
+  }
+  const ratio = (y - target.top) / target.height;
+  const zone: DropZone = target.isDir
+    ? ratio < 0.25
+      ? "before"
+      : ratio > 0.75
+        ? "after"
+        : "into"
+    : ratio < 0.5
+      ? "before"
+      : "after";
+  return { path: target.path, zone };
+}
+
+/** 从树中摘除节点(沿途浅拷贝),返回新树与被摘节点 */
+function removeTreeNode(
+  nodes: TreeNode[],
+  path: string,
+): { nodes: TreeNode[]; removed: TreeNode | null } {
+  const out: TreeNode[] = [];
+  let removed: TreeNode | null = null;
+  for (const n of nodes) {
+    if (removed === null && n.path === path) {
+      removed = n;
+      continue;
+    }
+    if (removed === null && n.children.length > 0) {
+      const inner = removeTreeNode(n.children, path);
+      if (inner.removed) {
+        removed = inner.removed;
+        out.push({ ...n, children: inner.nodes });
+      } else {
+        out.push(n);
+      }
+    } else {
+      out.push(n);
+    }
+  }
+  return { nodes: out, removed };
+}
+
+/** 在 target 所在兄弟组插入占位槽(沿途浅拷贝) */
+function insertSlotNode(
+  nodes: TreeNode[],
+  targetPath: string,
+  zone: "before" | "after",
+  slot: TreeNode,
+): TreeNode[] {
+  const out: TreeNode[] = [];
+  for (const n of nodes) {
+    if (n.path === targetPath) {
+      if (zone === "before") out.push(slot, n);
+      else out.push(n, slot);
+      continue;
+    }
+    out.push(
+      n.children.length > 0
+        ? { ...n, children: insertSlotNode(n.children, targetPath, zone, slot) }
+        : n,
+    );
+  }
+  return out;
+}
+
 function findTreeNode(nodes: TreeNode[], path: string): TreeNode | null {
   for (const node of nodes) {
     if (node.path === path) return node;
@@ -298,8 +394,8 @@ function TreeRow({
   onSelectSubtree,
   dragPath,
   dropHint,
-  onDragOverRow,
-  onDropRow,
+  onDragStartRow,
+  onDragEndRow,
 }: {
   node: TreeNode;
   depth: number;
@@ -339,9 +435,45 @@ function TreeRow({
   onSelectSubtree: (folderRel: string) => void;
   dragPath: React.MutableRefObject<string | null>;
   dropHint: { path: string; zone: DropZone } | null;
-  onDragOverRow: (path: string, zone: DropZone | null) => void;
-  onDropRow: (target: string, zone: DropZone) => void;
+  /** 拖拽发起(驱动预览树 + 行几何快照) */
+  onDragStartRow: (path: string) => void;
+  /** 拖拽结束(取消/松手兜底收尾) */
+  onDragEndRow: () => void;
 }) {
+  // 拖拽预占位槽:按被拖条目的真实样式渲染(图标 + 标题 + 行高),虚线主色框表示落位;
+  // 被让位的行由 DocTree 的 FLIP 上下滑过渡。无 hooks,该分支实例恒定不换形。
+  if (isDropSlot(node)) {
+    const slotIconId = iconMap.get(node.slotFor);
+    const SlotIcon = treeIconComponent(slotIconId);
+    return (
+      <div
+        data-path={node.path}
+        aria-hidden
+        className={cn(
+          "border-primary/50 bg-primary/10 flex w-full items-center gap-1.5 rounded-lg border border-dashed py-1 pr-2 text-[13px]",
+          node.isDir ? "min-h-9" : "min-h-8",
+        )}
+        style={{ paddingLeft: 2 }}
+      >
+        <span className="size-5 shrink-0" aria-hidden />
+        <span
+          className={cn(
+            "flex size-5 shrink-0 items-center justify-center",
+            node.isDir ? "text-primary" : "text-muted-foreground",
+          )}
+        >
+          {SlotIcon ? (
+            <SlotIcon className="size-3.5" data-tree-icon={slotIconId} />
+          ) : node.isDir ? (
+            <FolderGlyph className="size-3.5" />
+          ) : (
+            <DocGlyph className="size-3.5" />
+          )}
+        </span>
+        <span className={cn("truncate", node.isDir && "font-medium")}>{node.name}</span>
+      </div>
+    );
+  }
   const active = !node.isDir && node.path === currentPath;
   const isCollapsed = collapsed.has(node.path);
   // 缩进由子树导轨承担,行自身保持同一安全边;深度参数仅继续传给递归组件
@@ -354,6 +486,9 @@ function TreeRow({
   // 置顶行不参与拖拽(永远在组内最上,落位无意义);筛选态全禁
   const noDrag = dragLocked || (pinned && !node.isDir);
   const renaming = renamingPath === node.path;
+  // 右键新建子文件夹后,菜单关闭时 Radix 会把焦点还给触发行,抢走新文件夹的行内重命名框;
+  // 这个动作只对「新建子文件夹」抑制一次关闭回焦。
+  const suppressMenuFocusRef = useRef(false);
 
   if (renaming) {
     const commit = (value: string) => {
@@ -414,7 +549,7 @@ function TreeRow({
             data-path={node.path}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "chrome-tree-row group relative flex w-full items-center gap-1.5 rounded-lg py-1 pr-2 text-left text-[13px] transition-colors",
+              "chrome-tree-row group relative flex w-full cursor-pointer items-center gap-1.5 rounded-lg py-1 pr-2 text-left text-[13px] transition-colors",
               // 当前文档用 raised 白底+主色描边;批量选择时关掉胶囊/左色条,避免和勾选框挤成紫边残影
               // (平铺风格由 [data-ui-style=flat] .chrome-tree-row-active 改成左条选中)
               selected
@@ -422,8 +557,8 @@ function TreeRow({
                 : active && !selectionMode
                   ? "chrome-tree-row-active bg-raised text-foreground ring-primary/35 shadow-[0_1px_2px_color-mix(in_oklab,var(--workspace)_45%,transparent)] ring-1"
                   : node.isDir
-                    ? "hover:bg-raised/60 text-foreground/90 font-medium"
-                    : "hover:bg-raised/55 text-foreground/80",
+                    ? "hover:bg-hover text-foreground/90 font-medium"
+                    : "hover:bg-hover text-foreground/80",
               active && selectionMode && !selected && "text-foreground",
               revealedPath === node.path && "ring-primary/45 ring-2",
               node.isDir ? "min-h-9" : "min-h-8",
@@ -431,9 +566,10 @@ function TreeRow({
             )}
             style={{
               ...pad,
-              ...(hint === "before"
+              // 常规落位的「预占位槽」在预览树里;细线只兜底置顶行(预览树排除的落位)
+              ...(pinned && !node.isDir && hint === "before"
                 ? { boxShadow: "inset 0 2px 0 0 color-mix(in oklab, var(--primary) 70%, transparent)" }
-                : hint === "after"
+                : pinned && !node.isDir && hint === "after"
                   ? { boxShadow: "inset 0 -2px 0 0 color-mix(in oklab, var(--primary) 70%, transparent)" }
                   : {}),
             }}
@@ -444,6 +580,7 @@ function TreeRow({
                 return;
               }
               dragPath.current = node.path;
+              onDragStartRow(node.path);
               e.dataTransfer.effectAllowed = "move";
               // WebKit/WKWebView 必须在 dragstart 里 setData 才会发起拖拽(Chrome 不要求)
               e.dataTransfer.setData("text/plain", node.path);
@@ -451,41 +588,7 @@ function TreeRow({
             }}
             onDragEnd={() => {
               dragPath.current = null;
-              onDragOverRow(node.path, null);
-            }}
-            onDragOver={(e) => {
-              const dragged = dragPath.current;
-              if (dragLocked || !dragged || dragged === node.path || node.path.startsWith(dragged + "/")) return;
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "move";
-              const rect = e.currentTarget.getBoundingClientRect();
-              const ratio = (e.clientY - rect.top) / rect.height;
-              const zone: DropZone = node.isDir
-                ? ratio < 0.25
-                  ? "before"
-                  : ratio > 0.75
-                    ? "after"
-                    : "into"
-                : ratio < 0.5
-                  ? "before"
-                  : "after";
-              onDragOverRow(node.path, zone);
-            }}
-            onDragLeave={() => onDragOverRow(node.path, null)}
-            onDrop={(e) => {
-              e.preventDefault();
-              const rect = e.currentTarget.getBoundingClientRect();
-              const ratio = (e.clientY - rect.top) / rect.height;
-              const zone: DropZone = node.isDir
-                ? ratio < 0.25
-                  ? "before"
-                  : ratio > 0.75
-                    ? "after"
-                    : "into"
-                : ratio < 0.5
-                  ? "before"
-                  : "after";
-              onDropRow(node.path, zone);
+              onDragEndRow();
             }}
             onClick={(e) => {
               if (node.isDir) onToggle(node.path);
@@ -595,13 +698,24 @@ function TreeRow({
             )}
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent>
+        <ContextMenuContent
+          onCloseAutoFocus={(event) => {
+            if (!suppressMenuFocusRef.current) return;
+            event.preventDefault();
+            suppressMenuFocusRef.current = false;
+          }}
+        >
           {node.isDir && (
             <>
               <ContextMenuItem onClick={() => onCreateDoc(node.path, "未命名文档")}>
                 <SquarePen /> 新建文档
               </ContextMenuItem>
-              <ContextMenuItem onClick={() => onCreateFolder(node.path, "新文件夹")}>
+              <ContextMenuItem
+                onClick={() => {
+                  suppressMenuFocusRef.current = true;
+                  onCreateFolder(node.path, "新文件夹");
+                }}
+              >
                 <FolderPlus /> 新建子文件夹
               </ContextMenuItem>
               <ContextMenuItem disabled={countDocs(node) === 0} onClick={() => onSelectSubtree(node.path)}>
@@ -739,8 +853,8 @@ function TreeRow({
               moveFolders={moveFolders}
               dragPath={dragPath}
               dropHint={dropHint}
-              onDragOverRow={onDragOverRow}
-              onDropRow={onDropRow}
+              onDragStartRow={onDragStartRow}
+              onDragEndRow={onDragEndRow}
             />
           ))}
         </div>
@@ -780,6 +894,7 @@ export function DocTree({
   onBackHome,
   onOpenOtherKb,
   onCreateKb,
+  onCopyRootPath,
   trashCount,
   orphanCount,
   onOpenOrphans,
@@ -798,7 +913,123 @@ export function DocTree({
   resizing,
 }: DocTreeProps) {
   const dragPath = useRef<string | null>(null);
-  const [dropHint, setDropHint] = useState<{ path: string; zone: DropZone } | null>(null);
+  const [dropHint, setDropHintState] = useState<{ path: string; zone: DropZone } | null>(null);
+  /** dropHint 同步镜像:nav 上松手时取当前落位(setState 异步不可靠) */
+  const dropHintRef = useRef<{ path: string; zone: DropZone } | null>(null);
+  const setDropHint = (next: { path: string; zone: DropZone } | null) => {
+    dropHintRef.current = next;
+    setDropHintState(next);
+  };
+  /** 正在拖拽的行(响应式):驱动预览树(移除自身 + 插入占位槽) */
+  const [draggingPath, setDraggingPath] = useState<string | null>(null);
+  const draggingPathRef = useRef<string | null>(null);
+  /**
+   * 拖起时的行几何快照(导航内容坐标,与滚动无关)。落点判定只看「快照 + 指针」,
+   * 不看正在动画的行 —— 否则行一动判定就变、判定一变布局又动,自激抖动甚至死循环。
+   */
+  const dragRowsRef = useRef<DragRowRect[]>([]);
+  /**
+   * 松手后预览保持到上层 tree 真正刷新再收尾,避免「行先弹回原位、刷新后再移动」两段动画;
+   * tree 未变(空操作/失败)由 600ms 兜底计时器收尾。
+   */
+  const [pendingRelease, setPendingRelease] = useState(false);
+  const treeAtDropRef = useRef(tree);
+  const releaseTimerRef = useRef<number | null>(null);
+  /** 目录路径集合:快照行需要 isDir 来决定 into 区间 */
+  const dirPaths = useMemo(() => {
+    const set = new Set<string>();
+    const walk = (nodes: TreeNode[]) => {
+      for (const n of nodes) {
+        if (n.isDir) set.add(n.path);
+        walk(n.children);
+      }
+    };
+    walk(tree);
+    return set;
+  }, [tree]);
+
+  /** 拖拽预览树:移除被拖行、在落点插入占位槽(into 拖拽仍走原有文件夹高亮,不重排) */
+  const previewTree = useMemo<TreeNode[] | null>(() => {
+    if (!draggingPath || !dropHint || dropHint.zone === "into") return null;
+    if (dropHint.path === draggingPath || dropHint.path.startsWith(draggingPath + "/")) return null;
+    if (pinnedSet.has(dropHint.path)) return null;
+    const draggedNode = findTreeNode(tree, draggingPath);
+    if (!draggedNode) return null;
+    const pruned = removeTreeNode(tree, draggingPath);
+    if (!pruned.removed) return null;
+    const slot: DropSlotNode = {
+      name: draggedNode.name,
+      path: DROP_SLOT_PATH,
+      isDir: draggedNode.isDir,
+      children: [],
+      slotFor: draggingPath,
+    };
+    return insertSlotNode(pruned.nodes, dropHint.path, dropHint.zone, slot);
+  }, [tree, draggingPath, dropHint, pinnedSet]);
+  const renderTree = previewTree ?? tree;
+
+  const finalizeDrag = () => {
+    if (releaseTimerRef.current !== null) {
+      window.clearTimeout(releaseTimerRef.current);
+      releaseTimerRef.current = null;
+    }
+    setPendingRelease(false);
+    draggingPathRef.current = null;
+    dragRowsRef.current = [];
+    setDraggingPath(null);
+    setDropHint(null);
+  };
+
+  /** 拖拽发起:记下被拖行 + 此刻(仍是原始布局)的行几何快照 */
+  const beginDrag = (path: string) => {
+    draggingPathRef.current = path;
+    setDraggingPath(path);
+    const nav = navRef.current;
+    if (!nav) return;
+    const navTop = nav.getBoundingClientRect().top;
+    const scrollTop = nav.scrollTop;
+    const rows: DragRowRect[] = [];
+    nav.querySelectorAll<HTMLElement>("[data-path]").forEach((el) => {
+      const rowPath = el.dataset.path;
+      if (!rowPath || rowPath === DROP_SLOT_PATH) return;
+      const rect = el.getBoundingClientRect();
+      rows.push({
+        path: rowPath,
+        top: rect.top - navTop + scrollTop,
+        height: rect.height,
+        isDir: dirPaths.has(rowPath),
+      });
+    });
+    dragRowsRef.current = rows;
+  };
+
+  /**
+   * 指针 → 落点。几何取拖起时的快照(被拖行自身与其子树排除),与当前预览布局无关,
+   * 因此判定稳定、不会自激;被拖行移除 + 等高占位槽插入后,槽正好落在指针下。
+   */
+  const computeHint = (clientY: number): { path: string; zone: DropZone } | null => {
+    const nav = navRef.current;
+    const dragged = draggingPathRef.current;
+    if (!nav || !dragged) return null;
+    const y = clientY - nav.getBoundingClientRect().top + nav.scrollTop;
+    return dropHintAt(
+      dragRowsRef.current.filter(
+        (row) => row.path !== dragged && !row.path.startsWith(dragged + "/"),
+      ),
+      y,
+    );
+  };
+
+  const endDrag = () => {
+    if (!pendingRelease) finalizeDrag();
+  };
+
+  /** nav 上松手(行、预占位槽、空白处统一走这里):按最近一次 dragover 的落位提交 */
+  const commitNavDrop = () => {
+    const hint = dropHintRef.current;
+    if (hint) commitDrop(hint.path, hint.zone);
+    else finalizeDrag();
+  };
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [revealedPath, setRevealedPath] = useState<string | null>(null);
   const [iconPickerPath, setIconPickerPath] = useState<string | null>(null);
@@ -953,7 +1184,6 @@ export function DocTree({
   const commitDrop = (target: string, zone: DropZone) => {
     const dragged = dragPath.current;
     dragPath.current = null;
-    setDropHint(null);
     if (!dragged || dragged === target) return;
     if (target.startsWith(dragged + "/")) return; // 不能拖进自己的子树
     // 置顶行永远在组内最上,before/after 落位无意义(拖拽发起端已禁,此处兜底)
@@ -961,20 +1191,119 @@ export function DocTree({
     if (zone === "into") {
       // 层级调整 = 文件系统移动(名字不变),排序由 moveEntry 落尾
       onMoveEntry(dragged, target);
-      return;
+    } else {
+      // before/after:同组 = 改序;跨组 = 移动到目标所在文件夹并落在目标旁
+      const parentRel = parentOf(target);
+      const sameGroup = parentOf(dragged) === parentRel;
+      const name = dragged.split("/").pop() ?? dragged; // applySiblingOrder 会补父前缀
+      const siblings = listAt(tree, parentRel)
+        .map((n) => n.path)
+        .filter((p) => p !== dragged);
+      const idx = siblings.indexOf(target);
+      siblings.splice(zone === "before" ? idx : idx + 1, 0, name);
+      if (sameGroup) onReorder(parentRel, siblings);
+      else onMoveEntry(dragged, parentRel, siblings);
     }
-    // before/after:同组 = 改序;跨组 = 移动到目标所在文件夹并落在目标旁
-    const parentRel = parentOf(target);
-    const sameGroup = parentOf(dragged) === parentRel;
-    const name = dragged.split("/").pop() ?? dragged; // applySiblingOrder 会补父前缀
-    const siblings = listAt(tree, parentRel)
-      .map((n) => n.path)
-      .filter((p) => p !== dragged);
-    const idx = siblings.indexOf(target);
-    siblings.splice(zone === "before" ? idx : idx + 1, 0, name);
-    if (sameGroup) onReorder(parentRel, siblings);
-    else onMoveEntry(dragged, parentRel, siblings);
+    // 预览保持到 tree 刷新(见 finalizeDrag);空操作由兜底计时器收尾
+    flipFirstRef.current = captureRowTops();
+    treeAtDropRef.current = tree;
+    setPendingRelease(true);
+    releaseTimerRef.current = window.setTimeout(finalizeDrag, 600);
   };
+
+  // tree 真正刷新(移动生效)→ 收尾:预览布局 FLIP 过渡到最终布局
+  useEffect(() => {
+    if (pendingRelease && tree !== treeAtDropRef.current) finalizeDrag();
+  }, [tree, pendingRelease]);
+
+  /**
+   * FLIP 行位移:渲染前记录各行 top(First),渲染后按差值反向位移再过渡回 0。
+   * 占位让位、落位、取消拖拽都走同一条通道;只在拖拽会话内播(含收尾那一帧),
+   * 其余布局变化只刷新基线,不误触发动画。
+   */
+  const rowRectsRef = useRef(new Map<string, number>());
+  const dragAnimActiveRef = useRef(false);
+  const flipAnimationsRef = useRef<Animation[]>([]);
+  /**
+   * 提交新落点前记录的「当前视觉位置」(含未播完的动画位移)。
+   * FLIP 的 First 必须在 React 改 DOM 之前取:否则连续拖动时动画被反复打断成
+   * 「瞬移到上一轮终点 + 重新起步」,看起来一顿一顿。
+   */
+  const flipFirstRef = useRef<Map<string, number> | null>(null);
+  const captureRowTops = () => {
+    const nav = navRef.current;
+    if (!nav) return null;
+    const map = new Map<string, number>();
+    nav.querySelectorAll<HTMLElement>("[data-path]").forEach((el) => {
+      const path = el.dataset.path;
+      if (path) map.set(path, el.getBoundingClientRect().top);
+    });
+    return map;
+  };
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const first = flipFirstRef.current;
+    flipFirstRef.current = null;
+    // 取消上一轮未播完的动画,让 Last 是真实布局位置(First 已在渲染前捕获)
+    for (const animation of flipAnimationsRef.current) animation.cancel();
+    flipAnimationsRef.current = [];
+    const rows = nav.querySelectorAll<HTMLElement>("[data-path]");
+    const prev = rowRectsRef.current;
+    const next = new Map<string, number>();
+    rows.forEach((el) => {
+      const path = el.dataset.path;
+      if (path) next.set(path, el.getBoundingClientRect().top);
+    });
+    const dragActive = draggingPath !== null || pendingRelease;
+    // jsdom 无 matchMedia / element.animate:守卫后再播动画
+    const reduceMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!reduceMotion && (dragActive || dragAnimActiveRef.current)) {
+      rows.forEach((el) => {
+        const path = el.dataset.path;
+        if (!path || typeof el.animate !== "function") return;
+        // First 优先用渲染前捕获的视觉位置;没有捕获(如折叠/外部刷新)才退回基线
+        const oldTop = first ? first.get(path) : prev.get(path);
+        const newTop = next.get(path)!;
+        if (oldTop !== undefined && Math.abs(oldTop - newTop) > 1) {
+          flipAnimationsRef.current.push(
+            el.animate(
+              [{ transform: `translateY(${oldTop - newTop}px)` }, { transform: "translateY(0)" }],
+              { duration: 200, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+            ),
+          );
+        }
+      });
+    }
+    dragAnimActiveRef.current = dragActive;
+    rowRectsRef.current = next;
+  }, [previewTree, tree, collapsed, draggingPath, pendingRelease]);
+
+  // 卸载时清掉兜底计时器与未播完的动画
+  useEffect(
+    () => () => {
+      if (releaseTimerRef.current !== null) window.clearTimeout(releaseTimerRef.current);
+      for (const animation of flipAnimationsRef.current) animation.cancel();
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const refresh = () => {
+      const map = new Map<string, number>();
+      nav.querySelectorAll<HTMLElement>("[data-path]").forEach((el) => {
+        const path = el.dataset.path;
+        if (path) map.set(path, el.getBoundingClientRect().top);
+      });
+      rowRectsRef.current = map;
+    };
+    nav.addEventListener("scroll", refresh, { passive: true });
+    return () => nav.removeEventListener("scroll", refresh);
+  }, []);
 
   return (
     <aside
@@ -1005,7 +1334,7 @@ export function DocTree({
         ) : (
           <>
             <div className="flex items-start gap-1 px-0.5 pt-0.5 pb-1">
-              {/* 身份 = 文件夹名;完整路径只做 title。工作区切换与「新建/批量」拆开,不再挤成一坨卡 */}
+              {/* 身份 = 文件夹名 + 上级目录;完整路径收进 title 与菜单,状态栏不再重复展示。 */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -1040,6 +1369,13 @@ export function DocTree({
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={onCreateKb}>
                     <FolderPlus /> 新建知识库…
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={onCopyRootPath}>
+                    <Copy /> 复制知识库路径
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onRevealEntry("")}>
+                    <FolderOpen /> 在文件管理器中显示
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -1114,7 +1450,24 @@ export function DocTree({
           <nav
             ref={navRef}
             className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pt-1 pb-2"
-            onDragOver={(e) => e.preventDefault()} /* 允许拖到空白处松手(仅清除提示) */
+            onDragOver={(e) => {
+              // 统一在 nav 上判定落点:几何来自拖起时的快照,与正在动画的行无关
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              const next = computeHint(e.clientY);
+              const prevHint = dropHintRef.current;
+              // 落点没变就别 setState:否则每次 mousemove 都重渲染 + cancel 上一轮动画,
+              // 动画永远播不完(看起来就是瞬移)。要变时先把当前视觉位置记下来,
+              // FLIP 才能从「此刻」平滑起步。
+              if (prevHint?.path !== next?.path || prevHint?.zone !== next?.zone) {
+                flipFirstRef.current = captureRowTops();
+                setDropHint(next);
+              }
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              commitNavDrop();
+            }}
           >
             {tree.length === 0 ? (
               <div className="text-muted-foreground border-border-subtle mx-1 rounded-xl border border-dashed px-3 py-6 text-center">
@@ -1127,7 +1480,7 @@ export function DocTree({
                 )}
               </div>
             ) : (
-              tree.map((node) => (
+              renderTree.map((node) => (
                 <TreeRow
                   key={node.path}
                   node={node}
@@ -1164,13 +1517,8 @@ export function DocTree({
                   moveFolders={moveFolders}
                   dragPath={dragPath}
                   dropHint={dropHint}
-                  onDragOverRow={(path, zone) => {
-                    setDropHint((prev) => {
-                      if (zone) return prev?.path === path && prev.zone === zone ? prev : { path, zone };
-                      return prev?.path === path ? null : prev;
-                    });
-                  }}
-                  onDropRow={commitDrop}
+                  onDragStartRow={beginDrag}
+                  onDragEndRow={endDrag}
                 />
               ))
             )}

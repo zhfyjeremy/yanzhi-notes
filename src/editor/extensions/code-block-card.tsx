@@ -22,6 +22,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Fragment } from "@tiptap/pm/model";
+import type { Schema } from "@tiptap/pm/model";
 import { cardAiAvailable, runCardAi } from "@/ai/card-bridge";
 import type { AiActionId } from "@/ai/actions";
 
@@ -530,5 +532,21 @@ export const CodeBlockCard = CodeBlock.extend({
 
   addProseMirrorPlugins() {
     return [codeHighlightPlugin()];
+  },
+
+  parseHTML() {
+    return [
+      {
+        tag: "pre",
+        preserveWhitespace: "full",
+        // CommonMark 围栏/缩进代码块的内容天然带尾换行(闭合围栏前的换行算内容),
+        // PM 里它会成为一个空尾行:行号多一行、视觉多一行空内容。
+        // 解析时剥掉尾换行,与 serialize.ts 落盘口径一致(代码内空行不受影响)。
+        getContent: (dom: Node, schema: Schema) => {
+          const text = (dom.textContent ?? "").replace(/(?:\r?\n)+$/, "");
+          return text ? Fragment.from(schema.text(text)) : Fragment.empty;
+        },
+      },
+    ];
   },
 });

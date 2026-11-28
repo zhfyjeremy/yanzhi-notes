@@ -30,6 +30,8 @@ export function TocPanel({
   sourceOutlineController?: MarkdownSourceOutlineController | null;
 }) {
   const [activePos, setActivePos] = useState<number | null>(null);
+  // 源码态标题表不是 React 状态:源码一变就让面板重渲染,新输入的标题即时出现
+  const [, bumpSourceVersion] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -57,6 +59,11 @@ export function TocPanel({
   const headings = sourceOutlineController
     ? sourceOutlineController.headings()
     : editorHeadings;
+
+  useEffect(() => {
+    if (!sourceOutlineController) return;
+    return sourceOutlineController.subscribe(() => bumpSourceVersion((v) => v + 1));
+  }, [sourceOutlineController]);
 
   const visibleHeadings = useMemo(() => {
     const q = query.trim().toLocaleLowerCase();

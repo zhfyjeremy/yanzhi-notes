@@ -156,9 +156,16 @@ export interface KbBackend {
   removeRecentFile(path: string): Promise<void>;
   listenSingleFileEvent(cb: (path: string) => void): Promise<() => void>;
   /* ---- 单文件 P1 ---- */
-  saveSingleAsset(path: string, ext: string, bytes: Uint8Array): Promise<string>;
+  /** nameHint = 原始文件名,用于生成可读资源名「<原始名>-<短哈希>.<ext>」;单文件资源目录为 <文件名>.assets */
+  saveSingleAsset(path: string, ext: string, bytes: Uint8Array, nameHint?: string): Promise<string>;
   importSingleImagesFromPicker(path: string): Promise<string[] | null>;
   importSingleAttachmentsFromPicker(path: string): Promise<AttachmentInfo[] | null>;
+  /** 把本地绝对路径的资源按内容哈希复制到单文件旁的 assets(未命名缓冲区落盘时迁移资源用);返回 ./assets/<hash>.<ext> */
+  importSingleAssetFromPath(toPath: string, srcAbs: string): Promise<string | null>;
+  /** 列出单文件资源目录里的文件名(不递归);目录不存在返回空。「清理未引用图片」用 */
+  listSingleAssets(path: string): Promise<string[]>;
+  /** 删除单文件资源目录里的文件(只接受单段文件名);返回删除数量,删空后目录一并移除 */
+  deleteSingleAssets(path: string, names: string[]): Promise<number>;
   openSingleAttachment(path: string, src: string): Promise<"ok" | "missing" | "unsupported">;
   readSingleAssetBase64(path: string, src: string): Promise<{ data: string; mime: string } | null>;
   resolveSingleAssetSrc(path: string, src: string): string;

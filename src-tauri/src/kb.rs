@@ -164,90 +164,75 @@ fn ensure_yanzhi(root: &Path) -> Result<(), String> {
 
 const STARTER_MD: &str = r#"# 开始使用
 
-> [!INFO] 这份文档本身就是示例
-> 你看到的标题、列表、表格、代码块都是标准 Markdown。可以直接编辑它,也可以随时删除它。
+> [!SUCCESS] 先做这 3 件事
+> 1. 在下面写两行字 —— 停止输入 2 秒自动保存
+> 2. 点左栏 `+` 新建一篇文档,输入 `/` 插入标题或表格
+> 3. 回到这里输入 `[[`,把两篇文档连起来
 
-## 1. 内容存在哪里
+这份文档就是一份普通的 Markdown 文件,可以随便改,也可以删除。
 
-砚知把笔记存在你选择的本地文件夹里,不上云、无账号。
+## 1. 写:直接输入,自动保存
 
-- 知识库 = 你指定的一个普通文件夹
-- `.md` 是标准 Markdown 文档,其它编辑器也能直接打开
-- 图片和附件保存在文档所在文件夹的 `assets` 里
-- `.yanzhi` 只保存软件偏好与回收站,删除它不会影响正文
+- 不用点保存:停止输入 2 秒自动保存,`⌘/Ctrl+S` 可立即保存
+- 选中文字后,浮动条可以加粗、高亮、加链接
+- 输入 `/` 打开插入菜单:标题、任务、表格、代码块、图片、附件、公式、Mermaid
+- 按 `⌘/Ctrl+/` 切换 Markdown 源码,看看排版背后的写法
+
+> [!INFO] 现在就试
+> 直接在正文空白处写两行字,停 2 秒,看看底部状态栏有没有变成「已自动保存」。
+
+## 2. 整理:目录、标签、大纲
+
+- 左栏顶部 `+` 新建文档或文件夹;拖动条目可以调整顺序
+- 点击文档会在标签页打开,可同时打开多篇;`⌘/Ctrl+W` 关闭当前标签
+- 右栏:
+  - **大纲** 随标题自动生成,点击可跳转
+  - **标签** 用来做主题、项目、状态筛选
+  - **反向链接** 查看谁引用了当前文档
+  - **历史版本** 可恢复之前的快照
+- 删除的文档先进左栏底部「回收站」,可以恢复
+
+## 3. 连接:用双链把笔记串起来
+
+输入 `[[` 会弹出文档列表。例如 [[开始使用]]。
+
+- `[[文档名]]`:链接到文档
+- `[[文件夹/文档名]]`:文档重名时用路径区分
+- `[[文档名|显示文字]]`:自定义链接文字
+
+右栏「反向链接」会显示哪些文档引用了当前这篇。
+
+## 4. 保存与备份:文件就在你的文件夹里
+
+- 知识库 = 你选择的一个普通文件夹;`.md` 是标准 Markdown,其它编辑器也能打开
+- 图片和附件保存在文档旁边的 `assets/` 里,使用相对路径
+- `.yanzhi/` 只保存软件偏好、回收站和历史版本;删除它不会影响正文
 - 复制整个文件夹 = 备份,也能直接带到另一台电脑
+- 左上角库名菜单可以「复制知识库路径」或「在文件管理器中显示」
 
-## 2. 先试几个常用排版
+## 5. 可选:AI 助手
 
-**加粗**、*斜体*、~~删除线~~、`行内代码`,以及 ==重点高亮==。
+AI 默认关闭,不开就不联网。需要时在「设置 → AI 助手」填入自己的 API Key / Base URL / 模型。
 
-- 无序列表:按 Enter 自动延续
-    1. 有序列表
-    2. 任务与表格可以混在日常笔记里
-- [ ] 勾选一个任务
-- [x] 已完成任务
+- 选中文字 → 浮动条上的润色 / 扩写 / 缩写
+- 右键 → AI 助手;输入 `/ai` 也可以打开动作菜单
+- 结果先预览,再选择插入 / 替换 / 仅复制
 
-> 引用适合放摘录或补充说明。
+## 常用操作速查
 
-| 能力 | 输入方式 | 常见用途 |
-| --- | --- | --- |
-| 标题 | 输入 `/` 或使用工具栏 | 整理论文、方案、日记结构 |
-| 任务列表 | 输入 `/` 或待办按钮 | 记录行动项 |
-| 表格 | 输入 `/` 插入表格 | 对比、清单、数据 |
-| 双链 | 输入 `[[` | 把资料连成网络 |
-
-## 3. 把资料连接起来
-
-输入 `[[` 可以引用知识库里的文档,例如 [[开始使用]]。标签在右侧面板维护,适合做项目、主题和状态筛选;大纲会随标题自动生成。
-
-## 4. 插入图片、附件和代码
-
-输入 `/` 打开插入菜单,可以插入图片、附件、表格、代码块、引用和分割线。图片会保存为相对路径,不会嵌进 Markdown 正文。
-
-```ts
-// 代码块支持语言高亮、行号和复制
-const note = "标准 Markdown,换电脑也能打开";
-console.log(note);
-```
-
-## 5. 可选:AI 助手(自备钥匙)
-
-AI **默认关闭**,不开就不联网。需要时在 **设置 → AI 助手** 打开总开关,填入你自己的 API Key / Base URL / 模型并完成连接测试。砚知不设账号、不做云中转、不代扣费。
-
-开启后可以从这些入口使用:
-
-- 选中文字 → 浮动条上的润色 / 扩写 / 缩写 /「更多」
-- 右键 →「AI 助手」(无选区时可用「续写」)
-- 快捷键 `⌘/Ctrl+Shift+A` 打开动作菜单(可在「快捷键说明」里改键)
-- 输入 `/ai` 从斜杠菜单挑选动作
-- 代码块卡片悬停「AI」:解释 / 改写代码;Mermaid 可修正;也可生成公式与图表
-
-结果会先预览,再选择 **插入 / 替换 / 仅复制**;不喜欢可用撤销。
-
-## 6. 看看底层 Markdown
-
-砚知是所见即所得编辑器,但文件本体始终是标准 Markdown。下面这段源码可以和上面的排版对照着看:
-
-```md
-# 一级标题
-
-**加粗** 和 ==高亮==
-
-- [ ] 任务项
-
-| 列一 | 列二 |
+| 想做什么 | 在哪里 |
 | --- | --- |
-| 表格 | 内容 |
+| 新建文档 / 文件夹 | 左栏顶部 `+`,或右键目录 |
+| 搜索 | 左上角搜索框,支持标题、正文、路径 |
+| 看文档结构 | 右栏「大纲」 |
+| 看谁引用了这篇 | 右栏「反向链接」 |
+| 恢复删除 | 左栏底部「回收站」 |
+| 看 Markdown 源码 | 左下角「源码」或 `⌘/Ctrl+/` |
+| 导出 | 菜单「文件 → 导出」(Word / PDF / HTML) |
+| 更多帮助 | 菜单「帮助 → 使用文档 / 快捷键说明」 |
 
-[[目标文档]]
-```
-
-## 7. 继续探索
-
-- 左栏顶部可以切换知识库、返回欢迎页或打开 Markdown 文件
-- 右栏有标签、大纲、反向链接和历史版本
-- 删除文档会先进回收站,不怕误删
-- 帮助菜单里还有「使用文档」和快捷键说明
+> [!INFO] 不用一次看完
+> 先写一篇自己的笔记,遇到问题再回来查。
 "#;
 
 /// async 命令:跑在运行时线程,blocking_pick_folder 不会卡主线程事件循环。
@@ -1408,21 +1393,79 @@ fn ext_sanitize(ext: &str) -> String {
     if e.is_empty() { "png".to_string() } else { e }
 }
 
-/// 图片字节写进「文档所在文件夹/assets/」,内容哈希命名,同内容不重写(9.3.2/9.3.3)
+/// 资源目录名:知识库模式默认 `assets`;单文件模式传「<文件名>.assets」(每篇自带,归属清晰)。
+/// 只接受单段目录名,拒绝分隔符与 `.`/`..`。
+fn assets_dir_name(assets_dir: Option<&str>) -> String {
+    assets_dir
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !s.contains('/') && !s.contains('\\') && *s != "." && *s != "..")
+        .unwrap_or("assets")
+        .to_string()
+}
+
+/// 清洗可读资源名:去扩展名、去非法字符、折叠空白、去掉尾部「-短哈希」(迁移时避免叠加)、限长 40 字符。
+fn sanitize_asset_name(raw: &str) -> Option<String> {
+    let stem = match raw.rsplit_once('.') {
+        Some((s, _)) if !s.is_empty() => s,
+        _ => raw,
+    };
+    let cleaned: String = stem
+        .chars()
+        .filter(|c| !c.is_control() && !r#"\/:*?"<>|"#.contains(*c))
+        .collect();
+    let cleaned = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    let cleaned = cleaned.trim().trim_end_matches('.').to_string();
+    let cleaned = match cleaned.rsplit_once('-') {
+        Some((head, tail)) if tail.len() == 8 && tail.chars().all(|c| c.is_ascii_hexdigit()) => {
+            head.trim_end().to_string()
+        }
+        _ => cleaned,
+    };
+    let mut out = String::new();
+    for ch in cleaned.chars() {
+        if out.chars().count() >= 40 {
+            break;
+        }
+        out.push(ch);
+    }
+    let out = out.trim().trim_end_matches('.').to_string();
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+/// 资源文件名:有可读提示(原始文件名)时「<原始名>-<短哈希>.<ext>」,同内容同名;
+/// 无提示则纯内容哈希(知识库模式沿用,前端 mock 同式)。
+fn asset_file_name(bytes: &[u8], ext: &str, name_hint: Option<&str>) -> String {
+    let hash = fnv1a_hex(bytes);
+    let ext = ext_sanitize(ext);
+    match name_hint.and_then(sanitize_asset_name) {
+        Some(hint) => format!("{hint}-{}.{}", &hash[..8], ext),
+        None => format!("{hash}.{ext}"),
+    }
+}
+
+/// 图片字节写进「文档所在文件夹/<资源目录>/」,内容哈希命名,同内容不重写(9.3.2/9.3.3)。
+/// `assets_dir`/`name_hint` 由单文件模式传入;知识库模式不传,行为不变。
 fn save_asset_bytes(
     root: &str,
     doc_rel: &str,
     ext: &str,
     bytes: &[u8],
+    assets_dir: Option<&str>,
+    name_hint: Option<&str>,
 ) -> Result<AssetInfo, String> {
     if doc_rel.is_empty() {
-        return Err("未打开文档,无法定位 assets 目录".into());
+        return Err("未打开文档,无法定位资源目录".into());
     }
     let doc_abs = resolve(root, doc_rel)?;
     let folder = doc_abs.parent().ok_or("无父目录")?.to_path_buf();
-    let assets = folder.join("assets");
+    let dir = assets_dir_name(assets_dir);
+    let assets = folder.join(&dir);
     fs::create_dir_all(&assets).map_err(err)?;
-    let name = format!("{}.{}", fnv1a_hex(bytes), ext_sanitize(ext));
+    let name = asset_file_name(bytes, ext, name_hint);
     let abs = assets.join(&name);
     if !abs.exists() {
         let tmp = assets.join(format!("{name}.tmp"));
@@ -1430,7 +1473,7 @@ fn save_asset_bytes(
         fs::rename(&tmp, &abs).map_err(err)?;
     }
     Ok(AssetInfo {
-        src: format!("./assets/{name}"),
+        src: format!("./{dir}/{name}"),
     })
 }
 
@@ -1441,19 +1484,91 @@ pub fn save_asset(
     doc_rel: &str,
     ext: &str,
     bytes: Vec<u8>,
+    assets_dir: Option<String>,
+    name_hint: Option<String>,
 ) -> Result<AssetInfo, String> {
-    save_asset_bytes(root, doc_rel, ext, &bytes)
+    save_asset_bytes(root, doc_rel, ext, &bytes, assets_dir.as_deref(), name_hint.as_deref())
 }
 
-/// 从本地路径导入图片/附件(斜杠菜单「图片/附件」的文件选择入口):读盘 → 哈希 → assets
+/// 从本地路径导入图片/附件(斜杠菜单「图片/附件」的文件选择入口):读盘 → 哈希 → 资源目录
 #[tauri::command]
-pub fn import_asset(root: &str, doc_rel: &str, src_abs: &str) -> Result<AssetInfo, String> {
+pub fn import_asset(
+    root: &str,
+    doc_rel: &str,
+    src_abs: &str,
+    assets_dir: Option<String>,
+    name_hint: Option<String>,
+) -> Result<AssetInfo, String> {
     let bytes = fs::read(src_abs).map_err(|_| format!("无法读取文件: {src_abs}"))?;
     let ext = Path::new(src_abs)
         .extension()
         .map(|e| e.to_string_lossy().to_string())
         .unwrap_or_default();
-    save_asset_bytes(root, doc_rel, &ext, &bytes)
+    save_asset_bytes(root, doc_rel, &ext, &bytes, assets_dir.as_deref(), name_hint.as_deref())
+}
+
+/// 单文件:列出「<文件名>.assets/」里的文件名(不递归、跳过符号链接);目录不存在返回空。
+/// 供「清理未引用图片」用 —— 不自动删,只列出交给用户确认。
+#[tauri::command]
+pub fn list_single_assets(path: &str, assets_dir: Option<String>) -> Result<Vec<String>, String> {
+    let doc_abs = PathBuf::from(path)
+        .canonicalize()
+        .map_err(|_| "文件不存在或已被移动".to_string())?;
+    let folder = doc_abs.parent().ok_or("无父目录")?.to_path_buf();
+    let dir = folder.join(assets_dir_name(assets_dir.as_deref()));
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for entry in fs::read_dir(&dir).map_err(err)? {
+        let entry = entry.map_err(err)?;
+        let ft = entry.file_type().map_err(err)?;
+        if ft.is_symlink() || !ft.is_file() {
+            continue;
+        }
+        out.push(entry.file_name().to_string_lossy().to_string());
+    }
+    out.sort();
+    Ok(out)
+}
+
+/// 单文件:删除「<文件名>.assets/」里的文件。只接受单段文件名,解析后必须仍在该目录内;
+/// 删空后顺手移除空目录,不留空壳。
+#[tauri::command]
+pub fn delete_single_assets(
+    path: &str,
+    assets_dir: Option<String>,
+    names: Vec<String>,
+) -> Result<usize, String> {
+    let doc_abs = PathBuf::from(path)
+        .canonicalize()
+        .map_err(|_| "文件不存在或已被移动".to_string())?;
+    let folder = doc_abs.parent().ok_or("无父目录")?.to_path_buf();
+    let dir = folder.join(assets_dir_name(assets_dir.as_deref()));
+    let dir_canon = dir.canonicalize().map_err(|_| "资源目录不存在".to_string())?;
+    let mut removed = 0;
+    for name in &names {
+        if name.is_empty() || name.contains('/') || name.contains('\\') || name == "." || name == ".." {
+            continue;
+        }
+        let abs = match dir_canon.join(name).canonicalize() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        if !abs.starts_with(&dir_canon) || !abs.is_file() {
+            continue;
+        }
+        fs::remove_file(&abs).map_err(err)?;
+        removed += 1;
+    }
+    if removed > 0
+        && fs::read_dir(&dir_canon)
+            .map(|mut d| d.next().is_none())
+            .unwrap_or(false)
+    {
+        let _ = fs::remove_dir(&dir_canon);
+    }
+    Ok(removed)
 }
 
 /// 系统打开(macOS `open` / Windows `start`):附件卡片与模板文件夹共用

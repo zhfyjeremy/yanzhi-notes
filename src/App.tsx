@@ -2,8 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { CircleCheck, FileText, Folder, Loader2, X } from "lucide-react";
+import { CircleCheck, FileText, FileX, Folder, FolderOpen, Loader2, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Hint } from "@/components/hint";
 import { YanzhiEditor } from "./editor/YanzhiEditor";
 import { insertImage } from "./editor/extensions/image-card";
@@ -12,6 +13,7 @@ import { TocPanel } from "./editor/panel/TocPanel";
 import { BacklinksPanel } from "./kb/BacklinksPanel";
 import { HistoryPanel, formatSnapshotTime } from "./kb/HistoryPanel";
 import { HistoryDialog } from "./kb/HistoryDialog";
+import { MissingLinkDialog } from "./kb/MissingLinkDialog";
 import { DocTree } from "./kb/DocTree";
 import { SidebarResizer } from "./kb/SidebarResizer";
 import { DocTabs, DocTabsEmptyState } from "./kb/DocTabs";
@@ -126,35 +128,35 @@ function DocxRemoteConfirmDialog({
   onChoose: (download: boolean) => void;
 }) {
   return (
-    <Dialog open onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>导出时访问外链图片?</DialogTitle>
-          <DialogDescription>
-            文档包含 {pending.remoteImages.length} 个外链图片地址。选择下载嵌入后,砚知只会访问这些图片
-            URL,不带 Cookie、不发送遥测;失败时会降级为普通链接。
-          </DialogDescription>
-        </DialogHeader>
-        <ul className="border-border-subtle bg-raised max-h-40 overflow-auto rounded-md border p-2 font-mono text-xs">
-          {pending.remoteImages.map((url) => (
-            <li key={url} className="truncate" title={url}>
-              {url}
-            </li>
-          ))}
-        </ul>
-        <DialogFooter>
+    <ConfirmDialog
+      open
+      onOpenChange={(open) => !open && onCancel()}
+      tone="warning"
+      title="导出时访问外链图片?"
+      description="选择下载嵌入后，砚知只会访问这些图片 URL，不带 Cookie、不发送遥测；失败时会降级为普通链接。"
+      className="sm:max-w-md"
+      footer={
+        <>
           <Button variant="ghost" size="sm" onClick={onCancel}>
             取消导出
           </Button>
           <Button variant="outline" size="sm" onClick={() => onChoose(false)}>
-            不请求,导出链接
+            不请求，导出链接
           </Button>
           <Button size="sm" onClick={() => onChoose(true)}>
             下载并嵌入
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </>
+      }
+    >
+      <ul className="border-border-subtle bg-raised max-h-40 overflow-auto rounded-md border p-2 font-mono text-xs">
+        {pending.remoteImages.map((url) => (
+          <li key={url} className="truncate" title={url}>
+            {url}
+          </li>
+        ))}
+      </ul>
+    </ConfirmDialog>
   );
 }
 
@@ -513,12 +515,15 @@ function App() {
   const [tplPicker, setTplPicker] = useState<{ folder: string; name: string } | null>(null);
   const [tplNames, setTplNames] = useState<string[]>([]);
   const [tplMgrOpen, setTplMgrOpen] = useState(false);
+  // 启动时系统「打开方式」带来的 Markdown:先不要闪欢迎页,等 pending 文件消费完
+  const [startupSingleChecking, setStartupSingleChecking] = useState(true);
   const [singlePending, setSinglePending] = useState<
     | { kind: "close"; nextWindow?: boolean }
     /** 关窗挂托盘 / 真退出前的未保存确认(不关闭当前单文件会话,除非随后进程退出) */
     | { kind: "app-leave"; leave: "tray" | "quit" }
     | { kind: "open-picker" }
     | { kind: "open-path"; path: string }
+    | { kind: "new-single" }
     | { kind: "open-kb-picker" }
     | { kind: "new-kb" }
     | { kind: "open-kb"; root: string; docRel?: string }
@@ -649,6 +654,11 @@ function App() {
         if (kb.kbRoot) await kb.closeKb();
         return;
       }
+      if (pending.kind === "new-single") {
+        // 直接开一个「未命名」缓冲区:先写,保存时再选存储位置;取消选位置也不丢内容
+        await single.newUntitled();
+        return;
+      }
       if (pending.kind === "open-path") {
         if (kb.kbRoot) await kb.closeKb();
         const err = await single.openFile(pending.path);
@@ -690,6 +700,9 @@ function App() {
     },
     [runSinglePending, single.active, single.dirty],
   );
+  // 启动 effect 里需要等待异步打开完成;用 ref 读最新实现,避免 effect 依赖抖动重复消费
+  const runSinglePendingRef = useRef(runSinglePending);
+  runSinglePendingRef.current = runSinglePending;
 
   /**
    * 知识库模式「立即保存」(原生菜单 ⌘S / 前端快捷键共用):
@@ -707,34 +720,41 @@ function App() {
 
   const singlePendingDescription = useMemo(() => {
     if (!singlePending) return "";
+    let text: string;
     if (singlePending.kind === "app-leave") {
-      return singlePending.leave === "tray"
-        ? "隐藏到后台前可以先保存、放弃修改,或继续编辑。"
-        : "退出前可以先保存、放弃修改,或继续编辑。";
-    }
-    if (singlePending.kind === "close") return "关闭文件前可以先保存、放弃修改,或继续编辑。";
-    if (singlePending.kind === "open-picker") return "打开新的 Markdown 文件前,先处理当前未保存修改。";
-    if (singlePending.kind === "open-path") return "切换到新的 Markdown 文件前,先处理当前未保存修改。";
-    if (singlePending.kind === "open-kb-picker") return "打开知识库前,先处理当前未保存修改。";
-    if (singlePending.kind === "new-kb") return "新建知识库前,先处理当前未保存修改。";
-    return "切换工作区前,先处理当前未保存修改。";
-  }, [singlePending]);
+      text =
+        singlePending.leave === "tray"
+          ? "隐藏到后台前可以先保存、放弃修改,或继续编辑。"
+          : "退出前可以先保存、放弃修改,或继续编辑。";
+    } else if (singlePending.kind === "close") text = "关闭文件前可以先保存、放弃修改,或继续编辑。";
+    else if (singlePending.kind === "open-picker") text = "打开新的 Markdown 文件前,先处理当前未保存修改。";
+    else if (singlePending.kind === "open-path") text = "切换到新的 Markdown 文件前,先处理当前未保存修改。";
+    else if (singlePending.kind === "new-single") text = "新建 Markdown 文件前,先处理当前未保存修改。";
+    else if (singlePending.kind === "open-kb-picker") text = "打开知识库前,先处理当前未保存修改。";
+    else if (singlePending.kind === "new-kb") text = "新建知识库前,先处理当前未保存修改。";
+    else text = "切换工作区前,先处理当前未保存修改。";
+    // 未命名缓冲区:保存会先弹「选择存储位置」,提前说清,免得用户以为会直接写盘
+    return single.untitled ? `这份文档还没保存到磁盘,「保存」会先让你选择存储位置。${text}` : text;
+  }, [singlePending, single.untitled]);
 
   const saveAndRunSinglePending = useCallback(() => {
     const pending = singlePending;
     if (!pending) return;
     void single.save().then((ok) => {
       if (ok) void runSinglePending(pending);
-      else showToast("保存失败,当前修改未丢弃");
+      else if (single.missing) showToast("尚未另存为新位置,当前内容未丢弃");
+      else showToast(single.untitled ? "尚未保存到磁盘,当前内容未丢弃" : "保存失败,当前修改未丢弃");
     });
   }, [runSinglePending, showToast, single, singlePending]);
 
   const discardAndRunSinglePending = useCallback(() => {
     const pending = singlePending;
     if (!pending) return;
-    // 挂后台时放弃修改:重载磁盘版清 dirty,会话保留;真退出则直接走 leave
+    // 挂后台时放弃修改:有磁盘版就重载清 dirty,会话保留;未命名缓冲区没有磁盘版,直接清空
     if (pending.kind === "app-leave" && pending.leave === "tray") {
-      void single.reload().then(() => runSinglePending(pending));
+      void (single.untitled ? single.newUntitled() : single.reload()).then(() =>
+        runSinglePending(pending),
+      );
       return;
     }
     void runSinglePending(pending);
@@ -1229,6 +1249,8 @@ function App() {
         if (err) showToast(err);
       } else if (action === "open-single") {
         requestSingleAction({ kind: "open-picker" });
+      } else if (action === "new-single") {
+        requestSingleAction({ kind: "new-single" });
       } else if (action === "open-recent-single" && path) {
         requestSingleAction({ kind: "open-path", path });
       } else if (action === "close-tab") {
@@ -1246,7 +1268,10 @@ function App() {
       } else if (action === "close-single") {
         if (single.active) requestSingleAction({ kind: "close" });
       } else if (action === "save-single-to-kb") {
-        if (single.active) setSingleSaveToKbOpen(true);
+        if (single.active) {
+          if (single.filePath) setSingleSaveToKbOpen(true);
+          else showToast("请先保存文件,再存入知识库");
+        }
       } else if (action === "import-md") {
         if (single.active) {
           showToast("单文件模式请先打开知识库再导入");
@@ -1359,6 +1384,7 @@ function App() {
     focusMode,
     sourceMode,
     single.active,
+    single.filePath,
     singleOutlineOpen,
   ]);
 
@@ -1430,10 +1456,16 @@ function App() {
     const consume = () => {
       void kbBackend
         .takeStartupSingleFile()
-        .then((path) => {
-          if (path) requestSingleAction({ kind: "open-path", path });
+        .then(async (path) => {
+          if (!path) {
+            setStartupSingleChecking(false);
+            return;
+          }
+          setStartupSingleChecking(true);
+          await runSinglePendingRef.current({ kind: "open-path", path });
+          setStartupSingleChecking(false);
         })
-        .catch(() => undefined);
+        .catch(() => setStartupSingleChecking(false));
     };
     consume();
     // macOS Opened 可能早于前端监听注册;延迟后再取一次 Rust pending
@@ -1454,7 +1486,7 @@ function App() {
       window.clearTimeout(retryTimer);
       un?.();
     };
-  }, [kb.booted, requestSingleAction]);
+  }, [kb.booted]);
 
   // 关主窗 / 退出:用 ref 挂最新处理,只订一次(同 kb-menu,避免 deps 抖动泄漏多 handler)
   const requestAppLeaveRef = useRef(requestAppLeave);
@@ -1711,7 +1743,7 @@ function App() {
   }, [currentPath, kb.kbRoot, settings.recentDocs, settingsReady, updateSettings]);
   useEffect(() => {
     if (single.active) {
-      setTitle(single.fileStem);
+      setTitle(single.fileStem || "未命名文档");
       prevTitlePathRef.current = null;
       return;
     }
@@ -2107,6 +2139,17 @@ function App() {
     [showToast, wikiDocs],
   );
 
+  const copyRootPath = useCallback(async () => {
+    if (!kb.kbRoot) return;
+    try {
+      await copyPlainText(kb.kbRoot);
+      showToast("知识库路径已复制");
+    } catch (e) {
+      console.error("[copy-kb-root]", e);
+      showToast("复制失败，请重试");
+    }
+  }, [kb.kbRoot, showToast]);
+
   const revealExportedFile = useCallback((path: string) => {
     void import("@tauri-apps/plugin-opener")
       .then(({ revealItemInDir }) => revealItemInDir(path))
@@ -2116,7 +2159,7 @@ function App() {
   const revealTreeEntry = useCallback(
     (rel: string) => {
       if (!kb.kbRoot) return;
-      const abs = `${kb.kbRoot.replace(/[\\/]+$/, "")}/${rel}`;
+      const abs = rel ? `${kb.kbRoot.replace(/[\\/]+$/, "")}/${rel}` : kb.kbRoot;
       if (!isTauriEnv()) {
         showToast(`文件位置:${abs}`);
         return;
@@ -2277,7 +2320,12 @@ function App() {
 
   const onSingleImageFiles = useCallback(
     async (files: File[]): Promise<string[]> => {
-      if (!(await confirmSingleAssets())) return [];
+      if (!single.assetBasePath) {
+        showToast("资源目录尚未就绪,请稍后再试");
+        return [];
+      }
+      // 未命名缓冲区的资源落在应用缓存,不写用户目录:跳过「允许创建 assets 目录」确认
+      if (!single.untitled && !(await confirmSingleAssets())) return [];
       const prepared = settings.imageCompress
         ? await Promise.all(files.map((f) => compressImageFile(f)))
         : files;
@@ -2297,9 +2345,13 @@ function App() {
   );
 
   const onPickSingleImage = useCallback(async (): Promise<string[] | null> => {
-    if (!(await confirmSingleAssets())) return null;
+    if (!single.assetBasePath) {
+      showToast("资源目录尚未就绪,请稍后再试");
+      return null;
+    }
+    if (!single.untitled && !(await confirmSingleAssets())) return null;
     return single.importImagesFromPicker();
-  }, [confirmSingleAssets, single]);
+  }, [confirmSingleAssets, showToast, single]);
 
   /* ---- 附件卡片(6.1.5):文件选择 → assets;点击卡片 → 系统打开 ---- */
   const onPickAttachment = useCallback(
@@ -2308,9 +2360,13 @@ function App() {
   );
 
   const onPickSingleAttachment = useCallback(async (): Promise<{ name: string; href: string }[] | null> => {
-    if (!(await confirmSingleAssets())) return null;
+    if (!single.assetBasePath) {
+      showToast("资源目录尚未就绪,请稍后再试");
+      return null;
+    }
+    if (!single.untitled && !(await confirmSingleAssets())) return null;
     return single.importAttachmentsFromPicker();
-  }, [confirmSingleAssets, single]);
+  }, [confirmSingleAssets, showToast, single]);
 
   const onOpenSingleAttachment = useCallback(
     (href: string) => {
@@ -2388,7 +2444,7 @@ function App() {
     };
   }, [scrollEl, onImageFiles, onSingleImageFiles, requestSingleAction, single.active, showToast]);
 
-  if (!kb.booted || kb.openingKb) {
+  if (!kb.booted || kb.openingKb || startupSingleChecking) {
     return <WorkspaceLoading />;
   }
 
@@ -2430,6 +2486,7 @@ function App() {
         outlineOpen={singleOutlineOpen}
         onToggleOutline={() => setSingleOutlineOpen((v) => !v)}
         onOpenFile={() => requestSingleAction({ kind: "open-picker" })}
+        onNewFile={() => requestSingleAction({ kind: "new-single" })}
         onCloseFile={() => requestSingleAction({ kind: "close" })}
         onOpenKb={() => requestSingleAction({ kind: "open-kb-picker" })}
         onBackHome={() => requestSingleAction({ kind: "close" })}
@@ -2646,6 +2703,7 @@ function App() {
                 else if (result.kind === "error") showToast(result.message);
               });
             }}
+            onCopyRootPath={() => void copyRootPath()}
             trashCount={kb.trashCount}
             orphanCount={kb.orphanMeta.length}
             onOpenOrphans={() => setOrphansOpen(true)}
@@ -2798,7 +2856,6 @@ function App() {
       </div>
       <StatusBar
         editor={kbEditor}
-        kbRoot={kb.kbRoot}
         saveLabel={saveLabel}
         focusMode={focusMode}
         onToggleFocus={() => setFocusMode((v) => !v)}
@@ -2946,17 +3003,19 @@ function App() {
         onCreateTemplateFromCurrent={() => void saveCurrentAsTemplate()}
       />
       {/* /ai 等未配置时先确认再进设置,避免选动作后生硬直跳 */}
-      <Dialog open={aiSetupPromptOpen} onOpenChange={setAiSetupPromptOpen}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>使用 AI 前需要先配置</DialogTitle>
-            <DialogDescription>
-              {settings.aiEnabled
-                ? "还差一步:在设置里填好 API Key 并测试连接通过后,即可使用润色、续写等能力。砚知不中转、不代扣费。"
-                : "AI 助手默认关闭。开启并完成连接测试后,即可在选区、右键与 /ai 中使用。砚知不中转、不代扣费。"}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
+      <ConfirmDialog
+        open={aiSetupPromptOpen}
+        onOpenChange={setAiSetupPromptOpen}
+        tone="info"
+        icon={<Sparkles className="size-5" aria-hidden="true" />}
+        title="使用 AI 前需要先配置"
+        description={
+          settings.aiEnabled
+            ? "还差一步：在设置里填好 API Key 并测试连接通过后，即可使用润色、续写等能力。砚知不中转、不代扣费。"
+            : "AI 助手默认关闭。开启并完成连接测试后，即可在选区、右键与 /ai 中使用。砚知不中转、不代扣费。"
+        }
+        footer={
+          <>
             <Button variant="ghost" size="sm" onClick={() => setAiSetupPromptOpen(false)}>
               稍后再说
             </Button>
@@ -2969,21 +3028,23 @@ function App() {
             >
               去配置
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      />
       {/* 菜单触发的库切换确认(5.0.2):非空目录 / 已是砚知库 */}
-      <Dialog open={menuPending !== null} onOpenChange={(v) => !v && setMenuPending(null)}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{menuPending?.yanzhi ? "已是砚知知识库" : "不是空文件夹"}</DialogTitle>
-            <DialogDescription>
-              {menuPending?.yanzhi
-                ? `「${menuPending.root}」含 .yanzhi,建议直接打开它。`
-                : `「${menuPending?.root}」不是空文件夹,建议选空文件夹,避免与其它资料混在一起。`}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
+      <ConfirmDialog
+        open={menuPending !== null}
+        onOpenChange={(v) => !v && setMenuPending(null)}
+        tone="warning"
+        icon={<FolderOpen className="size-5" aria-hidden="true" />}
+        title={menuPending?.yanzhi ? "已是砚知知识库" : "不是空文件夹"}
+        description={
+          menuPending?.yanzhi
+            ? `「${menuPending.root}」含 .yanzhi，建议直接打开它。`
+            : `「${menuPending?.root}」不是空文件夹，建议选空文件夹，避免与其它资料混在一起。`
+        }
+        footer={
+          <>
             <Button variant="ghost" size="sm" onClick={() => setMenuPending(null)}>
               重选
             </Button>
@@ -3010,9 +3071,9 @@ function App() {
                 仍要在此创建
               </Button>
             )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      />
       {/* 未识别条目整理(5.2.1):外部改名/移动后的失联 meta */}
       <OrphanMetaDialog
         open={orphansOpen}
@@ -3036,54 +3097,37 @@ function App() {
           showToast(`已丢弃 ${entries.length} 条偏好记录`);
         }}
       />
-      {/* 失效双链(5.2.1-5):提示 + 搜索同名文档快捷入口 */}
-      <Dialog open={wikiDead !== null} onOpenChange={(v) => !v && setWikiDead(null)}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>链接目标不存在</DialogTitle>
-            <DialogDescription>
-              「{wikiDead ?? ""}」不存在或已被移动(外部改名会让路径写法的链接失联)。
-              可以搜索同名文档快速找到它。
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setWikiDead(null)}
-            >
-              取消
-            </Button>
-            <Button
-              onClick={() => {
-                // 裸名/路径写法都取最后一段作搜索词
-                const name = (wikiDead ?? "").split("/").pop()?.replace(/\.md$/i, "") ?? "";
-                if (name) setSearchPreset({ term: name, seq: ++searchPresetSeq.current });
-                setWikiDead(null);
-              }}
-            >
-              搜索同名文档
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* 失效双链(5.2.1-5):断链警示 + 单一恢复动作 */}
+      <MissingLinkDialog
+        target={wikiDead}
+        onClose={() => setWikiDead(null)}
+        onSearch={(name) => {
+          setSearchPreset({ term: name, seq: ++searchPresetSeq.current });
+          setWikiDead(null);
+        }}
+      />
       {/* 外部编辑器改了当前文档且本地有未保存修改(5.2.6) */}
-      <Dialog open={kb.externalChange !== null} onOpenChange={() => void kb.resolveExternal(true)}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>文件已在磁盘上被修改</DialogTitle>
-            <DialogDescription>
-              「{kb.externalChange ? docBasename(kb.externalChange) : ""}」被其他程序修改,
-              而砚知里还有未保存的修改。保留哪一份?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
+      <ConfirmDialog
+        open={kb.externalChange !== null}
+        onOpenChange={() => void kb.resolveExternal(true)}
+        tone="warning"
+        icon={<FileX className="size-5" aria-hidden="true" />}
+        title="文件已在磁盘上被修改"
+        description={
+          <>
+            「{kb.externalChange ? docBasename(kb.externalChange) : ""}」被其他程序修改，
+            而砚知里还有未保存的修改。保留哪一份？
+          </>
+        }
+        footer={
+          <>
             <Button variant="outline" onClick={() => void kb.resolveExternal(true)}>
               保留我的
             </Button>
             <Button onClick={() => void kb.resolveExternal(false)}>载入磁盘版本</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      />
     </main>
   );
 }
